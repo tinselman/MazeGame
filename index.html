@@ -1023,25 +1023,40 @@ function hashNoise(x) {
   return s - Math.floor(s);
 }
 
+/* A fluorescent tube fails because its gas stops conducting cleanly. The arc
+   breaks and re-strikes many times a second, so the failure is fast and digital
+   — an on/off flutter, never a fade. Two timescales model it:
+
+     slow  a gate deciding whether the tube is having an episode at all, so a
+           tube can sit quiet for seconds and then stutter
+     fast  the break-and-restrike inside an episode, tens of times a second
+
+   `calm` sets how often episodes happen, so one tube sits at the bright end and
+   only occasionally trips, while another barely ignites and flickers rarely. */
 function fixtureLevel(f, t) {
   if (t < 0) return 0;                                   // its turn has not come
+
   if (f.kind === FIX_DEAD) {
-    // Two hopeful attempts to strike, and then it never does. But it is not
-    // dark: the tube keeps glimmering faintly and at random, the way a failed
-    // fluorescent sits there twitching for years.
-    if (t < 1.15) return Math.sin(t * 34 + f.phase) > 0.72 ? 3 : 0;
-    const h = hashNoise(Math.floor(t * 6 + f.seed) + f.seed);
-    return h > 0.965 ? 2 : h > 0.90 ? 1 : 0;
+    if (t < 1.15) return Math.sin(t * 34 + f.phase) > 0.72 ? 3 : 0;   // two attempts
+    // Never properly ignites. Dark for long stretches, then a weak burst.
+    const slow = hashNoise(Math.floor(t * 0.7 + f.seed) * 3.1 + f.seed);
+    if (slow < f.calm) return 0;
+    const fast = hashNoise(Math.floor(t * f.flutter + f.seed * 5) + f.seed * 2);
+    return fast > 0.72 ? 2 : fast > 0.4 ? 1 : 0;
   }
+
   if (t < f.warm) {                                      // striking
     const p = t / f.warm;
     const n = Math.sin(t * f.rate + f.phase) * Math.sin(t * f.rate * 2.3 + f.phase);
     return n > 0.55 - p * 1.55 ? 3 : (n > 0.15 - p ? 2 : 0);
   }
+
   if (f.kind === FIX_FLICKER) {
-    // Mostly lit, dropping out briefly and unpredictably rather than pulsing.
-    const h = hashNoise(Math.floor(t * 12 + f.seed * 3) + f.seed);
-    return h > 0.955 ? 0 : h > 0.91 ? 2 : 3;
+    // Sits at the bright end, then trips into a fast stutter and recovers.
+    const slow = hashNoise(Math.floor(t * 0.7 + f.seed) * 3.1 + f.seed);
+    if (slow < f.calm) return 3;
+    const fast = hashNoise(Math.floor(t * f.flutter + f.seed * 5) + f.seed * 2);
+    return fast > 0.44 ? 3 : fast > 0.18 ? 0 : 2;
   }
   return 3;
 }
@@ -1153,6 +1168,11 @@ for (let l = 0; l < NLEV; l++) for (let r = 0; r < ROWS; r++) for (let c = 0; c 
       f.warm = 0.5 + rnd(i + 41) * 1.6;
       f.delay = rnd(i + 59) * 1.1;                // and takes its own moment to start
       f.seed = rnd(i + 83) * 400;                 // its own thread of randomness
+      f.flutter = 19 + rnd(i + 97) * 27;          // break-and-restrike rate, Hz
+      // How settled it is. A high `calm` means long quiet stretches between
+      // episodes, so some tubes sit bright and steady while others barely go.
+      f.calm = f.kind === FIX_DEAD ? 0.82 + rnd(i + 113) * 0.14
+                                   : 0.58 + rnd(i + 113) * 0.30;
     });
   }
   props.switches.push(room);
@@ -1206,6 +1226,8 @@ for (let l = 0; l < NLEV; l++) for (let r = 0; r < ROWS; r++) for (let c = 0; c 
         phase: (i * 1.7) % 6.28, rate: 10 + (i % 5) * 3.5, warm: 0.6 + (i % 4) * 0.35,
         delay: stage * 1.5 + (i % 5) * 0.12,     // storey by storey
         seed: (i * 37.7) % 400,
+        flutter: 19 + (i % 7) * 4,
+        calm: (i % 9 === 3) ? 0.86 : 0.66 + (i % 5) * 0.05,
       };
       fixtures.push(f); room.fixtures.push(f);
     };
@@ -1553,6 +1575,15 @@ for (let l = 0; l < NLEV; l++) for (let r = 0; r < ROWS; r++) for (let c = 0; c 
   console.info(`trim: ${trim.length} pieces`);
 }
 
+/* The view through a portal. One render target serves every portal, because
+   they all look at the same place — the hub. It is only redrawn when a portal
+   is actually near enough to see, so the second scene render costs nothing for
+   the rest of the game.                                                      */
+const hubViewRT = new THREE.WebGLRenderTarget(512, 512, {
+  minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter,
+});
+const hubViewCam = new THREE.PerspectiveCamera(74, 1, 0.1, 140);
+
 /* ---- crystals and their return portals --------------------------------- */
 const crystalGeo = new THREE.OctahedronGeometry(0.36, 0);
 for (let l = 0; l < NLEV; l++) for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
@@ -1578,17 +1609,85 @@ for (let l = 0; l < NLEV; l++) for (let r = 0; r < ROWS; r++) for (let c = 0; c 
 for (let l = 0; l < NLEV; l++) for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
   if (at(l, r, c) !== 'P') continue;
   const p = cellCentre(r, c), y = levelY(l);
-  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.85, 0.09, 8, 28), matHousing);
-  ring.rotation.x = Math.PI / 2;
-  ring.position.set(p.x, y + 0.12, p.z);
-  const disc = new THREE.Mesh(new THREE.CircleGeometry(0.82, 28),
-    new THREE.MeshPhongMaterial({ color: 0x202020, emissive: 0x000000, transparent: true, opacity: 0.9 }));
-  disc.rotation.x = -Math.PI / 2;
-  disc.position.set(p.x, y + 0.14, p.z);
-  scene.add(ring, disc);
-  const emitter = { pos: new THREE.Vector3(p.x, y + 0.8, p.z), color: new THREE.Color(0xffffff), intensity: 0, on: false };
+
+  /* An upright window rather than a pad on the floor, showing a live view of
+     the hub — rendered from a real camera standing among the pedestals, so it
+     is the actual room on the other side and not a picture of one. Walk into
+     it and you are there. */
+  const grp = new THREE.Group();
+  const frame = new THREE.Mesh(new THREE.TorusGeometry(1.15, 0.13, 10, 30),
+    new THREE.MeshPhongMaterial({ color: 0x9fb8c8, emissive: 0x2e5f7a, specular: 0xffffff, shininess: 80 }));
+  frame.castShadow = true;
+  grp.add(frame);
+  const view = new THREE.Mesh(new THREE.CircleGeometry(1.06, 32),
+    new THREE.MeshBasicMaterial({ map: hubViewRT.texture, toneMapped: false }));
+  view.position.z = 0.02;
+  grp.add(view);
+  const halo = new THREE.Mesh(new THREE.RingGeometry(1.06, 1.5, 32),
+    new THREE.MeshBasicMaterial({ color: 0xbfe6ff, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false }));
+  halo.position.z = 0.01;
+  grp.add(halo);
+
+  // stand it against whichever wall is behind it, facing into the room
+  const side = wallSide(l, r, c) || [0, 1];
+  grp.position.set(p.x - side[1] * (CELL / 2 - 0.2), y + 1.45, p.z - side[0] * (CELL / 2 - 0.2));
+  grp.rotation.y = Math.atan2(-side[1], -side[0]);
+  grp.visible = false;
+  scene.add(grp);
+
+  const emitter = { pos: new THREE.Vector3(grp.position.x, y + 1.45, grp.position.z), color: new THREE.Color(0xbfe6ff), intensity: 0, on: false };
   emitters.push(emitter);
-  props.portals.push({ lev: l, cell: [r, c], pos: p.clone().setY(y), ring, disc, emitter, active: false });
+  props.portals.push({ lev: l, cell: [r, c], pos: p.clone().setY(y), grp, view, halo, emitter, active: false });
+}
+
+/* ---- the chamber network -----------------------------------------------
+   Each vault carries a panel for every other vault, in that vault's colour.
+   A panel is dark until the door it belongs to has been opened; once lit, it
+   takes you straight there. So the vaults are a network you unlock rather than
+   six dead ends you trek to one at a time.                                   */
+{
+  const matPanelBase = new THREE.MeshPhongMaterial({ color: 0x4a4a4a, specular: 0x222222, shininess: 30 });
+  for (const c of props.crystals) {
+    // walk the vault interior, so panels land on its own walls whatever its size
+    const inside = [], seen = new Set([c.cell.join(',')]);
+    const q = [c.cell];
+    while (q.length) {
+      const [cr, cc] = q.pop();
+      inside.push([cr, cc]);
+      for (const [dr, dc] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const nr = cr + dr, nc = cc + dc, k = `${nr},${nc}`;
+        const ch = at(c.lev, nr, nc);
+        if (seen.has(k) || ch === '#' || ch === VOID || DOORCH.includes(ch)) continue;
+        seen.add(k); q.push([nr, nc]);
+      }
+    }
+    // interior cells that back onto a wall, ordered so panels spread out
+    const spots = [];
+    for (const [cr, cc] of inside) {
+      const s = wallSide(c.lev, cr, cc);
+      if (s) spots.push([cr, cc, s]);
+    }
+    const others = props.crystals.filter((o) => o.id !== c.id);
+    c.links = [];
+    others.forEach((o, i) => {
+      const spot = spots[Math.floor((i + 0.5) * spots.length / others.length)] || spots[i % spots.length];
+      if (!spot) return;
+      const [pr, pc, side] = spot;
+      const p = cellCentre(pr, pc);
+      const grp = new THREE.Group();
+      grp.add(new THREE.Mesh(new THREE.BoxGeometry(0.78, 1.05, 0.12), matPanelBase));
+      const face = new THREE.Mesh(new THREE.PlaneGeometry(0.56, 0.8),
+        new THREE.MeshPhongMaterial({ color: o.color, emissive: o.color, emissiveIntensity: 0.06 }));
+      face.position.z = 0.07;
+      grp.add(face);
+      grp.position.set(p.x - side[1] * (CELL / 2 - 0.08), levelY(c.lev) + 1.45, p.z - side[0] * (CELL / 2 - 0.08));
+      grp.rotation.y = Math.atan2(-side[1], -side[0]);
+      scene.add(grp);
+      const emitter = { pos: grp.position.clone(), color: new THREE.Color(o.color), intensity: 0, on: false };
+      emitters.push(emitter);
+      c.links.push({ from: c, to: o, face, emitter, pos: grp.position.clone(), lev: c.lev, live: false });
+    });
+  }
 }
 
 /* ---- hub pedestals ----------------------------------------------------- */
@@ -1600,6 +1699,13 @@ for (let i = 0; i < 6; i++) {
   base.position.set(x, 0.51, z);
   base.castShadow = base.receiveShadow = true;
   hubFloor.add(base);          // rides the lift; scene-parented it would be left behind
+  // Each pedestal belongs to one crystal from the start, so the ring reads as
+  // six named places rather than six identical slots — and doubles as the way
+  // back out to that crystal's vault.
+  const collar = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.1, 20),
+    new THREE.MeshPhongMaterial({ color: CRYSTALS[i].color, emissive: CRYSTALS[i].color, emissiveIntensity: 0.12 }));
+  collar.position.set(x, 1.03, z);
+  hubFloor.add(collar);
   const gem = new THREE.Mesh(crystalGeo, new THREE.MeshPhongMaterial({
     color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 1,
     specular: 0xffffff, shininess: 90, transparent: true, opacity: 0.95,
@@ -1609,7 +1715,7 @@ for (let i = 0; i < 6; i++) {
   scene.add(gem);
   const emitter = { pos: new THREE.Vector3(x, 1.42, z), color: new THREE.Color(0xffffff), intensity: 0, on: false };
   emitters.push(emitter);
-  props.pedestals.push({ pos: new THREE.Vector3(x, 0, z), gem, emitter, filled: null });
+  props.pedestals.push({ id: i + 1, spec: CRYSTALS[i], collar, pos: new THREE.Vector3(x, 0, z), gem, emitter, filled: null });
 }
 const hubLamp = new THREE.PointLight(0xdfe6f2, 11, 34, 1.1);
 hubLamp.position.set(hubCentre.x, WALL_H - 0.5, hubCentre.z);
@@ -1963,6 +2069,20 @@ function bearing(from, to) {
 }
 
 /* ============================================================ INTERACTION */
+const doorOpenFor = (id) => !!props.doors.find((d) => d.id === id && d.open);
+// stand you just inside a vault, facing its crystal
+function warpToChamber(id) {
+  const c = props.crystals.find((x) => x.id === id);
+  if (!c) return false;
+  player.pos.set(c.pos.x, levelY(c.lev) + EYE, c.pos.z + CELL * 1.4);
+  player.lev = c.lev;
+  player.vel.set(0, 0, 0);
+  player.falling = false;
+  player.yaw = Math.PI;
+  sfx.warp();
+  return true;
+}
+
 function nearestTarget() {
   let best = null, bestD = REACH * REACH;
   const consider = (obj, pos, kind) => {
@@ -1974,9 +2094,16 @@ function nearestTarget() {
   for (const b of props.buttons) if (!b.pressed) consider(b, b.pos, 'button');
   for (const c of props.crystals) if (!c.taken) consider(c, c.pos, 'crystal');
   for (const p of props.portals) if (p.active) consider(p, p.pos, 'portal');
-  if (player.carrying) {
-    for (const p of props.pedestals) if (!p.filled) {
-      if (player.lev !== 0) continue;
+  for (const c of props.crystals) {
+    for (const lk of c.links || []) if (lk.live) consider(lk, lk.pos, 'link');
+  }
+  if (player.lev === 0) {
+    for (const p of props.pedestals) {
+      // carrying: this is where that crystal goes. empty-handed: it is the way
+      // back out to its vault, once that vault has been opened.
+      const usable = player.carrying ? (!p.filled && p.id === player.carrying.id)
+                                     : (!p.filled && doorOpenFor(p.id));
+      if (!usable) continue;
       const d = p.pos.distanceToSquared(player.pos.clone().setY(0));
       if (d < bestD) { bestD = d; best = { obj: p, kind: 'pedestal' }; }
     }
@@ -2041,20 +2168,32 @@ function interact() {
       .sort((a, b) => a.pos.distanceToSquared(t.obj.pos) - b.pos.distanceToSquared(t.obj.pos))[0];
     if (near && !near.active) {
       near.active = true;
+      near.grp.visible = true;
       near.emitter.on = true;
-      near.emitter.intensity = 16;
-      near.emitter.color.setHex(t.obj.color);
-      near.disc.material.emissive.setHex(t.obj.color);
+      near.emitter.intensity = 14;
     }
-    say('the portal beside it has woken — step in to return', 5);
+    say('a way back to the centre has opened beside it', 5);
   }
 
   else if (t.kind === 'portal') {
     player.pos.set(hubCentre.x, EYE, hubCentre.z + 4);
     player.lev = 0;
     player.vel.set(0, 0, 0);
+    player.falling = false;
     sfx.warp();
     say('back at the centre', 3.4);
+  }
+
+  else if (t.kind === 'link') {
+    if (warpToChamber(t.obj.to.id)) {
+      announce(`the ${t.obj.to.name} chamber`, '#' + t.obj.to.color.toString(16).padStart(6, '0'), 3);
+    }
+  }
+
+  else if (t.kind === 'pedestal' && !player.carrying) {
+    if (warpToChamber(t.obj.id)) {
+      announce(`the ${t.obj.spec.name} chamber`, '#' + t.obj.spec.color.toString(16).padStart(6, '0'), 3);
+    }
   }
 
   else if (t.kind === 'pedestal') {
@@ -2302,6 +2441,9 @@ function tick() {
         : t2.kind === 'button' ? `open door ${t2.obj.id}`
         : t2.kind === 'crystal' ? `take the ${t2.obj.name.toLowerCase()} crystal`
         : t2.kind === 'portal' ? 'step through to the centre'
+        : t2.kind === 'link' ? `cross to the ${t2.obj.to.name.toLowerCase()} chamber`
+        : (t2.kind === 'pedestal' && !player.carrying)
+          ? `cross to the ${t2.obj.spec.name.toLowerCase()} chamber`
         : 'set the crystal down';
       el.prompt.innerHTML = `<b>E</b> &nbsp;${verb}`;
       el.prompt.classList.add('on');
@@ -2324,10 +2466,38 @@ function tick() {
     c.mesh.position.y = c.home + Math.sin(now * 1.5 + c.id) * 0.09;
     c.emitter.pos.y = c.mesh.position.y;
   }
+  // Portals, and the panels linking one vault to another.
+  let seenPortal = null;
   for (const p of props.portals) {
     if (!p.active) continue;
-    p.ring.rotation.z = now * 0.8;
-    p.emitter.intensity = 13 + Math.sin(now * 2.4) * 4;
+    p.emitter.intensity = 11 + Math.sin(now * 2.4) * 3;
+    p.halo.material.opacity = 0.34 + Math.sin(now * 2.4) * 0.16;
+    const d = p.pos.distanceToSquared(player.pos);
+    if (d < 1200 && (!seenPortal || d < seenPortal.d)) seenPortal = { p, d };
+  }
+  for (const c of props.crystals) for (const lk of c.links || []) {
+    const live = doorOpenFor(lk.to.id);
+    if (live !== lk.live) {
+      lk.live = live;
+      lk.face.material.emissiveIntensity = live ? 1 : 0.06;
+      lk.emitter.on = live;
+      lk.emitter.intensity = live ? 3.2 : 0;
+    }
+  }
+
+  // Redraw what is on the other side of a portal, but only when one is close
+  // enough to read. Portals are hidden for that pass so a portal can never end
+  // up showing itself.
+  if (seenPortal) {
+    hubViewCam.position.set(
+      hubCentre.x + Math.sin(now * 0.16) * 5.5, 1.9,
+      hubCentre.z + Math.cos(now * 0.16) * 5.5);
+    hubViewCam.lookAt(hubCentre.x, 1.4, hubCentre.z);
+    for (const p of props.portals) p.grp.visible = false;
+    renderer.setRenderTarget(hubViewRT);
+    renderer.render(scene, hubViewCam);
+    renderer.setRenderTarget(null);
+    for (const p of props.portals) p.grp.visible = p.active;
   }
   for (const p of props.pedestals) {
     if (p.filled && ending < 1) {
