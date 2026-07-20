@@ -482,6 +482,27 @@ function rippleTexture() {
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
   return t;
 }
+// A barred gate. Alpha-tested so the gaps are genuinely see-through — the whole
+// point is that you find a vault, look in, and see the crystal waiting.
+function grateTexture() {
+  const S = 128, cv = document.createElement('canvas');
+  cv.width = cv.height = S;
+  const ctx = cv.getContext('2d');
+  ctx.clearRect(0, 0, S, S);
+  const bar = (x, y, w, h) => {
+    ctx.fillStyle = '#b4b0aa'; ctx.fillRect(x, y, w, h);
+    ctx.fillStyle = 'rgba(255,255,255,.35)'; ctx.fillRect(x, y, Math.min(2, w), h);
+    ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.fillRect(x + w - 2, y, 2, h);
+  };
+  for (let i = 0; i < 7; i++) bar(6 + i * 17, 0, 7, S);       // uprights
+  bar(0, 14, S, 8);                                            // rails
+  bar(0, 66, S, 8);
+  bar(0, S - 16, S, 9);
+  const t = new THREE.CanvasTexture(cv);
+  t.anisotropy = 4;
+  return t;
+}
+
 function numeralTexture(n, bg, fg) {
   const S = 128, cv = document.createElement('canvas');
   cv.width = cv.height = S;
@@ -1096,16 +1117,25 @@ function makePanel(l, r, c, kind, label) {
     knob.position.set(0, 0.14, 0.08);
     grp.add(knob);
     grp.userData.knob = knob;
-    const tag = new THREE.Mesh(new THREE.PlaneGeometry(0.34, 0.34),
-      new THREE.MeshPhongMaterial({ map: numeralTexture(label, '#1c1c1c', '#e8e8e8') }));
-    tag.position.set(0, -0.2, 0.055);
-    grp.add(tag);
+    // no numeral: the coloured knob is the whole of a button's identity
+    const bezel = new THREE.Mesh(new THREE.TorusGeometry(0.25, 0.035, 8, 20), matHousing);
+    bezel.position.set(0, 0.14, 0.06);
+    grp.add(bezel);
   }
   const y = levelY(l) + 1.42;
   if (side) {
     grp.position.set(p.x - side[1] * (CELL / 2 - 0.06), y, p.z - side[0] * (CELL / 2 - 0.06));
     grp.rotation.y = Math.atan2(-side[1], -side[0]);
   } else {
+    // Nothing to mount on: stand it on its own post, or it floats unnoticed in
+    // the middle of the floor.
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.13, 1.35, 10), matHousing);
+    post.position.y = -0.78;
+    post.castShadow = true;
+    grp.add(post);
+    const foot = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.4, 0.1, 14), matHousing);
+    foot.position.y = -1.42;
+    grp.add(foot);
     grp.position.set(p.x, y, p.z);
   }
   scene.add(grp);
@@ -1205,10 +1235,30 @@ for (let l = 0; l < NLEV; l++) for (let r = 0; r < ROWS; r++) for (let c = 0; c 
 
   for (const cells of groups.slice(0, 2)) {
     const inAtrium = new Set(cells.map((x) => x.join(',')));
-    const sw = cells[0];
+    // A switch at every way in, all wired together, so you meet one however you
+    // arrive. A lone panel out in the middle of a dark plaza is never found.
+    // An entrance is any edge cell that touches ground outside the atrium. It
+    // must NOT require an adjacent wall — a big atrium opens straight onto the
+    // halls and has no wall ring, which is why it ended up with one hidden
+    // panel out in the middle of the floor.
+    const edges = cells.filter(([cr, cc]) =>
+      [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dr, dc]) =>
+        isWalkableChar(at(0, cr + dr, cc + dc)) && !inAtrium.has(`${cr + dr},${cc + dc}`)));
+    // spread them out, so six panels do not end up shoulder to shoulder
+    const spots = [];
+    for (const e of edges) {
+      if (spots.every((s) => Math.abs(s[0] - e[0]) + Math.abs(s[1] - e[1]) > 9)) spots.push(e);
+      if (spots.length >= 6) break;
+    }
+    if (!spots.length) spots.push(cells[0]);
+    const sw = spots[0];
     const room = {
       lev: 0, cell: sw, pos: cellCentre(sw[0], sw[1]).setY(0), cells,
-      fixtures: [], on: false, atrium: true, mesh: makePanel(0, sw[0], sw[1], 'switch'),
+      fixtures: [], on: false, atrium: true,
+      mesh: makePanel(0, sw[0], sw[1], 'switch'),
+      extras: spots.slice(1, 6).map(([pr, pc]) => ({
+        cell: [pr, pc], pos: cellCentre(pr, pc).setY(0), mesh: makePanel(0, pr, pc, 'switch'),
+      })),
     };
     for (const [cr, cc] of cells) roomOf.set(`0,${cr},${cc}`, room);
 
@@ -1481,6 +1531,10 @@ for (let l = 0; l < NLEV; l++) for (let r = 0; r < ROWS; r++) for (let c = 0; c 
 
 /* ---- doors ------------------------------------------------------------- */
 const matDoor = new THREE.MeshPhongMaterial({ color: 0x8c8c8c, specular: 0x3a3a3a, shininess: 46 });
+const matGrate = new THREE.MeshPhongMaterial({
+  map: grateTexture(), transparent: true, alphaTest: 0.45, side: THREE.DoubleSide,
+  color: 0xc0bcb4, specular: 0x8a8a8a, shininess: 70,
+});
 function findCell(l, chr) {
   for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) if (at(l, r, c) === chr) return [r, c];
   return null;
@@ -1490,13 +1544,22 @@ for (let l = 0; l < NLEV; l++) for (let r = 0; r < ROWS; r++) for (let c = 0; c 
   if (!DOORCH.includes(ch)) continue;
   const id = DOORCH.indexOf(ch) + 1;
   const p = cellCentre(r, c);
-  const numTex = numeralTexture(id, '#2a2a2a', doorHex(id));
-  const face = new THREE.MeshPhongMaterial({
-    map: numTex, emissiveMap: numTex, emissive: 0x000000, specular: 0x333333, shininess: 40,
-  });
-  const leaf = new THREE.Mesh(new THREE.BoxGeometry(CELL, WALL_H, 0.3),
-    [matDoor, matDoor, matDoor, matDoor, face, face]);
-  leaf.castShadow = leaf.receiveShadow = true;
+  /* A barred gate, not a slab. Bare metal — no number, no colour of its own.
+     What identifies a vault is the crystal you can see burning through the
+     bars, which is also what makes you want to find its button. */
+  const leaf = new THREE.Group();
+  const bars = new THREE.Mesh(new THREE.PlaneGeometry(CELL - 0.24, WALL_H - 0.24), matGrate);
+  bars.castShadow = true;
+  leaf.add(bars);
+  for (const [ox, oy, sx, sy] of [
+    [0, WALL_H / 2 - 0.1, CELL, 0.2], [0, -WALL_H / 2 + 0.1, CELL, 0.2],
+    [-CELL / 2 + 0.1, 0, 0.2, WALL_H], [CELL / 2 - 0.1, 0, 0.2, WALL_H],
+  ]) {
+    const edge = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, 0.26), matDoor);
+    edge.position.set(ox, oy, 0);
+    edge.castShadow = edge.receiveShadow = true;
+    leaf.add(edge);
+  }
   leaf.position.set(CELL / 2, WALL_H / 2, 0);
 
   const alongZ = at(l, r - 1, c) === '#' && at(l, r + 1, c) === '#';
@@ -1509,7 +1572,7 @@ for (let l = 0; l < NLEV; l++) for (let r = 0; r < ROWS; r++) for (let c = 0; c 
 
   const gem = findCell(l, String(id));
   const sign = alongZ ? (gem[1] < c ? 1 : -1) : (gem[0] < r ? 1 : -1);
-  props.doors.push({ id, lev: l, cell: [r, c], pivot, face, base, sign, open: false, t: 0 });
+  props.doors.push({ id, lev: l, cell: [r, c], pivot, base, sign, open: false, t: 0 });
 }
 for (let l = 0; l < NLEV; l++) for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
   const ch = at(l, r, c);
@@ -1699,11 +1762,9 @@ for (let i = 0; i < 6; i++) {
   base.position.set(x, 0.51, z);
   base.castShadow = base.receiveShadow = true;
   hubFloor.add(base);          // rides the lift; scene-parented it would be left behind
-  // Each pedestal belongs to one crystal from the start, so the ring reads as
-  // six named places rather than six identical slots — and doubles as the way
-  // back out to that crystal's vault.
-  const collar = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.1, 20),
-    new THREE.MeshPhongMaterial({ color: CRYSTALS[i].color, emissive: CRYSTALS[i].color, emissiveIntensity: 0.12 }));
+  // Plain grey collar. Each pedestal still belongs to one crystal, but the
+  // stone stays stone — the colour arrives when the crystal does.
+  const collar = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.1, 20), matHousing);
   collar.position.set(x, 1.03, z);
   hubFloor.add(collar);
   const gem = new THREE.Mesh(crystalGeo, new THREE.MeshPhongMaterial({
@@ -1943,14 +2004,12 @@ function drawMinimap() {
     if (!b.pressed) continue;
     const p = cellCentre(b.cell[0], b.cell[1]);
     const x = mmX(p.x / CELL), y = mmY(p.z / CELL);
+    // a square dot for a button, in its vault's colour. No numbers anywhere.
     g.globalAlpha = b.lev === player.lev ? 1 : 0.45;
     g.fillStyle = doorHex(b.id);
     g.fillRect(x - 3, y - 3, 6, 6);
     g.strokeStyle = 'rgba(0,0,0,.6)'; g.lineWidth = 1;
     g.strokeRect(x - 3, y - 3, 6, 6);
-    g.font = 'bold 10px ui-monospace, monospace';
-    g.fillStyle = doorHex(b.id);
-    g.fillText(String(b.id), x + 8, y - 8);
     g.globalAlpha = 1;
   }
 
@@ -1993,10 +2052,13 @@ function drawMinimap() {
     if (alongZ) { g.moveTo(x, y - half); g.lineTo(x, y + half); }
     else { g.moveTo(x - half, y); g.lineTo(x + half, y); }
     g.stroke();
+    // a round dot for a vault, filled once you have actually been inside it
     if (d.open) {
-      g.fillStyle = hex;
-      g.font = 'bold 10px ui-monospace, monospace';
-      g.fillText(String(d.id), x + 8, y - 8);
+      const been = props.crystals.find((c) => c.id === d.id)?.visited;
+      g.beginPath();
+      g.arc(x, y, 3.4, 0, Math.PI * 2);
+      if (been) { g.fillStyle = hex; g.fill(); }
+      else { g.strokeStyle = hex; g.lineWidth = 1.6; g.stroke(); }
     }
     g.globalAlpha = 1;
   }
@@ -2069,7 +2131,9 @@ function bearing(from, to) {
 }
 
 /* ============================================================ INTERACTION */
-const doorOpenFor = (id) => !!props.doors.find((d) => d.id === id && d.open);
+// You can return to a vault you have stood in, never skip to one you have not.
+// The first trip to each is always earned on foot.
+const visitedVault = (id) => !!props.crystals.find((c) => c.id === id)?.visited;
 // stand you just inside a vault, facing its crystal
 function warpToChamber(id) {
   const c = props.crystals.find((x) => x.id === id);
@@ -2090,7 +2154,11 @@ function nearestTarget() {
     const d = pos.distanceToSquared(player.pos.clone().setY(pos.y));
     if (d < bestD) { bestD = d; best = { obj, kind }; }
   };
-  for (const s of props.switches) if (!s.on) consider(s, s.pos, 'switch');
+  for (const s of props.switches) {
+    if (s.on) continue;
+    consider(s, s.pos, 'switch');
+    for (const e of s.extras || []) consider({ ...s, pos: e.pos }, e.pos, 'switch');
+  }
   for (const b of props.buttons) if (!b.pressed) consider(b, b.pos, 'button');
   for (const c of props.crystals) if (!c.taken) consider(c, c.pos, 'crystal');
   for (const p of props.portals) if (p.active) consider(p, p.pos, 'portal');
@@ -2102,7 +2170,7 @@ function nearestTarget() {
       // carrying: this is where that crystal goes. empty-handed: it is the way
       // back out to its vault, once that vault has been opened.
       const usable = player.carrying ? (!p.filled && p.id === player.carrying.id)
-                                     : (!p.filled && doorOpenFor(p.id));
+                                     : (!p.filled && visitedVault(p.id));
       if (!usable) continue;
       const d = p.pos.distanceToSquared(player.pos.clone().setY(0));
       if (d < bestD) { bestD = d; best = { obj: p, kind: 'pedestal' }; }
@@ -2117,9 +2185,16 @@ function interact() {
   if (!t) return;
 
   if (t.kind === 'switch') {
-    t.obj.on = true;
+    // `consider` may have handed us a shallow copy for one of an atrium's
+    // spare panels, so act on the real room in the list.
+    const room = props.switches.find((s) => s.cell === t.obj.cell) || t.obj;
+    room.on = true;
+    t.obj = room;
     t.obj.litAt = clock.elapsedTime;      // the tubes take it from here
-    if (t.obj.mesh.userData.rocker) t.obj.mesh.userData.rocker.position.y = -0.12;
+    // A thrown switch has no remaining purpose — the lights never go off again —
+    // so it takes itself away, along with any spare panels for the same space.
+    scene.remove(t.obj.mesh);
+    for (const e of t.obj.extras || []) scene.remove(e.mesh);
     sfx.hum();
     rebuildReveal();
     say('the lights come up — this room is on your map now');
@@ -2130,7 +2205,6 @@ function interact() {
     const door = props.doors.find((d) => d.id === t.obj.id);
     if (door && !door.open) {
       door.open = true;
-      door.face.emissive.setHex(DOOR_COLORS[door.id - 1]);
       if (t.obj.mesh.userData.knob) t.obj.mesh.userData.knob.material.emissiveIntensity = 1;
       sfx.door();
       rebuildReveal();
@@ -2423,6 +2497,17 @@ function tick() {
 
   if (started && !ending) {
 
+    // Standing in a vault counts as having found it, whether or not you have
+    // taken its crystal yet. That is what unlocks travel back to it later.
+    for (const c of props.crystals) {
+      if (c.visited || c.lev !== player.lev) continue;
+      if (Math.abs(player.pos.x - c.pos.x) < CELL * 2.6 && Math.abs(player.pos.z - c.pos.z) < CELL * 2.6) {
+        c.visited = true;
+        rebuildReveal();
+        announce(`the ${c.name} chamber`, '#' + c.color.toString(16).padStart(6, '0'), 3.4);
+      }
+    }
+
     const charging = litHere();
     player.battery += charging ? BAT_CHARGE * dt : -BAT_DRAIN * dt;
     player.battery = Math.max(0, Math.min(BAT_MAX, player.battery));
@@ -2476,7 +2561,7 @@ function tick() {
     if (d < 1200 && (!seenPortal || d < seenPortal.d)) seenPortal = { p, d };
   }
   for (const c of props.crystals) for (const lk of c.links || []) {
-    const live = doorOpenFor(lk.to.id);
+    const live = visitedVault(lk.to.id);
     if (live !== lk.live) {
       lk.live = live;
       lk.face.material.emissiveIntensity = live ? 1 : 0.06;
