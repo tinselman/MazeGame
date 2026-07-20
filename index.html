@@ -1167,6 +1167,7 @@ for (let l = 0; l < NLEV; l++) for (let r = 0; r < ROWS; r++) for (let c = 0; c 
   for (const [cr, cc] of cells) roomOf.set(`${l},${cr},${cc}`, room);
 
   const minR = Math.min(...cells.map((x) => x[0])), minC = Math.min(...cells.map((x) => x[1]));
+  const maxR = Math.max(...cells.map((x) => x[0])), maxC = Math.max(...cells.map((x) => x[1]));
   for (const [cr, cc] of cells) {
     if ((cr - minR) % 2 !== 1 || (cc - minC) % 2 !== 1) continue;
     const p = cellCentre(cr, cc);
@@ -1196,7 +1197,12 @@ for (let l = 0; l < NLEV; l++) for (let r = 0; r < ROWS; r++) for (let c = 0; c 
       f.phase = rnd(i + 7) * 6.28;
       f.rate = 9 + rnd(i + 23) * 16;              // each strikes at its own speed
       f.warm = 0.5 + rnd(i + 41) * 1.6;
-      f.delay = rnd(i + 59) * 1.1;                // and takes its own moment to start
+      // Strike order follows position, not chance: the room lights as a wave
+      // travelling from one end to the other, which reads as a circuit coming
+      // up rather than as scattered bulbs.
+      const spanR = Math.max(1, maxR - minR), spanC = Math.max(1, maxC - minC);
+      const along = spanC >= spanR ? (f.cell[1] - minC) / spanC : (f.cell[0] - minR) / spanR;
+      f.delay = along * 1.7 + rnd(i + 59) * 0.18;
       f.seed = rnd(i + 83) * 400;                 // its own thread of randomness
       f.flutter = 19 + rnd(i + 97) * 27;          // break-and-restrike rate, Hz
       // How settled it is. A high `calm` means long quiet stretches between
@@ -1922,7 +1928,9 @@ const mmY = (row) => row * MM_S;
 const revealed = new Set();
 const mmSegments = [[], [], []];
 
-function revealFrom(lev, seeds, radius) {
+// `hallsOnly` keeps a reveal in the corridors, so pressing a button charts the
+// way through the building without handing over the rooms it passes.
+function revealFrom(lev, seeds, radius, hallsOnly) {
   const seen = new Set();
   const q = [];
   for (const s of seeds) {
@@ -1934,9 +1942,10 @@ function revealFrom(lev, seeds, radius) {
     if (d >= radius) continue;
     for (const [dr, dc] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
       const nr = r + dr, nc = c + dc, k = `${lev},${nr},${nc}`;
-      if (seen.has(k) || !isWalkableChar(at(lev, nr, nc))) continue;
-      seen.add(k); revealed.add(k);
       const ch = at(lev, nr, nc);
+      if (seen.has(k) || !isWalkableChar(ch)) continue;
+      if (hallsOnly && isRoomChar(ch)) continue;
+      seen.add(k); revealed.add(k);
       if (DOORCH.includes(ch) && !doorAtCell.get(k)?.open) continue;
       q.push([nr, nc, d + 1]);
     }
@@ -1954,7 +1963,7 @@ function rebuildReveal() {
   // A button you pressed puts its surroundings on the chart — you stood there.
   // The door it answers does NOT: you get a marker telling you where it is, but
   // none of the floor plan around it, so you still have to find your way over.
-  for (const b of props.buttons) if (b.pressed) revealFrom(b.lev, [b.cell], MM_REVEAL);
+  for (const b of props.buttons) if (b.pressed) revealFrom(b.lev, [b.cell], 9, true);
 
   for (let l = 0; l < NLEV; l++) mmSegments[l] = [];
   for (const key of revealed) {
@@ -2154,12 +2163,11 @@ function nearestTarget() {
     const d = pos.distanceToSquared(player.pos.clone().setY(pos.y));
     if (d < bestD) { bestD = d; best = { obj, kind }; }
   };
-  for (const s of props.switches) {
-    if (s.on) continue;
+  for (const s of props.switches) {          // offered whether on or off — they toggle
     consider(s, s.pos, 'switch');
     for (const e of s.extras || []) consider({ ...s, pos: e.pos }, e.pos, 'switch');
   }
-  for (const b of props.buttons) if (!b.pressed) consider(b, b.pos, 'button');
+  for (const b of props.buttons) consider(b, b.pos, 'button');   // toggles, so always offered
   for (const c of props.crystals) if (!c.taken) consider(c, c.pos, 'crystal');
   for (const p of props.portals) if (p.active) consider(p, p.pos, 'portal');
   for (const c of props.crystals) {
@@ -2188,31 +2196,29 @@ function interact() {
     // `consider` may have handed us a shallow copy for one of an atrium's
     // spare panels, so act on the real room in the list.
     const room = props.switches.find((s) => s.cell === t.obj.cell) || t.obj;
-    room.on = true;
+    room.on = !room.on;                       // a switch is a switch: it goes both ways
+    if (room.on) room.litAt = clock.elapsedTime;
+    else for (const f of room.fixtures) setFixture(f, 0);
     t.obj = room;
-    t.obj.litAt = clock.elapsedTime;      // the tubes take it from here
-    // A thrown switch has no remaining purpose — the lights never go off again —
-    // so it takes itself away, along with any spare panels for the same space.
-    scene.remove(t.obj.mesh);
-    for (const e of t.obj.extras || []) scene.remove(e.mesh);
+    if (t.obj.mesh.userData.rocker) t.obj.mesh.userData.rocker.position.y = room.on ? -0.12 : 0.12;
     sfx.hum();
     rebuildReveal();
-    say('the lights come up — this room is on your map now');
+    say(room.on ? 'the lights come up' : 'the lights die');
   }
 
   else if (t.kind === 'button') {
     t.obj.pressed = true;
     const door = props.doors.find((d) => d.id === t.obj.id);
-    if (door && !door.open) {
-      door.open = true;
-      if (t.obj.mesh.userData.knob) t.obj.mesh.userData.knob.material.emissiveIntensity = 1;
+    if (door) {
+      door.open = !door.open;               // the gate goes both ways too
+      if (t.obj.mesh.userData.knob) t.obj.mesh.userData.knob.material.emissiveIntensity = door.open ? 1 : 0.25;
       sfx.door();
       rebuildReveal();
       const dp = cellCentre(door.cell[0], door.cell[1]);
       const where = door.lev === player.lev ? `${bearing(player.pos, dp)} of here`
         : door.lev > player.lev ? `${bearing(player.pos, dp)}, and ${door.lev - player.lev} level up`
         : `${bearing(player.pos, dp)}, and ${player.lev - door.lev} level down`;
-      say(`door ${door.id} swings open — ${where}`, 4.6);
+      say(door.open ? `a gate grinds open — ${where}` : `a gate grinds shut — ${where}`, 4.6);
     }
     if (t.obj.mesh.userData.knob) t.obj.mesh.userData.knob.position.z = 0.03;
     sfx.click();
@@ -2386,7 +2392,10 @@ function assignPool() {
 
 function tick() {
   requestAnimationFrame(tick);
-  const dt = Math.min(0.05, clock.getDelta());
+  frame(Math.min(0.05, clock.getDelta()));
+}
+
+function frame(dt) {
   const now = clock.elapsedTime;
 
   if (started && !ending) {
@@ -2523,7 +2532,8 @@ function tick() {
     const t2 = nearestTarget();
     if (t2) {
       const verb = t2.kind === 'switch' ? 'turn on the lights'
-        : t2.kind === 'button' ? `open door ${t2.obj.id}`
+        : t2.kind === 'button'
+          ? (props.doors.find((d) => d.id === t2.obj.id)?.open ? 'close the gate' : 'open the gate')
         : t2.kind === 'crystal' ? `take the ${t2.obj.name.toLowerCase()} crystal`
         : t2.kind === 'portal' ? 'step through to the centre'
         : t2.kind === 'link' ? `cross to the ${t2.obj.to.name.toLowerCase()} chamber`
@@ -2538,8 +2548,9 @@ function tick() {
   if (ending) updateEnding(dt);
 
   for (const d of props.doors) {
-    if (!d.open || d.t >= 1) continue;
-    d.t = Math.min(1, d.t + dt / 1.7);
+    const want = d.open ? 1 : 0;              // swings shut as readily as open
+    if (d.t === want) continue;
+    d.t = want > d.t ? Math.min(1, d.t + dt / 1.7) : Math.max(0, d.t - dt / 1.7);
     const e = d.t * d.t * (3 - 2 * d.t);
     d.pivot.rotation.y = d.base + d.sign * e * DOOR_SWING;
   }
@@ -2644,9 +2655,11 @@ window.__maze = {
   go(l, r, c) { const p = cellCentre(r, c); player.pos.set(p.x, levelY(l) + EYE, p.z); player.lev = l; },
   face(deg) { player.yaw = deg * Math.PI / 180; },
   tilt(deg) { camTilt = deg * Math.PI / 180; },   // inspection only; not a control
-  interact, isSolid, collide, cellCentre, cellOf, rebuildReveal, revealed,
+  interact, isSolid, collide, cellCentre, cellOf, rebuildReveal, revealed, at,
   finale(seconds = 0) { beginEnding(); for (let t = 0; t < seconds; t += 0.05) updateEnding(0.05); },
-  step(seconds) { for (let t = 0; t < seconds; t += 0.05) updateEnding(0.05); },
+  // Advances the real frame, clock included — rAF is throttled to zero in a
+  // preview pane, so nothing animates unless it is stepped by hand.
+  step(seconds) { for (let t = 0; t < seconds; t += 0.05) { clock.elapsedTime += 0.05; frame(0.05); } },
 };
 </script>
 </body>
