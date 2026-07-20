@@ -90,7 +90,10 @@ parapet has a gap and you can step off and fall to the ground floor.
 **The tubes are fluorescent, and they behave like it.** A light does not simply come
 on. Each one strikes at its own rate after its own delay, stuttering and catching and
 stuttering again before it settles, so a room assembles itself over a couple of
-seconds. Per room, one to four tubes never catch at all — they try twice and give up —
+seconds. The delay is positional, not random: a fixture's is its distance along the
+room's longer axis, so the room lights as a wave travelling from one end to the other
+rather than as scattered bulbs coming up. In a thirteen-cell gallery the correlation
+between column and strike time is 0.994. Per room, one to four tubes never catch at all — they try twice and give up —
 and one to three never stop dropping out. It is all deterministic from the room's
 position, so a room looks the same every playthrough.
 
@@ -134,34 +137,72 @@ They are geometric openings, not light apertures. The pooled point lights never 
 shadows, so room light already passes through solid walls — you see *through* an arch,
 but it does not throw a shaft of light on the floor.
 
-**Water is wadeable.** Three of the rooms are flooded. Water halves your speed and sits
-you slightly lower. The surface is Phong with high shininess and takes the animated
-ripple canvas as both colour map and bump map, so every fluorescent, crystal and your
-own torch drag moving specular highlights across it while the tiled floor stays visible
-underneath. This is deliberately not a planar reflector: `Reflector` in r169 has no fog
-support (it would render as a bright unfogged patch in a black-fogged maze), is opaque
-with a hardcoded alpha, and re-renders the whole scene per instance — four visible ones
-is 65 scene renders a frame.
+**No reflections, and no water any more.** The flooded rooms were cut when the plan was
+rewritten as a building; `~` and `WADE` survive in the legend and the constants but no
+map uses them. Reflective floors were considered and rejected: `Reflector` in r169 has
+no fog support (it would render as a bright unfogged patch in a black-fogged maze), is
+opaque with a hardcoded alpha, and re-renders the whole scene per instance — four
+visible ones is 65 scene renders a frame.
 
 **The map is a chart you fill in.** Only the hub, rooms whose lights you switched on,
 and tunnels within three cells of those. Corridors you merely walked down in the dark
 stay blank forever, which is what makes detouring for a light switch worth doing.
-Buttons and doors are marked differently on purpose. A button you pressed puts its
-surroundings on the chart — you stood there, so you know that ground. The door it
-answers gets a numbered marker at its true position and **nothing else**: no floor plan
-around it, so you learn where the door is without being handed the route to it. Matching
-numbers pair each button with its door.
+Buttons and doors are marked differently on purpose. A button you pressed draws the
+**corridors** around it and nothing else — you stood there, so you know that ground, but
+the reveal refuses to flood into rooms. The door it answers gets a single colour-coded
+marker at its true position and no floor plan at all, so you learn where the door is
+without being handed the route to it.
+
+What you have charted stays charted. The reveal is rebuilt from current state — which
+rooms are lit, which buttons are pressed — so without an accumulating set an Anti-player
+flicking a switch would erase ground you had already walked.
 
 There is deliberately no floor label on either. The level you are on draws bold and the
 others faint, so a marker on a ghosted layer already tells you which storey to go
 looking on. Fixed extent, north-up. Where a known hall runs into unrevealed ground it is
 drawn open rather than walled off, so the map never invents a dead end.
 
-**Opened doors stay obviously open.** Doors are hinged, not sliding: pressing its
-button swings a door ~88° into its chamber, where it stays, and its numeral lights up.
-The glow is what carries down an unlit corridor. Swing direction is derived per door
-from which side its crystal sits on, so a door never opens out into the corridor you
-are standing in.
+**Gates and switches both go back.** Doors are hinged, not sliding: pressing its button
+swings a gate ~88° into its chamber and lights the button's knob, and pressing it again
+swings the gate shut and re-seals the cell. Swing direction is derived per door from
+which side its crystal sits on, so a gate never opens out into the corridor you are
+standing in. Light switches toggle the same way, and flicking one off forces every
+fixture in the room dark rather than waiting for the flicker model to decide.
+
+**Something else is walking.** A clock hangs over the hub counting down from 5:00.
+When it runs out an Anti-player starts from the hub, and another every five minutes
+after that — so the hub is the last place you want to be on the marker. It carries a
+light of its own, puts out the lights you lit, shuts the gates you opened, and steps
+through the portals it watched you use.
+
+The whole system rests on one recorded trail, which is what makes it cheap. Because it
+retraces your exact steps it arrives at every switch you flicked and every button you
+pressed without knowing what a room is or how the building connects: being near the
+thing you touched is enough to undo it. It never path-finds, because you already did.
+
+What it does not replay is your dithering. Walking the trail it looks ahead for a later
+breadcrumb within arm's reach and skips straight to it, so every loop you doubled back
+on collapses — a route that wandered twenty metres out and back is cut to nothing. It
+follows your route, not your mistakes, and that is the whole of its cunning.
+
+Get within about eleven metres in clear sight and it drops the trail and comes straight
+at you; inside three and a half it stops, winds up for half a second, and flashes. If
+that beam lands on you, every crystal goes back to its vault and every gate falls shut.
+Your own beam kills it — but only while it is looking somewhere else, so head-on you
+cannot win. Break line of sight and come around. Killing one puts the clock back to
+5:00, which is the only way to buy time.
+
+Two things keep it fair rather than merely punishing. It will not bring a gate down on
+your head while you stand in the doorway, and it cannot re-shut the same gate for nine
+seconds, so one loitering nearby harries you instead of locking you out for good. And
+you can always see them: on the map as a pale dot with the wedge its beam covers, red
+once it has seen you, and in the world as a halo sprite drawn with fog off — the one
+thing that defeats the dark is another flashlight.
+
+The four walkers are allocated at load and never added or removed. Three.js bakes the
+light count into its shaders, so spawning one mid-game would stall on a recompile; a
+dormant Anti-player is a live light at zero intensity. Four of them on screen cost 16
+draw calls and 2,248 triangles.
 
 **Portals remove the retrace.** Beside each crystal is a portal, dormant until you
 take it. Stepping through returns you to the hub. The outbound hunt across a maze this
@@ -211,15 +252,25 @@ __maze.go(1, 33, 20)  // teleport to level, row, col
 __maze.face(90)       // heading in degrees
 __maze.tilt(20)       // inspection only — not a control
 __maze.interact()     // act on whatever is in reach
-__maze.finale(16)     // run the ending, stepping 16 seconds by hand
+__maze.step(2.5)      // advance the world 2.5 seconds by hand
+__maze.finale(17)     // run the ending; camera should land at y 59.6
 __maze.perf()         // frame counter, draw calls, triangles
+__maze.spawnAnti()    // let one out at the hub now
+__maze.setClock(10)   // seconds until the next one
+__maze.antiOff()      // clear the board and stop spawning
 ```
+
+`step()` exists because `requestAnimationFrame` is throttled to zero in a preview pane,
+so nothing animates unless it is driven by hand. `tick()` is only the rAF wrapper; the
+work is in `frame(dt)`, which both paths call.
 
 ## Tuning
 
 Constants near the top of the script: `WALK` / `RUN` / `WADE` speeds, `ACCEL` /
 `DECEL`, `TURN_RATE` / `TURN_ACCEL` and `PITCH_RATE` / `PITCH_ACCEL` / `PITCH_MAX`
-for the analog feel, `TORCH_LAG` and `TORCH_SWAY` for how handheld the beam feels,
+for the analog feel, `ANTI_PERIOD` / `ANTI_WALK` / `ANTI_RUSH` / `RUSH_RANGE` /
+`FLASH_WIND` / `UNDO_COOL` for how hard you are hunted,
+`TORCH_LAG` and `TORCH_SWAY` for how handheld the beam feels,
 `TORCH_HOME` for where it is carried, `SLAB` for floor thickness and therefore how
 heavy the fascia reads, `BAT_DRAIN` / `BAT_CHARGE`, `POOL_SIZE`, and the `FLUOR`
 yellow. Window placements are the `WINDOW_RUNS` table; each entry is a run along a

@@ -92,6 +92,11 @@
     text-shadow: 0 2px 20px rgba(0,0,0,.96);
   }
   #banner.on { opacity: 1; }
+  /* the moment its beam lands on you */
+  #hitflash {
+    position: absolute; inset: 0; pointer-events: none; opacity: 0;
+    background: radial-gradient(circle at 50% 45%, rgba(255,255,255,.92), rgba(255,90,60,.55) 55%, rgba(120,0,0,.7));
+  }
 
   /* start / end overlays ------------------------------------------------ */
   .overlay {
@@ -135,6 +140,7 @@
   <div id="prompt"></div>
   <div id="message"></div>
   <div id="banner"></div>
+  <div id="hitflash"></div>
 
   <div class="overlay" id="startscreen">
     <h1>CRYSTAL MAZE</h1>
@@ -1810,6 +1816,10 @@ const sfx = {
   warp:  () => { [1200, 900, 600, 400].forEach((f, i) => setTimeout(() => blip(f, 0.25, 'sine', 0.05), i * 70)); },
   land:  () => { blip(58, 0.22, 'square', 0.07); setTimeout(() => blip(95, 0.14, 'sine', 0.04), 40); },
   finale:() => { [523, 659, 784, 1046].forEach((f, i) => setTimeout(() => blip(f, 1.6, 'sine', 0.06), i * 300)); },
+  spawn: () => { [196, 147, 110, 82].forEach((f, i) => setTimeout(() => blip(f, 1.1, 'sawtooth', 0.05), i * 210)); },
+  charge:() => { [300, 460, 700, 1060].forEach((f, i) => setTimeout(() => blip(f, 0.16, 'square', 0.045), i * 120)); },
+  kill:  () => { [900, 500, 260].forEach((f, i) => setTimeout(() => blip(f, 0.3, 'sine', 0.05), i * 90)); },
+  caught:() => { blip(88, 1.4, 'sawtooth', 0.08); setTimeout(() => blip(62, 1.8, 'square', 0.05), 180); },
 };
 
 /* ============================================================ PLAYER */
@@ -1951,6 +1961,10 @@ function revealFrom(lev, seeds, radius, hallsOnly) {
     }
   }
 }
+// What you have charted stays charted. The reveal is rebuilt from current state
+// — which rooms are lit, which buttons are pressed — so without this an
+// Anti-player flicking a switch would erase ground you had already walked.
+const charted = new Set();
 function rebuildReveal() {
   revealed.clear();
   const hubSeeds = [];
@@ -1964,6 +1978,9 @@ function rebuildReveal() {
   // The door it answers does NOT: you get a marker telling you where it is, but
   // none of the floor plan around it, so you still have to find your way over.
   for (const b of props.buttons) if (b.pressed) revealFrom(b.lev, [b.cell], 9, true);
+
+  for (const k of revealed) charted.add(k);
+  for (const k of charted) revealed.add(k);
 
   for (let l = 0; l < NLEV; l++) mmSegments[l] = [];
   for (const key of revealed) {
@@ -2090,6 +2107,26 @@ function drawMinimap() {
     g.restore();
   }
 
+  // The other lights. You can always see where they are — that is the whole
+  // counterplay, and without it being hunted would just be arbitrary.
+  for (const a of antis) {
+    if (!a.live) continue;
+    const ax = mmX(a.pos.x / CELL), ay = mmY(a.pos.z / CELL);
+    const here = a.lev === player.lev;
+    const bx = -Math.sin(a.yaw), by = -Math.cos(a.yaw);
+    g.save();
+    g.globalAlpha = here ? 1 : 0.4;
+    g.fillStyle = 'rgba(150,190,255,.30)';                 // the wedge its beam covers
+    g.beginPath();
+    g.moveTo(ax, ay);
+    g.arc(ax, ay, 15, Math.atan2(by, bx) - 0.42, Math.atan2(by, bx) + 0.42);
+    g.closePath();
+    g.fill();
+    g.fillStyle = a.state === 'walk' ? '#a8c8ff' : '#ff6a4a';   // red once it has seen you
+    g.beginPath(); g.arc(ax, ay, here ? 3.6 : 2.6, 0, Math.PI * 2); g.fill();
+    g.restore();
+  }
+
   const px = mmX(player.pos.x / CELL), py = mmY(player.pos.z / CELL);
   const fx = -Math.sin(player.yaw), fy = -Math.cos(player.yaw);
   g.fillStyle = '#ffffff';
@@ -2112,6 +2149,7 @@ const el = {
   prompt: document.getElementById('prompt'),
   message: document.getElementById('message'),
   banner: document.getElementById('banner'),
+  hitflash: document.getElementById('hitflash'),
   levelbadge: document.getElementById('levelbadge'),
   endscreen: document.getElementById('endscreen'),
 };
@@ -2153,6 +2191,7 @@ function warpToChamber(id) {
   player.falling = false;
   player.yaw = Math.PI;
   sfx.warp();
+  trailMark(true);              // it learns the network by watching you use it
   return true;
 }
 
@@ -2261,6 +2300,7 @@ function interact() {
     player.vel.set(0, 0, 0);
     player.falling = false;
     sfx.warp();
+    trailMark(true);
     say('back at the centre', 3.4);
   }
 
@@ -2388,6 +2428,392 @@ function assignPool() {
       l.intensity = e.intensity;
     } else l.intensity = 0;
   }
+}
+
+/* ====================================================== THE ANTI-PLAYER
+
+   A clock hangs over the hub. Every time it runs out something else starts
+   walking — and what it walks is the route you walked. It carries a light of
+   its own, puts out the lights you lit, shuts the gates you opened, and steps
+   through the portals it watched you use.
+
+   The whole system rests on one recorded trail, which is what makes it cheap.
+   Because an Anti-player retraces your exact steps it passes every switch you
+   flicked and every button you pressed without needing to know what a room is
+   or how the building connects: being near the thing you touched is enough to
+   undo it. It never needs to path-find, because you already did.
+
+   What it does not replay is your dithering. Walking the trail it looks ahead
+   for a later breadcrumb within arm's reach and skips straight to it, so every
+   loop you doubled back on collapses. It follows your route, not your mistakes,
+   and that is the whole of its cunning. */
+
+const ANTI_PERIOD = 300;                 // 5:00 on the clock
+const MAX_ANTI    = 4;                   // pre-allocated: light count is baked into shaders
+const ANTI_WALK   = 4.5;                 // over your walk, under your run
+const ANTI_RUSH   = 7.3;
+const RUSH_RANGE  = 11;                  // it drops the trail and comes straight at you
+const FLASH_RANGE = 3.6;
+const FLASH_WIND  = 0.55;                // the beat you get to break line of sight
+const BEAM_COS    = Math.cos(0.40);      // its cone, for catching you
+const KILL_COS    = Math.cos(0.30);      // your cone, for killing it
+const AVERT_COS   = Math.cos(1.05);      // it must be looking ~60 deg away to be vulnerable
+const KILL_RANGE  = 15;
+const GRACE       = 6;                   // after a catch, so you are not caught again at once
+const TRAIL_STEP  = 1.15;                // metres between breadcrumbs
+
+const trail = [];                        // {x, z, lev, jump}
+const aTmp = new THREE.Vector3(), bTmp = new THREE.Vector3(), cTmp = new THREE.Vector3();
+
+function trailMark(jump) {
+  const last = trail[trail.length - 1];
+  if (!jump && last && last.lev === player.lev
+      && Math.hypot(last.x - player.pos.x, last.z - player.pos.z) < TRAIL_STEP) return;
+  trail.push({ x: player.pos.x, z: player.pos.z, lev: player.lev, jump: !!jump });
+}
+
+/* ---- the clock ---------------------------------------------------------- */
+const clockCv = document.createElement('canvas');
+clockCv.width = 512; clockCv.height = 208;
+const clockG = clockCv.getContext('2d');
+const clockTex = new THREE.CanvasTexture(clockCv);
+const clockFace = new THREE.MeshBasicMaterial({ map: clockTex, fog: false });
+const clockEdge = new THREE.MeshBasicMaterial({ color: 0x0b0c10, fog: false });
+const clockBox = new THREE.Mesh(new THREE.BoxGeometry(4.4, 1.8, 4.4),
+  [clockFace, clockFace, clockEdge, clockEdge, clockFace, clockFace]);
+clockBox.position.set(hubCentre.x, 8.2, hubCentre.z);
+scene.add(clockBox);
+{
+  const rod = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 3.5, 6),
+    new THREE.MeshPhongMaterial({ color: 0x2a2d33 }));
+  rod.position.set(hubCentre.x, 10.85, hubCentre.z);
+  scene.add(rod);
+}
+
+// seven segments, in the order a b c d e f g
+const SEG_ON = [
+  [1,1,1,1,1,1,0],[0,1,1,0,0,0,0],[1,1,0,1,1,0,1],[1,1,1,1,0,0,1],[0,1,1,0,0,1,1],
+  [1,0,1,1,0,1,1],[1,0,1,1,1,1,1],[1,1,1,0,0,0,0],[1,1,1,1,1,1,1],[1,1,1,1,0,1,1]];
+function drawDigit(x, y, w, h, n, col) {
+  const t = w * 0.19, s = SEG_ON[n];
+  const boxes = [[x, y, w, t], [x + w - t, y, t, h / 2], [x + w - t, y + h / 2, t, h / 2],
+    [x, y + h - t, w, t], [x, y + h / 2, t, h / 2], [x, y, t, h / 2],
+    [x, y + h / 2 - t / 2, w, t]];
+  for (let i = 0; i < 7; i++) {
+    clockG.fillStyle = s[i] ? col : 'rgba(190,205,230,.05)';   // dead segments still faintly there
+    clockG.fillRect(boxes[i][0], boxes[i][1], boxes[i][2], boxes[i][3]);
+  }
+}
+let clockShown = -1;
+function drawClockFace(secs) {
+  const whole = Math.max(0, Math.ceil(secs));
+  if (whole === clockShown) return;
+  clockShown = whole;
+  const col = whole <= 15 ? '#ff4a35' : whole <= 60 ? '#ffb03a' : '#e9f1ff';
+  clockG.fillStyle = '#05060a';
+  clockG.fillRect(0, 0, 512, 208);
+  const m = Math.floor(whole / 60), s = whole % 60;
+  const digits = [m % 10, Math.floor(s / 10), s % 10];
+  drawDigit(56, 32, 78, 144, digits[0], col);
+  drawDigit(248, 32, 78, 144, digits[1], col);
+  drawDigit(360, 32, 78, 144, digits[2], col);
+  clockG.fillStyle = col;                                       // the colon
+  clockG.fillRect(196, 74, 20, 20);
+  clockG.fillRect(196, 122, 20, 20);
+  clockTex.needsUpdate = true;
+}
+
+/* ---- the walkers -------------------------------------------------------- */
+const matAnti = new THREE.MeshPhongMaterial({ color: 0x15181d, specular: 0x333940, shininess: 18 });
+const matLens = new THREE.MeshBasicMaterial({ color: 0xcfe0ff, fog: false });
+
+// A bare lens is a couple of pixels at thirty metres, and fog eats what is
+// left. The halo is a sprite with fog off and additive blending, so the one
+// thing that defeats the dark is another flashlight — which is the point.
+const haloTex = (() => {
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = 64;
+  const g = cv.getContext('2d');
+  const rg = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  rg.addColorStop(0, 'rgba(255,255,255,1)');
+  rg.addColorStop(0.28, 'rgba(200,222,255,.55)');
+  rg.addColorStop(1, 'rgba(150,190,255,0)');
+  g.fillStyle = rg; g.fillRect(0, 0, 64, 64);
+  return new THREE.CanvasTexture(cv);
+})();
+const antis = [];
+for (let i = 0; i < MAX_ANTI; i++) {
+  const grp = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.26, 0.92, 4, 10), matAnti);
+  body.position.y = 0.85;
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.185, 10, 8), matAnti);
+  head.position.y = 1.56;
+  // the lens is its own little emissive bead, so you can see it coming down a
+  // corridor even when its beam is pointed somewhere else entirely
+  const lens = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 6), matLens.clone());
+  lens.position.set(0.23, 1.04, -0.22);
+  const halo = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: haloTex, color: 0xcfe0ff, blending: THREE.AdditiveBlending,
+    transparent: true, depthWrite: false, fog: false,
+  }));
+  halo.scale.setScalar(1.15);
+  halo.position.copy(lens.position);
+  grp.add(body, head, lens, halo);
+  grp.visible = false;
+  scene.add(grp);
+
+  // Allocated once and never added or removed. Three.js bakes the light count
+  // into its shaders; spawning one mid-game would stall on a recompile, so a
+  // dormant Anti-player is a live light at zero intensity.
+  const light = new THREE.SpotLight(0xbcd4ff, 0, 30, 0.44, 0.55, 1.3);
+  const target = new THREE.Object3D();
+  light.target = target;
+  scene.add(light, target);
+
+  antis.push({ live: false, pos: new THREE.Vector3(), lev: 0, yaw: 0, idx: 0,
+               state: 'walk', flashT: 0, stuck: 0, grp, lens, halo, light, target });
+}
+
+let clockT = ANTI_PERIOD, graceT = 0, antiOn = true, hitFlash = 0;
+drawClockFace(ANTI_PERIOD);        // so it reads 5:00 before you have taken a step
+
+const flatDist2 = (a, b) => (a.x - b.x) ** 2 + (a.z - b.z) ** 2;
+
+function clearLine(from, to, lev) {
+  const dx = to.x - from.x, dz = to.z - from.z;
+  const steps = Math.ceil(Math.hypot(dx, dz) / (CELL * 0.4));
+  for (let i = 1; i < steps; i++) {
+    const t = i / steps, x = from.x + dx * t, z = from.z + dz * t;
+    if (isSolid(lev, Math.floor(z / CELL), Math.floor(x / CELL))) return false;
+  }
+  return true;
+}
+
+function faceToward(a, dx, dz, k) {
+  let d = Math.atan2(-dx, -dz) - a.yaw;
+  while (d >  Math.PI) d -= Math.PI * 2;
+  while (d < -Math.PI) d += Math.PI * 2;
+  a.yaw += d * Math.min(1, k);
+}
+
+function settleAnti(a) {
+  const [r, c] = cellOf(a.pos);
+  const g = groundUnder(r, c, a.pos.x, a.pos.z, a.lev, levelY(a.lev) + WALL_H);
+  if (g) { a.pos.y = g.y; a.lev = g.lev; }
+}
+
+function moveAnti(a, dx, dz, speed, dt) {
+  const bx = a.pos.x, bz = a.pos.z;
+  a.pos.x += dx * speed * dt;
+  a.pos.z += dz * speed * dt;
+  collide(a.pos, a.lev);
+  settleAnti(a);
+  const moved = Math.hypot(a.pos.x - bx, a.pos.z - bz);
+  a.stuck = moved < speed * dt * 0.3 ? a.stuck + dt : 0;
+  if (a.stuck > 0.8) { a.idx = Math.min(trail.length, a.idx + 4); a.stuck = 0; }
+}
+
+function spawnAnti() {
+  const a = antis.find((x) => !x.live);
+  if (!a) return null;
+  a.live = true;
+  a.pos.set(hubCentre.x, 0, hubCentre.z + 3.2);
+  a.lev = 0; a.yaw = 0; a.idx = 0; a.state = 'walk'; a.flashT = 0; a.stuck = 0;
+  a.grp.visible = true;
+  a.light.intensity = 34;
+  settleAnti(a);
+  return a;
+}
+
+function killAnti(a) {
+  a.live = false;
+  a.grp.visible = false;
+  a.light.intensity = 0;
+  clockT = ANTI_PERIOD;                     // you bought yourself five minutes
+  clockShown = -1;
+  sfx.kill();
+  announce('IT GOES OUT', '#cfe0ff', 3.4);
+}
+
+// It walks where you walked, so it arrives at everything you touched. The
+// cooldown is what keeps that fair: without it one standing next to a button
+// re-shuts the gate the same frame you re-open it, and you are locked out for
+// good rather than merely harried.
+const UNDO_COOL = 9;
+function undoAround(a) {
+  const now = clock.elapsedTime;
+  for (const s of props.switches) {
+    if (!s.on || s.lev !== a.lev || flatDist2(s.pos, a.pos) > (CELL * 1.7) ** 2) continue;
+    if (now - (s.undoneAt || -1e9) < UNDO_COOL) continue;
+    s.undoneAt = now;
+    s.on = false;
+    for (const f of s.fixtures) setFixture(f, 0);
+    if (s.mesh.userData.rocker) s.mesh.userData.rocker.position.y = 0.12;
+    rebuildReveal(); sfx.hum();
+    if (s.lev === player.lev && flatDist2(s.pos, player.pos) < 400) say('the lights die behind you', 3);
+  }
+  for (const b of props.buttons) {
+    if (b.lev !== a.lev || flatDist2(b.pos, a.pos) > (CELL * 1.7) ** 2) continue;
+    const d = props.doors.find((x) => x.id === b.id);
+    if (!d || !d.open) continue;
+    if (now - (d.undoneAt || -1e9) < UNDO_COOL) continue;
+    // never bring a gate down on your head
+    const dp = cellCentre(d.cell[0], d.cell[1]);
+    if (d.lev === player.lev && flatDist2(dp, player.pos) < (CELL * 1.8) ** 2) continue;
+    d.undoneAt = now;
+    d.open = false;
+    if (b.mesh.userData.knob) b.mesh.userData.knob.material.emissiveIntensity = 0.25;
+    rebuildReveal(); sfx.door();
+  }
+}
+
+function followTrail(a, dt) {
+  if (a.idx >= trail.length) return;                  // caught up with your present
+  // your route, not your mistakes: any loop you doubled back on collapses
+  for (let j = trail.length - 1; j > a.idx; j--) {
+    const w = trail[j];
+    if (w.lev === a.lev && flatDist2(w, a.pos) < 5.8) { a.idx = j; break; }
+  }
+  const w = trail[a.idx];
+  if (w.jump) {                                        // a portal it watched you take
+    a.pos.set(w.x, 0, w.z); a.lev = w.lev; a.idx++;
+    settleAnti(a); sfx.warp();
+    return;
+  }
+  const dx = w.x - a.pos.x, dz = w.z - a.pos.z, d = Math.hypot(dx, dz);
+  if (d < 0.5) { a.lev = w.lev; a.idx++; return; }
+  const lag = trail.length - a.idx;                    // it does not dawdle as you did
+  moveAnti(a, dx / d, dz / d, ANTI_WALK * (1 + Math.min(2.3, lag / 250)), dt);
+  faceToward(a, dx, dz, dt * 5);
+}
+
+function caughtBy() {
+  graceT = GRACE;
+  hitFlash = 1;
+  for (const a of antis) if (a.live) { a.state = 'walk'; a.flashT = 0; }
+
+  // every crystal goes home and every gate falls shut
+  if (player.carrying) {
+    const c = player.carrying;
+    c.taken = false; c.mesh.visible = true; c.emitter.on = true;
+    player.carrying = null;
+    carriedMesh.visible = false; carriedEmitter.on = false;
+    el.carried.classList.remove('on');
+  }
+  for (const p of props.pedestals) {
+    if (!p.filled) continue;
+    const c = p.filled;
+    c.taken = false; c.mesh.visible = true; c.emitter.on = true;
+    p.filled = null; p.gem.visible = false; p.emitter.on = false;
+    const i = CRYSTALS.findIndex((x) => x.id === c.id);
+    slots[i].classList.remove('set');
+    slots[i].style.background = ''; slots[i].style.boxShadow = '';
+  }
+  player.placed = 0;
+  for (const d of props.doors) d.open = false;
+  for (const b of props.buttons) {
+    if (b.mesh.userData.knob) b.mesh.userData.knob.material.emissiveIntensity = 0.25;
+  }
+  rebuildReveal();
+  sfx.caught();
+  announce('CAUGHT IN THE LIGHT', '#ff4a35', 5.2);
+  say('every crystal is back where it was, and every gate has shut', 6);
+}
+
+function stepAnti(a, dt) {
+  undoAround(a);
+  const dx = player.pos.x - a.pos.x, dz = player.pos.z - a.pos.z;
+  const dist = Math.hypot(dx, dz);
+  const sees = dist < RUSH_RANGE && a.lev === player.lev && clearLine(a.pos, player.pos, a.lev);
+
+  if (a.state === 'flash') {
+    a.flashT -= dt;
+    faceToward(a, dx, dz, dt * 10);
+    const k = 1 - Math.max(0, a.flashT) / FLASH_WIND;
+    a.light.intensity = 34 + k * k * 210;
+    a.halo.scale.setScalar(1.15 + k * 2.6);
+    a.lens.material.color.setRGB(0.81 + k * 0.19, 0.88 + k * 0.12, 1);
+    if (a.flashT <= 0) {
+      const aimed = dist > 1e-3
+        && (-Math.sin(a.yaw) * dx - Math.cos(a.yaw) * dz) / dist > BEAM_COS;
+      if (dist < FLASH_RANGE + 1.4 && aimed && a.lev === player.lev
+          && clearLine(a.pos, player.pos, a.lev) && graceT <= 0) caughtBy();
+      a.state = 'walk';
+      a.light.intensity = 34;
+      a.halo.scale.setScalar(1.15);
+      a.lens.material.color.setHex(0xcfe0ff);
+    }
+    return;
+  }
+
+  if (sees && graceT <= 0) {
+    if (dist < FLASH_RANGE) {
+      a.state = 'flash'; a.flashT = FLASH_WIND; sfx.charge();
+      return;
+    }
+    a.state = 'rush';
+    moveAnti(a, dx / dist, dz / dist, ANTI_RUSH, dt);
+    faceToward(a, dx, dz, dt * 7);
+    return;
+  }
+
+  a.state = 'walk';
+  followTrail(a, dt);
+}
+
+// Your beam kills it only while it is looking somewhere else. Head-on it is
+// already winning, so the counter is to break line of sight and come around.
+function torchDuel() {
+  if (player.battery <= 0) return;
+  const fx = -Math.sin(player.yaw), fz = -Math.cos(player.yaw);
+  for (const a of antis) {
+    if (!a.live || a.lev !== player.lev) continue;
+    const dx = a.pos.x - player.pos.x, dz = a.pos.z - player.pos.z;
+    const dist = Math.hypot(dx, dz);
+    if (dist > KILL_RANGE || dist < 1e-3) continue;
+    if ((fx * dx + fz * dz) / dist < KILL_COS) continue;             // not in your cone
+    const ax = -Math.sin(a.yaw), az = -Math.cos(a.yaw);
+    if ((ax * -dx + az * -dz) / dist > AVERT_COS) continue;          // it is looking at you
+    if (!clearLine(player.pos, a.pos, player.lev)) continue;
+    killAnti(a);
+  }
+}
+
+function updateAntis(dt) {
+  if (graceT > 0) graceT -= dt;
+  if (hitFlash > 0) hitFlash = Math.max(0, hitFlash - dt * 1.6);
+  el.hitflash.style.opacity = hitFlash * hitFlash;
+
+  // Once the sixth crystal is seated they are finished with you. Left running
+  // they would keep hunting through the ending and could send every crystal
+  // home again while the platform was already climbing.
+  if (ending) {
+    for (const a of antis) if (a.live) { a.live = false; a.grp.visible = false; a.light.intensity = 0; }
+    clockBox.visible = false;
+    return;
+  }
+
+  if (antiOn) {
+    clockT -= dt;
+    if (clockT <= 0) {
+      clockT = ANTI_PERIOD;
+      if (spawnAnti()) { sfx.spawn(); announce('SOMETHING ELSE IS WALKING', '#cfe0ff', 4.4); }
+    }
+  }
+  drawClockFace(clockT);
+  // the whole box throbs as it runs out, so you feel it from across the hub
+  const urg = clockT <= 15 ? 0.5 + 0.5 * Math.sin(clock.elapsedTime * 9) : 1;
+  clockFace.color.setScalar(urg);
+
+  for (const a of antis) {
+    if (!a.live) continue;
+    stepAnti(a, dt);
+    a.grp.position.copy(a.pos);
+    a.grp.rotation.y = a.yaw;
+    a.light.position.set(a.pos.x, a.pos.y + 1.05, a.pos.z);
+    a.target.position.set(a.pos.x - Math.sin(a.yaw) * 6, a.pos.y + 0.55, a.pos.z - Math.cos(a.yaw) * 6);
+  }
+  if (!ending) torchDuel();
 }
 
 function tick() {
@@ -2634,6 +3060,8 @@ function frame(dt) {
   tmp.set(0, 0, -6).applyQuaternion(camera.quaternion).add(camera.position);
   torch.target.position.lerp(tmp, 1 - Math.exp(-TORCH_LAG * dt));
 
+  if (started) { trailMark(false); updateAntis(dt); }
+
   assignPool();
 
   if (msgTimer > 0) { msgTimer -= dt; if (msgTimer <= 0) el.message.classList.remove('on'); }
@@ -2656,7 +3084,13 @@ window.__maze = {
   face(deg) { player.yaw = deg * Math.PI / 180; },
   tilt(deg) { camTilt = deg * Math.PI / 180; },   // inspection only; not a control
   interact, isSolid, collide, cellCentre, cellOf, rebuildReveal, revealed, at,
-  finale(seconds = 0) { beginEnding(); for (let t = 0; t < seconds; t += 0.05) updateEnding(0.05); },
+  antis, trail, spawnAnti, killAnti, clearLine,
+  clock: () => clockT,
+  setClock(s) { clockT = s; clockShown = -1; },
+  antiOff() { antiOn = false; for (const a of antis) if (a.live) killAnti(a); },
+  // Drives real frames, not updateEnding alone — the platform rise is applied
+  // in frame(), so stepping the ending by hand never lifted the camera.
+  finale(seconds = 0) { beginEnding(); this.step(seconds); },
   // Advances the real frame, clock included — rAF is throttled to zero in a
   // preview pane, so nothing animates unless it is stepped by hand.
   step(seconds) { for (let t = 0; t < seconds; t += 0.05) { clock.elapsedTime += 0.05; frame(0.05); } },
