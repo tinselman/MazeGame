@@ -1002,9 +1002,11 @@ scene.add(camera);
 const props = { switches: [], buttons: [], doors: [], crystals: [], pedestals: [], portals: [] };
 const fixtures = [];
 const matFixOff = new THREE.MeshPhongMaterial({ color: 0x3a3a3a, specular: 0x111111, shininess: 20 });
+const matFixGlim = new THREE.MeshPhongMaterial({ color: 0x4a453c, emissive: 0x2a2113, emissiveIntensity: 1 });
 const matFixDim = new THREE.MeshPhongMaterial({ color: 0x6a6355, emissive: 0x584a2c, emissiveIntensity: 1 });
 const matFixOn  = new THREE.MeshPhongMaterial({ color: 0xfff2c4, emissive: 0xffdc7a, emissiveIntensity: 1 });
-const FIX_MATS = [matFixOff, matFixDim, matFixOn];
+const FIX_MATS = [matFixOff, matFixGlim, matFixDim, matFixOn];
+const FIX_POWER = [0, 0.07, 0.28, 1];
 
 /* Fluorescent behaviour. A tube does not simply come on: it stutters, catches,
    stutters again and settles — and each one takes its own time about it. Some
@@ -1014,28 +1016,41 @@ const FIX_MATS = [matFixOff, matFixDim, matFixOn];
      kind 2 sound  : stutters up and holds                                    */
 const FIX_DEAD = 0, FIX_FLICKER = 1, FIX_SOUND = 2;
 
+// Hash noise, bucketed by time. Products of sines are cheap but quasi-periodic,
+// and the eye finds the rhythm within seconds — this has no cycle to find.
+function hashNoise(x) {
+  const s = Math.sin(x * 127.1 + 311.7) * 43758.5453;
+  return s - Math.floor(s);
+}
+
 function fixtureLevel(f, t) {
   if (t < 0) return 0;                                   // its turn has not come
   if (f.kind === FIX_DEAD) {
-    return (t < 1.15 && Math.sin(t * 34 + f.phase) > 0.72) ? 2 : 0;
+    // Two hopeful attempts to strike, and then it never does. But it is not
+    // dark: the tube keeps glimmering faintly and at random, the way a failed
+    // fluorescent sits there twitching for years.
+    if (t < 1.15) return Math.sin(t * 34 + f.phase) > 0.72 ? 3 : 0;
+    const h = hashNoise(Math.floor(t * 6 + f.seed) + f.seed);
+    return h > 0.965 ? 2 : h > 0.90 ? 1 : 0;
   }
   if (t < f.warm) {                                      // striking
     const p = t / f.warm;
     const n = Math.sin(t * f.rate + f.phase) * Math.sin(t * f.rate * 2.3 + f.phase);
-    return n > 0.55 - p * 1.55 ? 2 : (n > 0.15 - p ? 1 : 0);
+    return n > 0.55 - p * 1.55 ? 3 : (n > 0.15 - p ? 2 : 0);
   }
   if (f.kind === FIX_FLICKER) {
-    const n = Math.sin(t * 2.1 + f.phase) * Math.sin(t * 7.3 + f.phase * 2);
-    return n > 0.62 ? 0 : (n > 0.52 ? 1 : 2);
+    // Mostly lit, dropping out briefly and unpredictably rather than pulsing.
+    const h = hashNoise(Math.floor(t * 12 + f.seed * 3) + f.seed);
+    return h > 0.955 ? 0 : h > 0.91 ? 2 : 3;
   }
-  return 2;
+  return 3;
 }
 function setFixture(f, level) {
   if (f.level === level) return;
   f.level = level;
   f.tube.material = FIX_MATS[level];
   f.emitter.on = level > 0;
-  f.emitter.intensity = level === 2 ? f.full : f.full * 0.28;
+  f.emitter.intensity = f.full * FIX_POWER[level];
 }
 
 function wallSide(l, r, c) {
@@ -1137,6 +1152,7 @@ for (let l = 0; l < NLEV; l++) for (let r = 0; r < ROWS; r++) for (let c = 0; c 
       f.rate = 9 + rnd(i + 23) * 16;              // each strikes at its own speed
       f.warm = 0.5 + rnd(i + 41) * 1.6;
       f.delay = rnd(i + 59) * 1.1;                // and takes its own moment to start
+      f.seed = rnd(i + 83) * 400;                 // its own thread of randomness
     });
   }
   props.switches.push(room);
@@ -1189,6 +1205,7 @@ for (let l = 0; l < NLEV; l++) for (let r = 0; r < ROWS; r++) for (let c = 0; c 
         kind: (i % 9 === 3) ? FIX_DEAD : (i % 7 === 2) ? FIX_FLICKER : FIX_SOUND,
         phase: (i * 1.7) % 6.28, rate: 10 + (i % 5) * 3.5, warm: 0.6 + (i % 4) * 0.35,
         delay: stage * 1.5 + (i % 5) * 0.12,     // storey by storey
+        seed: (i * 37.7) % 400,
       };
       fixtures.push(f); room.fixtures.push(f);
     };
