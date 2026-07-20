@@ -38,11 +38,14 @@ const rng = mulberry32(20260719);
 
 /* ================================================================ THE PLAN */
 
-// Halls, as [start, width]. Widths vary so the building has grand halls and
-// service corridors rather than one uniform gauge.
+// Halls, as [start, width]. Spacing and width are both deliberately uneven —
+// a regular grid reads as graph paper. Blocks therefore come out at a range of
+// sizes, from cramped service rooms to long galleries.
 const LINES = [
-  [1, 3], [12, 2], [23, 3], [40, 3], [51, 2], [62, 3],
+  [1, 3], [11, 2], [21, 4], [41, 3], [50, 2], [62, 3],
 ];
+// -> bands 7, 8, 16, 6, 10 cells wide. Nothing so small it cannot hold a room
+// with two ways out, nothing so uniform that the plan reads as graph paper.
 // Bands between the halls become blocks.
 const BANDS = [];
 for (let i = 0; i < LINES.length - 1; i++) {
@@ -56,9 +59,9 @@ const START = [HUB.r1 + 2, HUB.c1 + 2];
 
 // Six ways out of the centre, all onto the ring halls that bound it.
 const HUB_EXITS = [
-  { side: 'N', at: 30 }, { side: 'N', at: 36 },
-  { side: 'S', at: 30 }, { side: 'S', at: 36 },
-  { side: 'W', at: 33 }, { side: 'E', at: 33 },
+  { side: 'N', at: 29 }, { side: 'N', at: 36 },
+  { side: 'S', at: 29 }, { side: 'S', at: 36 },
+  { side: 'W', at: 32 }, { side: 'E', at: 32 },
 ];
 
 // Which halls exist on each level. Level 1 carries the whole grid, so its
@@ -85,7 +88,7 @@ const PLAN = [
   { lev: 0, ...B(1, 2), t: 'hall' },
   { lev: 0, ...B(1, 3), t: 'museum' },
   { lev: 0, ...B(1, 4), t: 'atrium' },
-  { lev: 0, ...B(2, 0), t: 'water' },
+  { lev: 0, ...B(2, 0), t: 'cubicles' },
   { lev: 0, ...B(2, 1), t: 'gallery' },
   { lev: 0, ...B(2, 3), t: 'museum' },
   { lev: 0, ...B(2, 4), t: 'living' },
@@ -100,7 +103,7 @@ const PLAN = [
   { lev: 0, ...B(4, 3), t: 'living' },
   { lev: 0, ...B(4, 4), t: 'gallery' },
   // ---- level 1
-  { lev: 1, ...B(0, 0), t: 'office' },
+  { lev: 1, ...B(0, 0), t: 'cubicles' },
   { lev: 1, ...B(0, 2), t: 'museum' },
   { lev: 1, ...B(0, 4), t: 'living' },
   { lev: 1, ...B(1, 1), t: 'gallery' },
@@ -108,7 +111,7 @@ const PLAN = [
   { lev: 1, ...B(2, 0), t: 'restaurant' },
   { lev: 1, ...B(2, 1), t: 'warehouse' },
   { lev: 1, ...B(2, 3), t: 'cubicles' },
-  { lev: 1, ...B(2, 4), t: 'water' },
+  { lev: 1, ...B(2, 4), t: 'cubicles' },
   { lev: 1, ...B(3, 1), t: 'chamber' },
   { lev: 1, ...B(3, 3), t: 'warehouse' },
   { lev: 1, ...B(4, 0), t: 'gallery' },
@@ -120,29 +123,50 @@ const PLAN = [
   { lev: 2, ...B(2, 1), t: 'chamber' },
   { lev: 2, ...B(2, 3), t: 'chamber' },
   { lev: 2, ...B(3, 1), t: 'museum' },
-  { lev: 2, ...B(3, 3), t: 'restaurant' },
+  { lev: 2, ...B(3, 3), t: 'cubicles' },
 ];
 
 // Stairs thread up and down all over, rather than sitting in dedicated shafts.
 // Each is placed inside a hall so both ends land on the loop network.
 const STAIRS = [
-  { lo: 0, cells: [[24, 30], [24, 31], [24, 32], [24, 33]] },
-  { lo: 0, cells: [[41, 36], [41, 35], [41, 34], [41, 33]] },
-  { lo: 0, cells: [[12, 30], [12, 31], [12, 32], [12, 33]] },
-  { lo: 0, cells: [[52, 30], [52, 31], [52, 32], [52, 33]] },
-  { lo: 0, cells: [[30, 24], [31, 24], [32, 24], [33, 24]] },
-  { lo: 0, cells: [[36, 41], [35, 41], [34, 41], [33, 41]] },
-  { lo: 1, cells: [[24, 46], [24, 47], [24, 48], [24, 49]] },
-  { lo: 1, cells: [[41, 17], [41, 16], [41, 15], [41, 14]] },
-  { lo: 1, cells: [[46, 24], [47, 24], [48, 24], [49, 24]] },
-  { lo: 1, cells: [[17, 41], [16, 41], [15, 41], [14, 41]] },
+  { lo: 0, cells: [[22, 28], [22, 29], [22, 30], [22, 31]] },
+  { lo: 0, cells: [[42, 37], [42, 36], [42, 35], [42, 34]] },
+  { lo: 0, cells: [[11, 15], [11, 16], [11, 17], [11, 18]] },
+  { lo: 0, cells: [[28, 22], [29, 22], [30, 22], [31, 22]] },
+  { lo: 0, cells: [[37, 42], [36, 42], [35, 42], [34, 42]] },
+  { lo: 0, cells: [[30, 51], [31, 51], [32, 51], [33, 51]] },
+  { lo: 1, cells: [[22, 45], [22, 46], [22, 47], [22, 48]] },
+  { lo: 1, cells: [[42, 18], [42, 17], [42, 16], [42, 15]] },
+  { lo: 1, cells: [[45, 22], [46, 22], [47, 22], [48, 22]] },
+  { lo: 1, cells: [[18, 42], [17, 42], [16, 42], [15, 42]] },
 ];
+
+/* Over-and-back bridges. Each climbs off an atrium floor, crosses above that
+   same floor on a narrow span, and descends again on the far side — so the
+   route you are walking passes over the route you were just on. Built from two
+   ordinary stair runs plus a level-1 walkway between them, which means the
+   game's existing stair handling picks them up with no special case.
+   `a` and `b` are the outer ends; the middle becomes the span.             */
+const OVERPASSES = [
+  { lo: 0, axis: 'c', at: 56, a: 26, b: 39, rise: 4 },   // over the south atrium
+  { lo: 0, axis: 'c', at: 7,  a: 13, b: 20, rise: 3 },   // over the north-west atrium
+  { lo: 0, axis: 'r', at: 56, a: 13, b: 20, rise: 3 },   // over the east atrium
+];
+for (const o of OVERPASSES) {
+  const cell = (i) => (o.axis === 'c' ? [o.at, i] : [i, o.at]);
+  const up = [], down = [];
+  for (let k = 0; k < o.rise; k++) up.push(cell(o.a + k));
+  for (let k = 0; k < o.rise; k++) down.push(cell(o.b - k));
+  STAIRS.push({ lo: o.lo, cells: up }, { lo: o.lo, cells: down });
+  o.span = [];
+  for (let i = o.a + o.rise; i <= o.b - o.rise; i++) o.span.push(cell(i));
+}
 
 // Two balconies with a gap in the parapet: step off and you drop to the floor
 // below. `at` is the balcony cell; `into` is the void you fall through.
 const DROPS = [
-  { lev: 1, at: [12, 18], into: [11, 18] },
-  { lev: 1, at: [52, 33], into: [53, 33] },
+  { lev: 1, at: [11, 16], into: [10, 16] },
+  { lev: 1, at: [51, 32], into: [52, 32] },
 ];
 
 /* ---------------------------------------------------------- pre-flight
@@ -257,20 +281,27 @@ for (const e of HUB_EXITS) {
 /* ---- crystal chambers -------------------------------------------------- */
 const CHAMBERS = [];
 chamberSlots.forEach((slot, i) => {
-  const cr = Math.floor((slot.r1 + slot.r2) / 2), cc = Math.floor((slot.c1 + slot.c2) / 2);
+  // The interior is the block inset by one, never a fixed size: blocks vary
+  // from six cells to sixteen, and a hardcoded 5x5 vault punches straight
+  // through the wall ring of a small one, leaving the crystal unsealed.
+  const ir1 = slot.r1 + 1, ic1 = slot.c1 + 1, ir2 = slot.r2 - 1, ic2 = slot.c2 - 1;
+  const cr = Math.floor((ir1 + ir2) / 2), cc = Math.floor((ic1 + ic2) / 2);
   rect(slot.lev, slot.r1, slot.c1, slot.r2, slot.c2, WALL);
-  rect(slot.lev, cr - 2, cc - 2, cr + 2, cc + 2, '.');
-  // Approach first, THEN the door — carving the approach afterwards would run
-  // straight over the door cell and erase it.
-  rect(slot.lev, slot.r1 + 1, cc, cr - 2, cc, '.');
+  rect(slot.lev, ir1, ic1, ir2, ic2, '.');
   const door = [slot.r1, cc];
   G[slot.lev][slot.r1][cc] = DOORCH[i];
   G[slot.lev][cr][cc] = String(i + 1);
-  G[slot.lev][cr][cc + 2] = 'P';
+  // portal beside the crystal, wherever there is room for it
+  const pc = cc + 2 <= ic2 ? cc + 2 : cc - 2 >= ic1 ? cc - 2 : cc;
+  const pr = pc === cc ? (cr + 2 <= ir2 ? cr + 2 : cr - 2) : cr;
+  G[slot.lev][pr][pc] = 'P';
   CHAMBERS.push({ id: i + 1, lev: slot.lev, cr, cc, door });
 });
 
-/* ---- stairs ------------------------------------------------------------ */
+/* ---- stairs, and the spans that turn pairs of them into bridges --------- */
+for (const o of OVERPASSES) {
+  for (const [r, c] of o.span) G[o.lo + 1][r][c] = '.';
+}
 for (const s of STAIRS) {
   for (const [r, c] of s.cells) { G[s.lo][r][c] = '/'; G[s.lo + 1][r][c] = '/'; }
 }

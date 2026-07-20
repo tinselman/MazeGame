@@ -87,6 +87,17 @@ atrium reads as a tall interior room rather than a shaft into nothing. Walkways 
 a drop get a parapet, a coping course and corbels — except at two balconies, where the
 parapet has a gap and you can step off and fall to the ground floor.
 
+**The tubes are fluorescent, and they behave like it.** A light does not simply come
+on. Each one strikes at its own rate after its own delay, stuttering and catching and
+stuttering again before it settles, so a room assembles itself over a couple of
+seconds. Per room, one to four tubes never catch at all — they try twice and give up —
+and one to three never stop dropping out. It is all deterministic from the room's
+position, so a room looks the same every playthrough.
+
+Two atriums have a switch of their own that lights the whole three-storey volume, and
+it comes up a storey at a time from the bottom: the first balcony ring strikes, then
+the one above it, then the pendants under the roof.
+
 **Light lives in rooms.** Corridors have no fixtures at all and never will — they are
 the dark you cross. Each room has exactly one switch, which lights that room and
 nothing else, and a room is also the only shelter where the flashlight recharges.
