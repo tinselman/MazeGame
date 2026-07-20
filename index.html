@@ -1,0 +1,2133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Crystal Maze</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
+  canvas { display: block; }
+
+  #hud {
+    position: fixed; inset: 0; pointer-events: none;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    color: #d8d8d8; text-shadow: 0 1px 3px rgba(0,0,0,.9);
+    user-select: none;
+  }
+
+  #crosshair {
+    position: absolute; left: 50%; top: 50%;
+    width: 5px; height: 5px; margin: -2.5px 0 0 -2.5px;
+    border-radius: 50%; background: rgba(230,230,230,.55);
+  }
+
+  /* battery ------------------------------------------------------------ */
+  #battery { position: absolute; left: 26px; bottom: 26px; width: 190px; }
+  #battery .label { font-size: 10px; letter-spacing: .22em; opacity: .6; margin-bottom: 6px; }
+  #battery .track {
+    height: 9px; border: 1px solid rgba(216,216,216,.45); border-radius: 1px;
+    padding: 2px; background: rgba(0,0,0,.35);
+  }
+  #battery .fill { height: 100%; width: 100%; background: #e8e8e8; transition: background .4s; }
+  #battery.low .fill { background: #c9c9c9; }
+  #battery.critical .fill { background: #9a9a9a; }
+  #battery.charging .fill { background: #ffd24a; }
+  #battery .pct { font-size: 10px; opacity: .55; margin-top: 5px; letter-spacing: .1em; }
+
+  /* crystal tracker ----------------------------------------------------- */
+  #tracker {
+    position: absolute; left: 50%; bottom: 26px; transform: translateX(-50%);
+    display: flex; gap: 13px; align-items: center;
+  }
+  #tracker .slot {
+    width: 13px; height: 13px; transform: rotate(45deg);
+    border: 1px solid rgba(216,216,216,.4); background: transparent;
+    transition: background .6s, border-color .6s, box-shadow .6s;
+  }
+  #tracker .slot.set { border-color: transparent; }
+
+  /* carried ------------------------------------------------------------- */
+  #carried {
+    position: absolute; right: 26px; bottom: 322px; text-align: right;
+    font-size: 11px; letter-spacing: .16em; opacity: 0; transition: opacity .35s;
+  }
+  #carried.on { opacity: .85; }
+  #carried .name { font-size: 15px; letter-spacing: .3em; margin-top: 5px; }
+
+  /* minimap -------------------------------------------------------------- */
+  #minimap {
+    position: absolute; right: 26px; bottom: 26px;
+    width: 280px; height: 280px;
+    background: rgba(0, 0, 0, .45);
+    border: 1px solid rgba(216, 216, 216, .22);
+  }
+  #levelbadge {
+    position: absolute; right: 34px; bottom: 292px;
+    font-size: 10px; letter-spacing: .2em; opacity: .6;
+  }
+
+  /* prompt & message ---------------------------------------------------- */
+  #prompt {
+    position: absolute; left: 50%; top: 57%; transform: translateX(-50%);
+    font-size: 13px; letter-spacing: .13em; opacity: 0; transition: opacity .18s;
+    white-space: nowrap;
+  }
+  #prompt.on { opacity: .92; }
+  #prompt b { color: #ffd24a; font-weight: 600; }
+
+  #message {
+    position: absolute; left: 50%; top: 25%; transform: translateX(-50%);
+    font-size: 15px; letter-spacing: .1em; opacity: 0; transition: opacity .55s;
+    text-align: center; white-space: nowrap;
+  }
+  #message.on { opacity: .95; }
+
+  #banner {
+    position: absolute; left: 50%; top: 33%; transform: translateX(-50%);
+    width: min(86vw, 720px);
+    font-size: clamp(15px, 2.7vw, 26px);
+    font-weight: 700; letter-spacing: .07em; line-height: 1.35;
+    opacity: 0; transition: opacity .5s; text-align: center;
+    text-shadow: 0 2px 20px rgba(0,0,0,.96);
+  }
+  #banner.on { opacity: 1; }
+
+  /* start / end overlays ------------------------------------------------ */
+  .overlay {
+    position: absolute; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 22px;
+    background: rgba(0,0,0,.9); pointer-events: auto; text-align: center; padding: 24px;
+  }
+  .overlay h1 { font-size: 30px; letter-spacing: .42em; font-weight: 400; color: #f0f0f0; }
+  .overlay .keys { font-size: 12px; line-height: 2.1; opacity: .68; letter-spacing: .1em; }
+  .overlay .keys b { color: #ffd24a; font-weight: 600; }
+  .overlay .go { font-size: 12px; letter-spacing: .28em; opacity: .85; margin-top: 10px; animation: pulse 2.2s infinite; }
+  @keyframes pulse { 0%,100% { opacity: .35 } 50% { opacity: .95 } }
+  .overlay.hidden { display: none; }
+
+  #endscreen { background: rgba(255,255,255,0); transition: background 3s; }
+  #endscreen h1 { color: #fff; opacity: 0; transition: opacity 2.5s; }
+  #endscreen.lit { background: rgba(250,250,252,.96); }
+  #endscreen.lit h1 { opacity: 1; color: #1a1a1a; }
+</style>
+</head>
+<body>
+<div id="hud">
+  <div id="crosshair"></div>
+
+  <div id="battery">
+    <div class="label">FLASHLIGHT</div>
+    <div class="track"><div class="fill" id="batfill"></div></div>
+    <div class="pct" id="batpct">100%</div>
+  </div>
+
+  <div id="tracker"></div>
+
+  <div id="carried">
+    <div style="opacity:.55">CARRYING</div>
+    <div class="name" id="carriedname"></div>
+  </div>
+
+  <canvas id="minimap"></canvas>
+  <div id="levelbadge">LEVEL 0</div>
+
+  <div id="prompt"></div>
+  <div id="message"></div>
+  <div id="banner"></div>
+
+  <div class="overlay" id="startscreen">
+    <h1>CRYSTAL MAZE</h1>
+    <div class="keys">
+      <b>W A S D</b> &nbsp;move &nbsp;·&nbsp; <b>SHIFT</b> run<br>
+      <b>← →</b> &nbsp;turn &nbsp;·&nbsp; <b>↑ ↓</b> &nbsp;look up and down &nbsp;·&nbsp; or <b>MOUSE</b> after clicking<br>
+      <b>E</b> &nbsp;press buttons, take crystals, enter portals<br><br>
+      Six crystals are sealed in chambers across three levels.<br>
+      Each chamber's door opens from a button far away from it.<br>
+      Beside each crystal is a portal that returns you to the centre.<br><br>
+      The corridors have no lights. Only the rooms do, and only<br>
+      once you find the switch — that is also where your flashlight recharges.
+    </div>
+    <div class="go">CLICK TO BEGIN</div>
+  </div>
+
+  <div class="overlay hidden" id="endscreen"><h1>YOU ARE FREE</h1></div>
+</div>
+
+<script type="importmap">
+{ "imports": { "three": "https://unpkg.com/three@0.169.0/build/three.module.js" } }
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+
+/* ============================================================ THE MAP
+   Three stacked levels, generated and proved sound by tools/genmaze.js.
+     ' ' void (no geometry)   #  wall            .  corridor floor
+     +   room floor           ~  water           /  stair run
+     H   hub floor            S  start           1-6 crystal
+     a-f door                 A-F door button    *  light switch   P portal
+   Regenerate with `node tools/genmaze.js --write`, which rewrites the block
+   between the markers below.                                              */
+/* MAP:BEGIN */
+const MAPS = [
+`
+##################################################################
+#................................................................#
+#................................................................#
+#................................................................#
+#...###..###..............######..######...###..###..####..###...#
+#...#*+++++#..............#*+++++++++++#...#*+++++#..#*++++++#...#
+#...#++++++#..............#++++++++++++#...#++++++#..#+++++++#...#
+#....++++++................++++++++++++.....++++++....+++++++....#
+#....++++++................++++++++++++.....++++++....+++++++....#
+#...#++++++#..............#++++++++++++#...#++++++#..#+++++++#...#
+#...#++++++#..............#++++++++++++#...#++++++#..#+++++++#...#
+#...########..............##############...########..#########...#
+#.............................////..................D............#
+#................................................................#
+#...###..###..####a####...######..######...###..###..............#
+#...#*+++++#..####.####...#*+++++++++++#...#*+++++#..............#
+#...#++++++#..##.....##...#++++++++++++#...#++++++#..............#
+#...#++++++#..##.....##...#++++++++++++#...#++++++#..............#
+#....++++++#..##..1.P##....++++++++++++.....++++++#..............#
+#....++++++#..##.....##....++++++++++++.....++++++#..............#
+#...#++++++#..##.....##...#++++++++++++#...#++++++#..............#
+#...#++++++#..#########...#++++++++++++#...#++++++#..............#
+#...###..###..#########...##############...###..###..............#
+#...........F....................................................#
+#.............................////...............................#
+#................................................................#
+#...###..###..####..###...####..####..##...###..###..####..###...#
+#...#*~~~~~#..#*++++++#...#HHHHHHHHHHHH#...#*+++++#..#*++++++#...#
+#...#~~~~~~#..#+++++++#...#HSHHHHHHHHHH#...#++++++#..#+++++++#...#
+#...#~~~~~~#..#+++++++#...#HHHHHHHHHHHH#...#++++++#..#+++++++#...#
+#...#~~~~~~#..#+++++++#./.#HHHHHHHHHHHH#...#++++++#..#+++++++#...#
+#...#~~~~~~#..#+++++++#./.#HHHHHHHHHHHH#...#++++++#..#+++++++#...#
+#....~~~~~~#...+++++++#./.#HHHHHHHHHHHH#....++++++#...+++++++#...#
+#....~~~~~~#...+++++++#./..HHHHHHHHHHHH../..++++++#...+++++++#...#
+#...#~~~~~~#..#+++++++#....HHHHHHHHHHHH../.#++++++#..#+++++++#...#
+#...#~~~~~~#..#+++++++#...#HHHHHHHHHHHH#./.#++++++#..#+++++++#...#
+#...#~~~~~~#..#+++++++#...#HHHHHHHHHHHH#./.#++++++#..#+++++++#...#
+#...#~~~~~~#..#+++++++#...#HHHHHHHHHHHH#...#++++++#..#+++++++#...#
+#...#~~~~~~#..#+++++++#...#HHHHHHHHHHHH#...#++++++#..#+++++++#...#
+#...###..###..####..###...####..####..##...###..###..####..###...#
+#................................................................#
+#................................////............................#
+#................................................................#
+#.............####..###...######..######...###b####..####..###...#
+#.............#*++++++#...#*+++++++++++#...#.....##..#*++++++#...#
+#.............#+++++++#...#++++++++++++#...#.....##..#+++++++#...#
+#..............+++++++.....++++++++++++....#..2.P##...+++++++....#
+#..............+++++++.....++++++++++++....#.....##...+++++++....#
+#.............#+++++++#...#++++++++++++#...#.....##..#+++++++#...#
+#.............#+++++++#...#++++++++++++#...########..#+++++++#...#
+#.............#########...##############...########..#########...#
+#................................................................#
+#.............................////..................B............#
+#...###..###..####..###....................###..###..####..###...#
+#...#*+++++#..#*++++++#....................#*+++++#..#*++++++#...#
+#...#++++++#..#+++++++#....................#++++++#..#+++++++#...#
+#...#++++++#..#+++++++#....................#++++++#..#+++++++#...#
+#....++++++#...+++++++......................++++++#...+++++++....#
+#....++++++#...+++++++......................++++++#...+++++++....#
+#...#++++++#..#+++++++#....................#++++++#..#+++++++#...#
+#...#++++++#..#+++++++#....................#++++++#..#+++++++#...#
+#...###..###..#########....................###..###..#########...#
+#................................................................#
+#................................................................#
+#................................................................#
+##################################################################
+`,
+`
+                                                                  
+ ................................................................ 
+ ................................................................ 
+ ................................................................ 
+ ...###..###..         ...######..######...        ..####..###... 
+ ...#*+++++#..         ...#*+++++++++++#...        ..#*++++++#... 
+ ...#++++++#..         ...#++++++++++++#...        ..#+++++++#... 
+ ....++++++...         ....++++++++++++....        ...+++++++.... 
+ ....++++++...         ....++++++++++++....        ...+++++++.... 
+ ...#++++++#..         ...#++++++++++++#...        ..#+++++++#... 
+ ...#++++++#..         ...#++++++++++++#...        ..#+++++++#... 
+ ...########..         ...##############...        ..#########... 
+ ...........A.................////............................... 
+ ................................................................ 
+ ...        ..####..###...              ./.###c####..         ... 
+ ...        ..#*++++++#...              ./.###.####..         ... 
+ ...        ..#+++++++#...              ./.#.....##..         ... 
+ ...        ..#+++++++#...              ./.#.....##..         ... 
+ ...        ...+++++++....              ...#..3.P##..         ... 
+ ...        ...+++++++....              ...#.....##..         ... 
+ ...        ..#+++++++#...              ...#.....##..         ... 
+ ...        ..#+++++++#...              ...########..         ... 
+ ...        ..#########...              ...########..         ... 
+ ................................................................ 
+ .............................////............////............... 
+ ................................................................ 
+ ...###..###..####..###...              ...###..###..####..###... 
+ ...#*+++++#..#*++++++#...              ...#*+++++#..#*~~~~~~#... 
+ ...#++++++#..#+++++++#...              ...#++++++#..#~~~~~~~#... 
+ ...#++++++#..#+++++++#...              ...#++++++#..#~~~~~~~#... 
+ ...#++++++#..#+++++++#./.              ...#++++++#..#~~~~~~~#... 
+ ...#++++++#..#+++++++#./.              ...#++++++#..#~~~~~~~#... 
+ ....++++++#...+++++++#./.              ....++++++#...~~~~~~~#... 
+ ....++++++#...+++++++#./.              ./..++++++#...~~~~~~~#... 
+ ...#++++++#..#+++++++#...              ./.#++++++#..#~~~~~~~#... 
+ ...#++++++#..#+++++++#...              ./.#++++++#..#~~~~~~~#... 
+ ...#++++++#..#+++++++#...              ./.#++++++#..#~~~~~~~#... 
+ ...#++++++#..#+++++++#...              ...#++++++#..#~~~~~~~#... 
+ ...#++++++#..#+++++++#...              ...#++++++#..#~~~~~~~#... 
+ ...###..###..####..###...              ...###..###..####..###... 
+ ................................................................ 
+ .............////...............////............................ 
+ ................................................................ 
+ ...        ..####d####...              ...###..###..         ... 
+ ...        ..##.....##...              ...#*+++++#..         ... 
+ ...        ..##.....##...              ...#++++++#..         ... 
+ ...        ..##..4.P##./.              ....++++++...         ... 
+ ...        ..##.....##./.              ....++++++...         ... 
+ ...        ..##.....##./.              ...#++++++#..         ... 
+ ...        ..#########./.              ...#++++++#..         ... 
+ ...        ..#########...              ...########..         ... 
+ ................................................................ 
+ ......................E......////............................... 
+ ...###..###..         ...              ...###..###..####..###... 
+ ...#*+++++#..         ...              ...#*+++++#..#*++++++#... 
+ ...#++++++#..         ...              ...#++++++#..#+++++++#... 
+ ...#++++++#..         ...              ...#++++++#..#+++++++#... 
+ ....++++++#..         ...              ....++++++#...+++++++.... 
+ ....++++++#..         ...              ....++++++#...+++++++.... 
+ ...#++++++#..         ...              ...#++++++#..#+++++++#... 
+ ...#++++++#..         ...              ...#++++++#..#+++++++#... 
+ ...###..###..         ...              ...###..###..#########... 
+ ................................................................ 
+ ................................................................ 
+ ................................................................ 
+                                                                  
+`,
+`
+                                                                  
+            ..         ...              ...        ..             
+            ..         ...              ...        ..             
+            ..         ...              ...        ..             
+            ..         ...              ...        ..             
+            ..         ...              ...        ..             
+            ..         ...              ...        ..             
+            ..         ...              ...        ..             
+            ..         ...              ...        ..             
+            ..         ...              ...        ..             
+            ..         ...              ...        ..             
+            ..         ...              ...        ..             
+ ................................................................ 
+ ................................................................ 
+            ..####..###...              ./.###..###..             
+            ..#*++++++#...              ./.#*+++++#..             
+            ..#+++++++#...              ./.#++++++#..             
+            ..#+++++++#...              ./.#++++++#..             
+            ...+++++++....              ....++++++#..             
+            ...+++++++....              ....++++++#..             
+            ..#+++++++#...              ...#++++++#..             
+            ..#+++++++#...              ...#++++++#..             
+            ..#########...              ...###..###..             
+ .......................................C........................ 
+ .............................................////............... 
+ ................................................................ 
+            ..####e####...              ...###f####..             
+            ..####.####...              ...###.####..             
+            ..####.####...              ...###.####..             
+            ..####.####...              ...###.####..             
+            ..##.....##...              ...#.....##..             
+            ..##.....##...              ...#.....##..             
+            ..##..5.P##...              ...#..6.P##..             
+            ..##.....##...              ...#.....##..             
+            ..##.....##...              ...#.....##..             
+            ..#########...              ...########..             
+            ..#########...              ...########..             
+            ..#########...              ...########..             
+            ..#########...              ...########..             
+            ..#########...              ...########..             
+ ................................................................ 
+ .............////............................................... 
+ ................................................................ 
+            ..####..###...              ...###..###..             
+            ..#*++++++#...              ...#*+++++#..             
+            ..#+++++++#...              ...#++++++#..             
+            ...+++++++../.              ....++++++...             
+            ...+++++++../.              ....++++++...             
+            ..#+++++++#./.              ...#++++++#..             
+            ..#+++++++#./.              ...#++++++#..             
+            ..#########...              ...########..             
+ ................................................................ 
+ ................................................................ 
+            ..         ...              ...        ..             
+            ..         ...              ...        ..             
+            ..         ...              ...        ..             
+            ..         ...              ...        ..             
+            ..         ...              ...        ..             
+            ..         ...              ...        ..             
+            ..         ...              ...        ..             
+            ..         ...              ...        ..             
+            ..         ...              ...        ..             
+            ..         ...              ...        ..             
+            ..         ...              ...        ..             
+            ..         ...              ...        ..             
+                                                                  
+`
+].map((s) => s.replace(/^\n/, '').replace(/\n$/, '').split('\n'));
+const ROOM_META = [{"lev":0,"r1":5,"c1":5,"r2":10,"c2":10,"type":"warehouse"},{"lev":0,"r1":5,"c1":27,"r2":10,"c2":38,"type":"gallery"},{"lev":0,"r1":5,"c1":44,"r2":10,"c2":49,"type":"cubicles"},{"lev":0,"r1":5,"c1":54,"r2":10,"c2":60,"type":"warehouse"},{"lev":0,"r1":15,"c1":5,"r2":21,"c2":10,"type":"restaurant"},{"lev":0,"r1":15,"c1":27,"r2":21,"c2":38,"type":"hall"},{"lev":0,"r1":15,"c1":44,"r2":21,"c2":49,"type":"museum"},{"lev":0,"r1":27,"c1":5,"r2":38,"c2":10,"type":"water"},{"lev":0,"r1":27,"c1":15,"r2":38,"c2":21,"type":"gallery"},{"lev":0,"r1":27,"c1":44,"r2":38,"c2":49,"type":"museum"},{"lev":0,"r1":27,"c1":54,"r2":38,"c2":60,"type":"living"},{"lev":0,"r1":44,"c1":15,"r2":49,"c2":21,"type":"museum"},{"lev":0,"r1":44,"c1":27,"r2":49,"c2":38,"type":"hall"},{"lev":0,"r1":44,"c1":54,"r2":49,"c2":60,"type":"restaurant"},{"lev":0,"r1":54,"c1":5,"r2":60,"c2":10,"type":"cubicles"},{"lev":0,"r1":54,"c1":15,"r2":60,"c2":21,"type":"warehouse"},{"lev":0,"r1":54,"c1":44,"r2":60,"c2":49,"type":"living"},{"lev":0,"r1":54,"c1":54,"r2":60,"c2":60,"type":"gallery"},{"lev":1,"r1":5,"c1":5,"r2":10,"c2":10,"type":"office"},{"lev":1,"r1":5,"c1":27,"r2":10,"c2":38,"type":"museum"},{"lev":1,"r1":5,"c1":54,"r2":10,"c2":60,"type":"living"},{"lev":1,"r1":15,"c1":15,"r2":21,"c2":21,"type":"gallery"},{"lev":1,"r1":27,"c1":5,"r2":38,"c2":10,"type":"restaurant"},{"lev":1,"r1":27,"c1":15,"r2":38,"c2":21,"type":"warehouse"},{"lev":1,"r1":27,"c1":44,"r2":38,"c2":49,"type":"cubicles"},{"lev":1,"r1":27,"c1":54,"r2":38,"c2":60,"type":"water"},{"lev":1,"r1":44,"c1":44,"r2":49,"c2":49,"type":"warehouse"},{"lev":1,"r1":54,"c1":5,"r2":60,"c2":10,"type":"gallery"},{"lev":1,"r1":54,"c1":44,"r2":60,"c2":49,"type":"office"},{"lev":1,"r1":54,"c1":54,"r2":60,"c2":60,"type":"museum"},{"lev":2,"r1":15,"c1":15,"r2":21,"c2":21,"type":"gallery"},{"lev":2,"r1":15,"c1":44,"r2":21,"c2":49,"type":"living"},{"lev":2,"r1":44,"c1":15,"r2":49,"c2":21,"type":"museum"},{"lev":2,"r1":44,"c1":44,"r2":49,"c2":49,"type":"restaurant"}];
+const DROP_POINTS = [{"lev":1,"at":[12,18],"into":[11,18]},{"lev":1,"at":[52,33],"into":[53,33]}];
+/* MAP:END */
+
+const NLEV = MAPS.length;
+const ROWS = MAPS[0].length, COLS = MAPS[0][0].length;
+const VOID = ' ';
+const at = (l, r, c) =>
+  (l < 0 || l >= NLEV || r < 0 || c < 0 || r >= ROWS || c >= COLS) ? '#' : MAPS[l][r][c];
+
+/* ============================================================ TUNING */
+const CELL      = 3.0;
+const WALL_H    = 3.6;
+const SLAB      = 0.9;             // floor thickness — also the fascia height
+const LEVEL_H   = WALL_H + SLAB;   // vertical pitch between levels
+const EYE       = 1.62;
+const RADIUS    = 0.34;
+const WALK      = 4.4;
+const RUN       = 7.2;
+const WADE      = 0.52;            // speed multiplier in water
+const WATER_Y   = 0.3;             // surface height above the floor
+const REACH     = 2.7;
+
+const ACCEL     = 12;
+const DECEL     = 6.5;
+const TURN_RATE = 2.0;
+const TURN_ACCEL= 9;
+const PITCH_RATE = 1.7;
+const PITCH_ACCEL= 9;
+const PITCH_MAX = 1.15;            // ~66 degrees, enough to see a balcony overhead
+const LOOK_MOUSE= 0.0022;
+const TORCH_LAG = 9;               // how fast the beam catches up with your view
+const TORCH_SWAY= 0.045;           // hand movement while walking
+
+const GRAVITY   = 19;              // a touch under real, so falls read rather than blur
+const STEP_DOWN = 0.5;             // anything deeper than a kerb is a fall, not a step
+
+const BAT_MAX   = 100;
+const BAT_DRAIN = 0.62;
+const BAT_CHARGE= 11.0;
+
+const POOL_SIZE = 14;
+const FLUOR     = 0xffc844;
+const DOORCH    = 'abcdef';
+const DOOR_SWING= 1.54;
+
+const CRYSTALS = [
+  { id: 1, name: 'ROSE',    color: 0xff4fa3 },
+  { id: 2, name: 'AMBER',   color: 0xff8a1f },
+  { id: 3, name: 'COBALT',  color: 0x3d7bff },
+  { id: 4, name: 'VERDANT', color: 0x35d96b },
+  { id: 5, name: 'VIOLET',  color: 0xa259ff },
+  { id: 6, name: 'CYAN',    color: 0x22dbdb },
+];
+
+const levelY   = (l) => l * LEVEL_H;
+const cellCentre = (r, c) => new THREE.Vector3((c + 0.5) * CELL, 0, (r + 0.5) * CELL);
+const isWalkableChar = (ch) => ch !== '#' && ch !== VOID;
+const isRoomChar = (ch) => ch === '+' || ch === '~' || ch === '*';
+const isWater = (l, r, c) => at(l, r, c) === '~' || (at(l, r, c) === '*' && false);
+
+/* ============================================================ TEXTURES */
+function noiseTexture(base, spread, seams) {
+  const S = 128, cv = document.createElement('canvas');
+  cv.width = cv.height = S;
+  const ctx = cv.getContext('2d');
+  const img = ctx.createImageData(S, S);
+  for (let i = 0; i < S * S; i++) {
+    const x = i % S, y = (i / S) | 0;
+    const blotch = Math.sin(x * 0.11) * Math.cos(y * 0.09) * 0.5 + Math.sin((x + y) * 0.05) * 0.5;
+    const v = base + blotch * spread * 0.5 + (Math.random() - 0.5) * spread;
+    const c = Math.max(0, Math.min(255, v));
+    img.data[i * 4] = img.data[i * 4 + 1] = img.data[i * 4 + 2] = c;
+    img.data[i * 4 + 3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+  if (seams) { ctx.strokeStyle = 'rgba(0,0,0,.30)'; ctx.lineWidth = 2; ctx.strokeRect(1, 1, S - 2, S - 2); }
+  const t = new THREE.CanvasTexture(cv);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.anisotropy = 4;
+  return t;
+}
+function rippleTexture() {
+  const S = 128, cv = document.createElement('canvas');
+  cv.width = cv.height = S;
+  const ctx = cv.getContext('2d');
+  const img = ctx.createImageData(S, S);
+  for (let i = 0; i < S * S; i++) {
+    const x = i % S, y = (i / S) | 0;
+    const v = 150 + 55 * Math.sin(x * 0.22 + Math.sin(y * 0.13) * 2.2)
+                  + 35 * Math.sin(y * 0.17 + Math.cos(x * 0.09) * 1.7);
+    const c = Math.max(0, Math.min(255, v));
+    img.data[i * 4] = img.data[i * 4 + 1] = img.data[i * 4 + 2] = c;
+    img.data[i * 4 + 3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+  const t = new THREE.CanvasTexture(cv);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  return t;
+}
+function numeralTexture(n, bg, fg) {
+  const S = 128, cv = document.createElement('canvas');
+  cv.width = cv.height = S;
+  const ctx = cv.getContext('2d');
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, S, S);
+  ctx.strokeStyle = 'rgba(255,255,255,.16)'; ctx.lineWidth = 4;
+  ctx.strokeRect(9, 9, S - 18, S - 18);
+  ctx.fillStyle = fg;
+  ctx.font = 'bold 66px ui-monospace, monospace';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(String(n), S / 2, S / 2 + 3);
+  return new THREE.CanvasTexture(cv);
+}
+
+const texWall  = noiseTexture(150, 46, false);
+const texFloor = noiseTexture(120, 40, true);
+const texCeil  = noiseTexture(132, 26, true);
+// A CRT still showing something. Green monospace on black — the machines in
+// this building never got switched off.
+function screenTexture() {
+  const W = 128, H = 96, cv = document.createElement('canvas');
+  cv.width = W; cv.height = H;
+  const ctx = cv.getContext('2d');
+  ctx.fillStyle = '#02120a'; ctx.fillRect(0, 0, W, H);
+  ctx.font = '7px ui-monospace, monospace';
+  const glyphs = 'ABCDEF0123456789>/\\_:.#$%*=+-';
+  for (let line = 0; line < 11; line++) {
+    const y = 8 + line * 8;
+    const n = 3 + Math.floor(Math.random() * 16);
+    let s = '';
+    for (let i = 0; i < n; i++) s += glyphs[Math.floor(Math.random() * glyphs.length)];
+    ctx.fillStyle = `rgba(120,255,150,${0.5 + Math.random() * 0.5})`;
+    ctx.fillText(s, 5, y);
+  }
+  // scanlines, so it reads as a tube rather than a poster
+  ctx.fillStyle = 'rgba(0,0,0,.28)';
+  for (let y = 0; y < H; y += 3) ctx.fillRect(0, y, W, 1);
+  return new THREE.CanvasTexture(cv);
+}
+
+const texWater = rippleTexture();
+// UVs run 0-1 per cell, so without this each ripple would be a 3-metre swell
+texWater.repeat.set(2.6, 2.6);
+
+/* ============================================================ SCENE */
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x000000);
+scene.fog = new THREE.FogExp2(0x000000, 0.05);
+
+const camera = new THREE.PerspectiveCamera(74, innerWidth / innerHeight, 0.05, 300);
+camera.rotation.order = 'YXZ';
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.body.appendChild(renderer.domElement);
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+// Every surface is neutral grey. Colour comes from LIGHT alone, which is what
+// makes the maze read black-and-white, lit rooms yellow, and the hub chromatic.
+const matWall  = new THREE.MeshPhongMaterial({ color: 0xb4b4b4, specular: 0x2a2a2a, shininess: 14, map: texWall });
+const matFloor = new THREE.MeshPhongMaterial({ color: 0x9a9a9a, specular: 0x141414, shininess: 6,  map: texFloor });
+const matCeil  = new THREE.MeshPhongMaterial({ color: 0xa8a8a8, specular: 0x101010, shininess: 4,  map: texCeil });
+const matSlab  = new THREE.MeshPhongMaterial({ color: 0x8e8e8e, specular: 0x101010, shininess: 4,  map: texCeil });
+const matRail  = new THREE.MeshPhongMaterial({ color: 0x7c7c7c, specular: 0x333333, shininess: 40 });
+// Fascia caps the open edge of every floor slab. Darker than the wall so the
+// band reads as a distinct course rather than melting into the surface above.
+const matFascia = new THREE.MeshPhongMaterial({ color: 0x8a8a8a, specular: 0x1c1c1c, shininess: 18, map: texWall });
+const matHousing = new THREE.MeshPhongMaterial({ color: 0x6e6e6e, specular: 0x222222, shininess: 30 });
+// The ripple canvas is already a greyscale height field and already scrolls, so
+// feeding it in as a bump map costs nothing and makes every fluorescent, crystal
+// and your own torch throw moving highlights across the surface.
+const matWaterSurf = new THREE.MeshPhongMaterial({
+  color: 0x9fd4e8, specular: 0xffffff, shininess: 120,
+  map: texWater, bumpMap: texWater, bumpScale: 0.03,
+  transparent: true, opacity: 0.55,
+});
+
+scene.add(new THREE.AmbientLight(0xffffff, 0.035));
+
+/* ------------------------------------------------------------ geometry */
+const HUB = (() => {
+  let r1 = 1e9, c1 = 1e9, r2 = -1, c2 = -1;
+  for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+    if (at(0, r, c) === 'H' || at(0, r, c) === 'S') {
+      r1 = Math.min(r1, r); c1 = Math.min(c1, c); r2 = Math.max(r2, r); c2 = Math.max(c2, c);
+    }
+  }
+  return { r1, c1, r2, c2 };
+})();
+const inHub = (l, r, c) => l === 0 && r >= HUB.r1 && r <= HUB.r2 && c >= HUB.c1 && c <= HUB.c2;
+
+// A bridge cell is walkable with a void beside it: it gets a railing, and it is
+// never roofed, so from the level below you see it crossing overhead.
+function isBridgeCell(l, r, c) {
+  if (!isWalkableChar(at(l, r, c))) return false;
+  return at(l, r - 1, c) === VOID || at(l, r + 1, c) === VOID
+      || at(l, r, c - 1) === VOID || at(l, r, c + 1) === VOID;
+}
+
+/* ---- arched windows ----------------------------------------------------
+   Locations live in a side table, NOT as a map character. A char that is not
+   '#' reads as walkable to isWalkableChar, and twenty-odd sites test one or
+   the other — isSolid among them, which would let you stroll through the
+   opening. Keeping '#' in the map means collision, the minimap, reveal, the
+   bridge test and the wall exposure test all keep working untouched, and the
+   only edit is the `continue` below.
+   Derived from the plan rather than hand-listed: any upper-floor room wall with
+   room floor on one side and open air on the other is, by definition, a wall
+   looking out over an atrium. So the arcades follow the architecture instead of
+   having to be re-picked every time the floor plan moves.                    */
+const windowSet = new Set(), windowFacing = new Map();
+{
+  // One arcade per room, on its longest wall: room floor inside, hall outside.
+  // Blocks are always separated by a hall, so a room wall never touches open
+  // air directly — the arcade goes between room and hall, which is also the
+  // more useful place for it. You catch the glow of a lit room through the
+  // arches from the corridor, before you have found its door.
+  const RUN = 5;
+  for (const rm of ROOM_META) {
+    const sides = [
+      { n: rm.c2 - rm.c1, fixed: rm.r1 - 1, along: 'c', d: [-1, 0] },
+      { n: rm.c2 - rm.c1, fixed: rm.r2 + 1, along: 'c', d: [1, 0] },
+      { n: rm.r2 - rm.r1, fixed: rm.c1 - 1, along: 'r', d: [0, -1] },
+      { n: rm.r2 - rm.r1, fixed: rm.c2 + 1, along: 'r', d: [0, 1] },
+    ].sort((a, b) => b.n - a.n);
+    for (const s of sides) {
+      const lo = s.along === 'c' ? rm.c1 : rm.r1, hi = s.along === 'c' ? rm.c2 : rm.r2;
+      const mid = Math.floor((lo + hi) / 2);
+      const from = Math.max(lo, mid - Math.floor(RUN / 2));
+      const cells = [];
+      for (let i = from; i < from + RUN && i <= hi; i++) {
+        const r = s.along === 'c' ? s.fixed : i, c = s.along === 'c' ? i : s.fixed;
+        const inside = at(rm.lev, r - s.d[0], c - s.d[1]);
+        const outside = at(rm.lev, r + s.d[0], c + s.d[1]);
+        if (at(rm.lev, r, c) !== '#' || !isRoomChar(inside) || !isWalkableChar(outside)) { cells.length = 0; break; }
+        cells.push([r, c]);
+      }
+      if (cells.length < 3) continue;
+      for (const [r, c] of cells) {
+        windowSet.add(`${rm.lev},${r},${c}`);
+        // a wall pierced along the column axis has its normal along Z
+        windowFacing.set(`${rm.lev},${r},${c}`, s.along === 'c' ? 0 : Math.PI / 2);
+      }
+      break;                                    // one arcade per room
+    }
+  }
+}
+
+const wallCells = [], windowCells = [];
+for (let l = 0; l < NLEV; l++) for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+  if (at(l, r, c) !== '#') continue;
+  const key = `${l},${r},${c}`;
+  if (windowSet.has(key)) { windowCells.push([l, r, c, windowFacing.get(key)]); continue; }
+  const exposed = at(l, r - 1, c) !== '#' || at(l, r + 1, c) !== '#'
+               || at(l, r, c - 1) !== '#' || at(l, r, c + 1) !== '#';
+  if (exposed) wallCells.push([l, r, c]);
+}
+console.info(`windows: ${windowCells.length} arched openings`);
+const wallMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(CELL, WALL_H, CELL), matWall, wallCells.length);
+wallMesh.castShadow = wallMesh.receiveShadow = true;
+{
+  const m = new THREE.Matrix4();
+  wallCells.forEach(([l, r, c], i) => {
+    const p = cellCentre(r, c);
+    m.makeTranslation(p.x, levelY(l) + WALL_H / 2, p.z);
+    wallMesh.setMatrixAt(i, m);
+  });
+  wallMesh.instanceMatrix.needsUpdate = true;
+}
+scene.add(wallMesh);
+
+// A wall block with an arched opening cut through it. Same geometry every
+// time, so the whole set is one InstancedMesh and costs a single draw call.
+{
+  const JAMB = 0.42, SILL = 0.78, SPRING = 2.0;
+  const HALF = CELL / 2 - JAMB;                       // opening half-width
+
+  // The outer contour MUST be counter-clockwise. r169 only normalises hole
+  // winding inside its `if (reverse)` branch, so a clockwise contour leaves
+  // the hole uncorrected and it fills in solid.
+  const shape = new THREE.Shape();
+  shape.moveTo(-CELL / 2, 0);
+  shape.lineTo(CELL / 2, 0);
+  shape.lineTo(CELL / 2, WALL_H);
+  shape.lineTo(-CELL / 2, WALL_H);
+  shape.closePath();
+
+  // Sill, jambs, then a semicircular head. Margins on all four sides are
+  // nonzero — a hole touching the contour degenerates the triangulator.
+  const hole = new THREE.Path();
+  hole.moveTo(-HALF, SILL);
+  hole.lineTo(HALF, SILL);
+  hole.lineTo(HALF, SPRING);
+  hole.absarc(0, SPRING, HALF, 0, Math.PI, false);
+  hole.lineTo(-HALF, SILL);
+  shape.holes.push(hole);
+
+  const geo = new THREE.ExtrudeGeometry(shape, { depth: CELL, bevelEnabled: false, curveSegments: 20 });
+  geo.translate(0, 0, -CELL / 2);                     // extrusion runs 0 -> +depth
+  // UVs come out in shape-space metres; normalise so the texel density matches
+  // the BoxGeometry walls either side, which use 0-1.
+  const uv = geo.attributes.uv;
+  for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) / CELL, uv.getY(i) / WALL_H);
+  uv.needsUpdate = true;
+
+  const windowMesh = new THREE.InstancedMesh(geo, matWall, windowCells.length);
+  windowMesh.castShadow = windowMesh.receiveShadow = true;
+  const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(1, 1, 1);
+  windowCells.forEach(([l, r, c, rot], i) => {
+    const p = cellCentre(r, c);
+    q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), rot);
+    m.compose(new THREE.Vector3(p.x, levelY(l), p.z), q, s);
+    windowMesh.setMatrixAt(i, m);
+  });
+  windowMesh.instanceMatrix.needsUpdate = true;
+  scene.add(windowMesh);
+}
+
+// Horizontal surfaces are built as quad soups. Wound counter-clockwise as seen
+// from the side the face points toward, or backface culling eats them.
+function quadMesh(quads, material) {
+  const pos = [], nor = [], uv = [], idx = [];
+  quads.forEach(([r, c, y, up], i) => {
+    const x0 = c * CELL, x1 = x0 + CELL, z0 = r * CELL, z1 = z0 + CELL;
+    const ring = up ? [[x0, z1], [x1, z1], [x1, z0], [x0, z0]]
+                    : [[x0, z0], [x1, z0], [x1, z1], [x0, z1]];
+    for (const [x, z] of ring) { pos.push(x, y, z); nor.push(0, up ? 1 : -1, 0); }
+    uv.push(0, 0, 1, 0, 1, 1, 0, 1);
+    const b = i * 4;
+    idx.push(b, b + 1, b + 2, b, b + 2, b + 3);
+  });
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx);
+  const mesh = new THREE.Mesh(g, material);
+  mesh.receiveShadow = true;
+  return mesh;
+}
+
+// Vertical faces, for capping the open edge of a floor slab. quadMesh cannot
+// express these — its tuple carries a single shared y and a hardcoded (0,±1,0)
+// normal — so edges need their own builder. Ring order per direction is chosen
+// so the winding puts the normal outward; get it wrong and culling eats the cap.
+function sideMesh(sides, material) {
+  const pos = [], nor = [], uv = [], idx = [];
+  const vTop = SLAB / CELL;                    // keep texel density square
+  sides.forEach(([r, c, dr, dc, yT, yB], i) => {
+    const x0 = c * CELL, x1 = x0 + CELL, z0 = r * CELL, z1 = z0 + CELL;
+    let ring, n;
+    if (dc === 1)       { ring = [[x1, yB, z1], [x1, yB, z0], [x1, yT, z0], [x1, yT, z1]]; n = [1, 0, 0]; }
+    else if (dc === -1) { ring = [[x0, yB, z0], [x0, yB, z1], [x0, yT, z1], [x0, yT, z0]]; n = [-1, 0, 0]; }
+    else if (dr === 1)  { ring = [[x0, yB, z1], [x1, yB, z1], [x1, yT, z1], [x0, yT, z1]]; n = [0, 0, 1]; }
+    else                { ring = [[x1, yB, z0], [x0, yB, z0], [x0, yT, z0], [x1, yT, z0]]; n = [0, 0, -1]; }
+    for (const [x, y, z] of ring) { pos.push(x, y, z); nor.push(n[0], n[1], n[2]); }
+    uv.push(0, 0, 1, 0, 1, vTop, 0, vTop);
+    const b = i * 4;
+    idx.push(b, b + 1, b + 2, b, b + 2, b + 3);
+  });
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx);
+  const mesh = new THREE.Mesh(g, material);
+  mesh.castShadow = mesh.receiveShadow = true;
+  return mesh;
+}
+
+const floorQuads = [], hubFloorQuads = [], ceilQuads = [], slabQuads = [], waterQuads = [];
+const fasciaSides = [], hubFasciaSides = [];
+/* Every floor cell is a solid volume — top, bottom and four sides — rather than
+   two unconnected planes. Faces buried between neighbouring cells are culled,
+   so the result is geometrically identical to a slab of boxes from any angle
+   without paying for the interiors.
+
+   This is what makes an opening symmetrical. Two loose planes can only be seen
+   from the side they happen to face: the stairwell had its ceiling suppressed
+   but kept its floor, so the hole existed climbing up and vanished looking
+   back down. A closed volume has no such preferred direction. */
+const isUpperStair = (l, r, c) => at(l, r, c) === '/' && at(l - 1, r, c) === '/';
+// A stairwell is a genuine hole punched through the upper floor: no slab at all,
+// which is what lets the rim be capped like every other edge.
+const hasSlab = (l, r, c) => at(l, r, c) !== VOID && !isUpperStair(l, r, c);
+
+for (let l = 0; l < NLEV; l++) for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+  if (!hasSlab(l, r, c)) continue;                     // void or stairwell: nothing
+  const ch = at(l, r, c);
+
+  if (isWalkableChar(ch)) {                            // top: the walking surface
+    (inHub(l, r, c) ? hubFloorQuads : floorQuads).push([r, c, levelY(l), true]);
+    if (ch === '~') waterQuads.push([r, c, levelY(l) + WATER_Y, true]);
+  }
+  if (l > 0) slabQuads.push([r, c, levelY(l) - SLAB, false]);   // bottom: the ceiling below
+
+  // Sides, wherever the neighbour has no slab to butt against. One predicate
+  // now covers voids, atrium edges and stairwell rims alike.
+  if (l > 0) {
+    for (const [dr, dc] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
+      if (hasSlab(l, r + dr, c + dc)) continue;
+      fasciaSides.push([r, c, dr, dc, levelY(l), levelY(l) - SLAB]);
+    }
+  }
+}
+// The building needs a lid. Roof every column that is open to the sky at the
+// height of the top storey, so a three-floor atrium reads as a tall interior
+// room rather than a shaft into nothing.
+for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+  let top = -1;
+  for (let l = NLEV - 1; l >= 0; l--) if (isWalkableChar(at(l, r, c))) { top = l; break; }
+  if (top < 0) continue;
+  let covered = false;
+  for (let l = top + 1; l < NLEV; l++) if (at(l, r, c) !== VOID) covered = true;
+  if (!covered) ceilQuads.push([r, c, levelY(NLEV - 1) + WALL_H, false]);
+}
+
+// The hub floor is a lift: it climbs during the finale, so its skirt must be a
+// child of it rather than of the scene, or it stays behind on the ground.
+for (let r = HUB.r1; r <= HUB.r2; r++) for (let c = HUB.c1; c <= HUB.c2; c++) {
+  for (const [dr, dc] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
+    if (inHub(0, r + dr, c + dc)) continue;
+    hubFasciaSides.push([r, c, dr, dc, 0, -SLAB]);
+  }
+}
+scene.add(quadMesh(floorQuads, matFloor));
+scene.add(quadMesh(ceilQuads, matCeil));
+scene.add(quadMesh(slabQuads, matSlab));
+scene.add(sideMesh(fasciaSides, matFascia));
+const hubFloor = quadMesh(hubFloorQuads, matFloor);
+hubFloor.add(sideMesh(hubFasciaSides, matFascia));
+scene.add(hubFloor);
+const waterMesh = quadMesh(waterQuads, matWaterSurf);
+scene.add(waterMesh);
+
+/* ---- parapets, coping and corbels --------------------------------------
+   Wherever a walkway meets a drop: a parapet to stand behind, a coping course
+   capping it, and corbels bracketing the slab from below at intervals. All
+   three are instanced — as individual meshes the parapets alone were several
+   hundred draw calls.                                                       */
+{
+  const edges = [];
+  for (let l = 1; l < NLEV; l++) for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+    if (!isWalkableChar(at(l, r, c))) continue;
+    for (const [dr, dc, sx, sz] of [[-1, 0, 0, -1], [1, 0, 0, 1], [0, -1, -1, 0], [0, 1, 1, 0]]) {
+      if (at(l, r + dr, c + dc) !== VOID) continue;
+      edges.push([l, r, c, dc !== 0, sx, sz]);
+    }
+  }
+  const m = new THREE.Matrix4(), q = new THREE.Quaternion(), one = new THREE.Vector3(1, 1, 1);
+  const yAxis = new THREE.Vector3(0, 1, 0);
+  const place = (mesh, i, x, y, z, turned) => {
+    q.setFromAxisAngle(yAxis, turned ? Math.PI / 2 : 0);
+    m.compose(new THREE.Vector3(x, y, z), q, one);
+    mesh.setMatrixAt(i, m);
+  };
+
+  const parapet = new THREE.InstancedMesh(new THREE.BoxGeometry(CELL, 0.84, 0.14), matRail, edges.length);
+  const coping  = new THREE.InstancedMesh(new THREE.BoxGeometry(CELL, 0.12, 0.30), matFascia, edges.length);
+  parapet.castShadow = parapet.receiveShadow = true;
+  coping.castShadow = coping.receiveShadow = true;
+  edges.forEach(([l, r, c, turned, sx, sz], i) => {
+    const p = cellCentre(r, c);
+    const x = p.x + sx * (CELL / 2 - 0.07), z = p.z + sz * (CELL / 2 - 0.07);
+    place(parapet, i, x, levelY(l) + 0.42, z, turned);
+    place(coping,  i, x, levelY(l) + 0.90, z, turned);
+  });
+  parapet.instanceMatrix.needsUpdate = true;
+  coping.instanceMatrix.needsUpdate = true;
+  scene.add(parapet, coping);
+
+  // Corbels every third cell, so the slab reads as carried rather than floating.
+  const brackets = edges.filter(([l, r, c]) => (r + c) % 3 === 0);
+  const corbel = new THREE.InstancedMesh(new THREE.BoxGeometry(0.9, 0.34, 0.44), matFascia, brackets.length);
+  corbel.castShadow = corbel.receiveShadow = true;
+  brackets.forEach(([l, r, c, turned, sx, sz], i) => {
+    const p = cellCentre(r, c);
+    place(corbel, i, p.x + sx * (CELL / 2 - 0.16), levelY(l) - SLAB - 0.14, p.z + sz * (CELL / 2 - 0.16), turned);
+  });
+  corbel.instanceMatrix.needsUpdate = true;
+  scene.add(corbel);
+}
+
+/* ---- stairs ------------------------------------------------------------
+   Derived from the map: a run of '/' cells appears on both the level it
+   leaves and the one it reaches. Steps are built as blocks; the player's
+   height ramps continuously across the run.                               */
+const stairs = [];
+{
+  const seen = new Set();
+  for (let l = 0; l < NLEV - 1; l++) for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+    if (at(l, r, c) !== '/' || seen.has(`${l},${r},${c}`)) continue;
+    // A run is marked on both the level it leaves and the one it reaches, so
+    // only claim it at the lower of the two or every staircase counts twice.
+    if (at(l - 1, r, c) === '/') continue;
+    // walk the run to both ends
+    const horiz = at(l, r, c - 1) === '/' || at(l, r, c + 1) === '/';
+    const step = horiz ? [0, 1] : [1, 0];
+    let a = [r, c], b = [r, c];
+    while (at(l, a[0] - step[0], a[1] - step[1]) === '/') a = [a[0] - step[0], a[1] - step[1]];
+    while (at(l, b[0] + step[0], b[1] + step[1]) === '/') b = [b[0] + step[0], b[1] + step[1]];
+    const cells = [];
+    for (let p = a; ; p = [p[0] + step[0], p[1] + step[1]]) {
+      cells.push(p); seen.add(`${l},${p[0]},${p[1]}`);
+      if (p[0] === b[0] && p[1] === b[1]) break;
+    }
+    // The low end adjoins this level's floor and the high end the level above.
+    // Require both to agree; a bare "is it walkable here" can be true at both
+    // ends when a stair sits mid-corridor.
+    const endA = cells[0], endB = cells[cells.length - 1];
+    const outA = [endA[0] - step[0], endA[1] - step[1]];
+    const outB = [endB[0] + step[0], endB[1] + step[1]];
+    const aLo = isWalkableChar(at(l, outA[0], outA[1]));
+    const bHi = isWalkableChar(at(l + 1, outB[0], outB[1]));
+    const bLo = isWalkableChar(at(l, outB[0], outB[1]));
+    const aHi = isWalkableChar(at(l + 1, outA[0], outA[1]));
+    const aIsLow = (aLo && bHi) ? true : (bLo && aHi) ? false : aLo;
+    const ordered = aIsLow ? cells : cells.slice().reverse();
+    stairs.push({ lo: l, cells: ordered, horiz });
+  }
+}
+const stairAt = new Map();      // "l,r,c" -> stair
+for (const s of stairs) {
+  for (const [r, c] of s.cells) {
+    stairAt.set(`${s.lo},${r},${c}`, s);
+    stairAt.set(`${s.lo + 1},${r},${c}`, s);
+  }
+  // step geometry
+  const SUB = 4, total = s.cells.length * SUB;
+  for (let i = 0; i < total; i++) {
+    const cellIdx = Math.floor(i / SUB), sub = i % SUB;
+    const [r, c] = s.cells[cellIdx];
+    const nxt = s.cells[Math.min(cellIdx + 1, s.cells.length - 1)];
+    const dr = Math.sign(nxt[0] - s.cells[0][0]) || 0, dc = Math.sign(nxt[1] - s.cells[0][1]) || 0;
+    const p = cellCentre(r, c);
+    const frac = (sub + 0.5) / SUB - 0.5;
+    const top = levelY(s.lo) + ((i + 1) / total) * LEVEL_H;
+    const box = new THREE.Mesh(
+      new THREE.BoxGeometry(s.horiz ? CELL / SUB : CELL, top - levelY(s.lo) + 0.1, s.horiz ? CELL : CELL / SUB),
+      matWall);
+    box.position.set(
+      p.x + (s.horiz ? dc * frac * CELL : 0),
+      levelY(s.lo) + (top - levelY(s.lo)) / 2 - 0.05,
+      p.z + (s.horiz ? 0 : dr * frac * CELL));
+    box.castShadow = box.receiveShadow = true;
+    scene.add(box);
+  }
+}
+/* The walkable surface under a point, stairs included. Two modes:
+   - standing (`ceilY` omitted): the surface at or below your current level, so
+     you never get yanked up onto something overhead.
+   - falling (`ceilY` given): the highest surface at or below that height, which
+     is what you are about to land on. A stair flight counts, so stepping off
+     the side of one drops you onto the steps rather than through them.       */
+function groundUnder(r, c, x, z, lev, ceilY) {
+  let best = null;
+  for (let l = NLEV - 1; l >= 0; l--) {
+    if (!isWalkableChar(at(l, r, c))) continue;
+    const s = stairAt.get(`${l},${r},${c}`);
+    const t = s ? stairProgress(s, x, z) : 0;
+    const y = s ? levelY(s.lo) + t * LEVEL_H : levelY(l);
+    if (ceilY != null ? y > ceilY : l > lev) continue;
+    if (!best || y > best.y) best = { y, lev: s ? (t > 0.5 ? s.lo + 1 : s.lo) : l };
+  }
+  return best;
+}
+
+// progress along a stair run, 0 at the bottom, 1 at the top
+function stairProgress(s, x, z) {
+  const first = cellCentre(s.cells[0][0], s.cells[0][1]);
+  const last = cellCentre(s.cells[s.cells.length - 1][0], s.cells[s.cells.length - 1][1]);
+  const n = s.cells.length;
+  const t = s.horiz ? (x - (first.x - CELL / 2)) / (n * CELL)
+                    : (z - (first.z - CELL / 2)) / (n * CELL);
+  const flip = s.horiz ? last.x < first.x : last.z < first.z;
+  return Math.max(0, Math.min(1, flip ? 1 - t : t));
+}
+
+/* ============================================================ LIGHT POOL */
+const pool = [];
+for (let i = 0; i < POOL_SIZE; i++) {
+  const l = new THREE.PointLight(0xffffff, 0, 30, 1.35);
+  scene.add(l);
+  pool.push(l);
+}
+const emitters = [];
+
+/* ============================================================ FLASHLIGHT */
+const torch = new THREE.SpotLight(0xf7f7f9, 46, 40, 0.42, 0.52, 1.25);
+torch.castShadow = true;
+torch.shadow.mapSize.set(1024, 1024);
+torch.shadow.camera.near = 0.4;
+torch.shadow.camera.far = 40;
+torch.shadow.bias = -0.0032;
+// Carried at chest height in the right hand, not bolted to the eye. The light
+// therefore comes from below eye level and throws shadows upward, which is what
+// makes an overhead walkway read as an object rather than a texture.
+const TORCH_HOME = new THREE.Vector3(0.30, -0.55, -0.12);
+camera.add(torch);
+torch.position.copy(TORCH_HOME);
+// The target lives in the scene, not on the camera, so the beam can lag behind
+// where you are looking instead of being welded to it.
+scene.add(torch.target);
+torch.target.position.set(0, 0, -1);
+const torchFill = new THREE.PointLight(0xeef0ff, 2.4, 6.5, 1.6);
+torchFill.position.copy(TORCH_HOME);
+camera.add(torchFill);
+scene.add(camera);
+
+/* ============================================================ PROPS */
+const props = { switches: [], buttons: [], doors: [], crystals: [], pedestals: [], portals: [] };
+const fixtures = [];
+const matFixOff = new THREE.MeshPhongMaterial({ color: 0x3a3a3a, specular: 0x111111, shininess: 20 });
+const matFixOn  = new THREE.MeshPhongMaterial({ color: 0xfff2c4, emissive: 0xffdc7a, emissiveIntensity: 1 });
+
+function wallSide(l, r, c) {
+  for (const [dr, dc] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) if (at(l, r + dr, c + dc) === '#') return [dr, dc];
+  return null;
+}
+function makePanel(l, r, c, kind, label) {
+  const side = wallSide(l, r, c);
+  const p = cellCentre(r, c);
+  const grp = new THREE.Group();
+  const plate = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.82, 0.09), matHousing);
+  plate.castShadow = true;
+  grp.add(plate);
+  if (kind === 'switch') {
+    const rocker = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.42, 0.1),
+      new THREE.MeshPhongMaterial({ color: 0xdedede, specular: 0x555555, shininess: 60 }));
+    rocker.position.z = 0.07;
+    grp.add(rocker);
+    grp.userData.rocker = rocker;
+  } else {
+    const knob = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.17, 0.1, 20),
+      new THREE.MeshPhongMaterial({ color: 0xcfcfcf, specular: 0x666666, shininess: 70 }));
+    knob.rotation.x = Math.PI / 2;
+    knob.position.set(0, 0.14, 0.08);
+    grp.add(knob);
+    grp.userData.knob = knob;
+    const tag = new THREE.Mesh(new THREE.PlaneGeometry(0.34, 0.34),
+      new THREE.MeshPhongMaterial({ map: numeralTexture(label, '#1c1c1c', '#e8e8e8') }));
+    tag.position.set(0, -0.2, 0.055);
+    grp.add(tag);
+  }
+  const y = levelY(l) + 1.42;
+  if (side) {
+    grp.position.set(p.x - side[1] * (CELL / 2 - 0.06), y, p.z - side[0] * (CELL / 2 - 0.06));
+    grp.rotation.y = Math.atan2(-side[1], -side[0]);
+  } else {
+    grp.position.set(p.x, y, p.z);
+  }
+  scene.add(grp);
+  return grp;
+}
+
+/* ---- rooms ------------------------------------------------------------
+   A room is a connected patch of room floor. Its switch lights that patch and
+   nothing else, so corridors stay dark and a lit room is a place you found.  */
+const roomOf = new Map();
+for (let l = 0; l < NLEV; l++) for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+  if (at(l, r, c) !== '*') continue;
+  const cells = [], seen = new Set([`${r},${c}`]);
+  const frontier = [[r, c]];
+  while (frontier.length) {
+    const [cr, cc] = frontier.pop();
+    cells.push([cr, cc]);
+    for (const [dr, dc] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
+      const nr = cr + dr, nc = cc + dc, k = `${nr},${nc}`;
+      if (seen.has(k) || !isRoomChar(at(l, nr, nc))) continue;
+      seen.add(k); frontier.push([nr, nc]);
+    }
+  }
+  const room = {
+    lev: l, cell: [r, c], pos: cellCentre(r, c).setY(levelY(l)), cells,
+    fixtures: [], on: false, water: at(l, r, c) === '~' || cells.some(([a, b]) => at(l, a, b) === '~'),
+    mesh: makePanel(l, r, c, 'switch'),
+  };
+  for (const [cr, cc] of cells) roomOf.set(`${l},${cr},${cc}`, room);
+
+  const minR = Math.min(...cells.map((x) => x[0])), minC = Math.min(...cells.map((x) => x[1]));
+  for (const [cr, cc] of cells) {
+    if ((cr - minR) % 2 !== 1 || (cc - minC) % 2 !== 1) continue;
+    const p = cellCentre(cr, cc);
+    const housing = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.14, 0.34), matHousing);
+    housing.position.set(p.x, levelY(l) + WALL_H - 0.09, p.z);
+    const tube = new THREE.Mesh(new THREE.BoxGeometry(1.28, 0.1, 0.19), matFixOff);
+    tube.position.set(p.x, levelY(l) + WALL_H - 0.19, p.z);
+    scene.add(housing, tube);
+    const emitter = { pos: new THREE.Vector3(p.x, levelY(l) + WALL_H - 0.4, p.z), color: new THREE.Color(FLUOR), intensity: 17, on: false };
+    emitters.push(emitter);
+    const fx = { tube, emitter, lev: l, cell: [cr, cc] };
+    fixtures.push(fx);
+    room.fixtures.push(fx);
+  }
+  props.switches.push(room);
+}
+
+/* ---- furniture ---------------------------------------------------------
+   Landmarks. Every room is a recognisable kind of abandoned space, so you can
+   navigate by "past the banquet hall, left at the pallet racks" rather than by
+   counting turns. Silhouette only — boxes and cylinders sized to read at a
+   glance — and it all goes into three instanced meshes with per-instance
+   colour, so 34 furnished rooms cost three draw calls.                     */
+{
+  const boxes = [], cyls = [], glass = [], screens = [];
+  const push = (into, x, y, z, sx, sy, sz, rot, tone) =>
+    into.push({ p: new THREE.Vector3(x, y, z), s: new THREE.Vector3(sx, sy, sz), rot, tone });
+
+  // deterministic jitter, so a room looks scattered but identical every play
+  const wobble = (r, c, n) => ((Math.sin(r * 12.9898 + c * 78.233 + n * 3.77) * 43758.5453) % 1 + 1) % 1;
+
+  function furnish(rm) {
+    const y = levelY(rm.lev);
+    const x0 = (rm.c1) * CELL, x1 = (rm.c2 + 1) * CELL;
+    const z0 = (rm.r1) * CELL, z1 = (rm.r2 + 1) * CELL;
+    const w = x1 - x0, d = z1 - z0;
+    const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
+    const longX = w >= d;
+    const t = rm.type;
+
+    if (t === 'restaurant') {
+      // banquet tables down the long axis, chairs either side
+      const n = Math.max(2, Math.floor((longX ? d : w) / 6));
+      for (let i = 0; i < n; i++) {
+        const off = ((i + 0.5) / n - 0.5) * (longX ? d : w) * 0.86;
+        const tx = longX ? cx : cx + off, tz = longX ? cz + off : cz;
+        const len = (longX ? w : d) * 0.62;
+        push(boxes, tx, y + 0.74, tz, longX ? len : 1.1, 0.1, longX ? 1.1 : len, 0, 0x9a938a);
+        push(boxes, tx, y + 0.36, tz, longX ? len * 0.9 : 0.5, 0.72, longX ? 0.5 : len * 0.9, 0, 0x6d6862);
+        const seats = Math.max(3, Math.floor(len / 1.7));
+        for (let k = 0; k < seats; k++) {
+          const so = ((k + 0.5) / seats - 0.5) * len;
+          for (const side of [-1, 1]) {
+            const sx = longX ? tx + so : tx + side * 1.5;
+            const sz = longX ? tz + side * 1.5 : tz + so;
+            push(boxes, sx, y + 0.45, sz, 0.5, 0.9, 0.5, 0, 0x7d7972);
+          }
+        }
+      }
+    } else if (t === 'living') {
+      // seating clusters and a shelf against the long wall
+      for (const q of [[-1, -1], [1, 1]]) {
+        const gx = cx + q[0] * w * 0.22, gz = cz + q[1] * d * 0.22;
+        push(boxes, gx, y + 0.38, gz - 1.2, 3.0, 0.76, 1.0, 0, 0x8a8279);   // sofa seat
+        push(boxes, gx, y + 0.78, gz - 1.7, 3.0, 0.8, 0.4, 0, 0x7c756d);    // sofa back
+        push(boxes, gx - 2.2, y + 0.4, gz + 0.6, 1.1, 0.8, 1.1, 0, 0x8a8279);
+        push(boxes, gx + 2.2, y + 0.4, gz + 0.6, 1.1, 0.8, 1.1, 0, 0x8a8279);
+        push(boxes, gx, y + 0.28, gz + 0.7, 1.7, 0.12, 0.9, 0, 0x9a938a);   // low table
+      }
+      push(boxes, cx, y + 1.0, z0 + 0.5, w * 0.5, 2.0, 0.5, 0, 0x6f6a64);   // shelving
+    } else if (t === 'museum') {
+      // vitrines on plinths, benches down the middle
+      const cols = Math.max(2, Math.floor(w / 6)), rows = Math.max(2, Math.floor(d / 6));
+      for (let i = 0; i < cols; i++) for (let j = 0; j < rows; j++) {
+        const px = x0 + ((i + 0.5) / cols) * w, pz = z0 + ((j + 0.5) / rows) * d;
+        if (Math.abs(px - cx) < 2.2 && Math.abs(pz - cz) < 2.2) continue;
+        push(boxes, px, y + 0.45, pz, 1.5, 0.9, 1.5, 0, 0x7a7570);
+        push(glass, px, y + 1.5, pz, 1.25, 1.2, 1.25, 0, 0xbcd2dd);
+      }
+      push(boxes, cx, y + 0.22, cz, longX ? w * 0.4 : 0.8, 0.44, longX ? 0.8 : d * 0.4, 0, 0x6d6862);
+    } else if (t === 'gallery') {
+      // plinths around the room, panels hung on the walls
+      const n = Math.max(3, Math.floor((w + d) / 7));
+      for (let i = 0; i < n; i++) {
+        const a = (i / n) * Math.PI * 2;
+        push(cyls, cx + Math.cos(a) * w * 0.3, y + 0.55, cz + Math.sin(a) * d * 0.3,
+             0.55, 1.1, 0.55, 0, 0x827c76);
+      }
+      for (let i = 0; i < 4; i++) {
+        const fx = x0 + 0.35, fz = z0 + ((i + 0.7) / 4.4) * d;
+        push(boxes, fx, y + 1.9, fz, 0.12, 1.5, 2.0, 0, 0xa39b91);
+        push(boxes, x1 - 0.35, y + 1.9, fz, 0.12, 1.5, 2.0, 0, 0xa39b91);
+      }
+    } else if (t === 'warehouse') {
+      // pallet racking in aisles, crates stacked against it
+      const aisles = Math.max(2, Math.floor((longX ? d : w) / 5));
+      for (let i = 0; i < aisles; i++) {
+        const off = ((i + 0.5) / aisles - 0.5) * (longX ? d : w) * 0.82;
+        const rx = longX ? cx : cx + off, rz = longX ? cz + off : cz;
+        const len = (longX ? w : d) * 0.72;
+        for (const shelf of [0.9, 1.9, 2.8]) {
+          push(boxes, rx, y + shelf, rz, longX ? len : 1.3, 0.12, longX ? 1.3 : len, 0, 0x6a6560);
+        }
+        const posts = Math.max(2, Math.floor(len / 3));
+        for (let k = 0; k <= posts; k++) {
+          const po = (k / posts - 0.5) * len;
+          push(boxes, longX ? rx + po : rx, y + 1.6, longX ? rz : rz + po, 0.18, 3.2, 0.18, 0, 0x5c5854);
+        }
+        for (let k = 0; k < 3; k++) {
+          const po = (wobble(rm.r1, rm.c1, i * 5 + k) - 0.5) * len;
+          const h = 0.6 + wobble(rm.r1, rm.c1, i * 7 + k) * 0.5;
+          push(boxes, longX ? rx + po : rx + 1.9, y + h / 2, longX ? rz + 1.9 : rz + po,
+               1.1, h, 1.1, 0, 0x8b8177);
+        }
+      }
+    } else if (t === 'office') {
+      // desk grid with low partitions
+      const cols = Math.max(2, Math.floor(w / 5)), rows = Math.max(2, Math.floor(d / 5));
+      for (let i = 0; i < cols; i++) for (let j = 0; j < rows; j++) {
+        const px = x0 + ((i + 0.5) / cols) * w, pz = z0 + ((j + 0.5) / rows) * d;
+        push(boxes, px, y + 0.7, pz, 2.1, 0.1, 1.1, 0, 0x968e85);
+        push(boxes, px, y + 0.35, pz, 1.9, 0.68, 0.9, 0, 0x6d6862);
+        push(boxes, px, y + 0.45, pz + 0.95, 0.5, 0.9, 0.5, 0, 0x7d7972);
+        push(boxes, px, y + 0.85, pz - 0.85, 2.2, 1.5, 0.1, 0, 0x7f7a74);
+      }
+    } else if (t === 'cubicles') {
+      // A grid of cubicles, open on one side, each with a desk and a terminal
+      // that never got switched off. The screens are the only thing in this
+      // building still producing light on their own.
+      const cols = Math.max(2, Math.floor(w / 6)), rows = Math.max(2, Math.floor(d / 6));
+      for (let i = 0; i < cols; i++) for (let j = 0; j < rows; j++) {
+        const px = x0 + ((i + 0.5) / cols) * w, pz = z0 + ((j + 0.5) / rows) * d;
+        const cw = (w / cols) * 0.82, cd = (d / rows) * 0.82;
+        // partitions on three sides, chest height
+        push(boxes, px, y + 0.72, pz - cd / 2, cw, 1.44, 0.14, 0, 0x7b7a72);
+        push(boxes, px - cw / 2, y + 0.72, pz, 0.14, 1.44, cd, 0, 0x7b7a72);
+        push(boxes, px + cw / 2, y + 0.72, pz, 0.14, 1.44, cd, 0, 0x7b7a72);
+        // desk against the back partition
+        push(boxes, px, y + 0.72, pz - cd / 4, cw * 0.86, 0.08, 0.95, 0, 0x9a9187);
+        push(boxes, px, y + 0.36, pz - cd / 4, cw * 0.7, 0.7, 0.7, 0, 0x6d6862);
+        push(boxes, px, y + 0.45, pz + cd / 5, 0.5, 0.9, 0.5, 0, 0x7d7972);   // chair
+        // the terminal: a beige box with a glowing face
+        push(boxes, px, y + 1.02, pz - cd / 4, 0.72, 0.52, 0.5, 0, 0xa8a08f);
+        screens.push({ x: px, y: y + 1.04, z: pz - cd / 4 + 0.27, lev: rm.lev });
+      }
+    } else if (t === 'hall') {
+      // just columns — the grand connective spaces stay empty
+      const cols = Math.max(2, Math.floor(w / 7)), rows = Math.max(2, Math.floor(d / 7));
+      for (let i = 0; i < cols; i++) for (let j = 0; j < rows; j++) {
+        push(cyls, x0 + ((i + 0.5) / cols) * w, y + WALL_H / 2, z0 + ((j + 0.5) / rows) * d,
+             0.8, WALL_H, 0.8, 0, 0x9c968f);
+      }
+    } else if (t === 'water') {
+      // a few crates half sunk
+      for (let i = 0; i < 5; i++) {
+        const px = x0 + (0.18 + wobble(rm.r1, rm.c1, i) * 0.64) * w;
+        const pz = z0 + (0.18 + wobble(rm.r1, rm.c1, i + 9) * 0.64) * d;
+        push(boxes, px, y + 0.35, pz, 1.2, 0.9, 1.2, wobble(rm.r1, rm.c1, i + 3) * 1.2, 0x857b72);
+      }
+    }
+  }
+
+  for (const meta of ROOM_META) furnish(meta);
+
+  const matProp = new THREE.MeshPhongMaterial({ color: 0xffffff, specular: 0x1a1a1a, shininess: 12 });
+  const matGlass = new THREE.MeshPhongMaterial({
+    color: 0xffffff, specular: 0xffffff, shininess: 140, transparent: true, opacity: 0.24,
+  });
+  const build = (list, geo, mat) => {
+    if (!list.length) return null;
+    const mesh = new THREE.InstancedMesh(geo, mat, list.length);
+    mesh.castShadow = mesh.receiveShadow = true;
+    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), yA = new THREE.Vector3(0, 1, 0);
+    const col = new THREE.Color();
+    list.forEach((it, i) => {
+      q.setFromAxisAngle(yA, it.rot);
+      m.compose(it.p, q, it.s);
+      mesh.setMatrixAt(i, m);
+      mesh.setColorAt(i, col.setHex(it.tone));
+    });
+    mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    scene.add(mesh);
+    return mesh;
+  };
+  build(boxes, new THREE.BoxGeometry(1, 1, 1), matProp);
+  build(cyls, new THREE.CylinderGeometry(0.5, 0.5, 1, 12), matProp);
+  build(glass, new THREE.BoxGeometry(1, 1, 1), matGlass);
+
+  // Screens are their own mesh: emissive, so they read as the source of the
+  // light rather than something lit. Every fourth one also feeds the light pool,
+  // so a cubicle floor is faintly green before you ever find its switch — which
+  // makes it findable in the dark, and unmistakable once found.
+  if (screens.length) {
+    const tex = screenTexture();
+    const matScreen = new THREE.MeshPhongMaterial({
+      map: tex, emissiveMap: tex, emissive: 0x9fffb4, emissiveIntensity: 1.15, color: 0x111111,
+    });
+    const mesh = new THREE.InstancedMesh(new THREE.PlaneGeometry(0.6, 0.42), matScreen, screens.length);
+    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s1 = new THREE.Vector3(1, 1, 1);
+    screens.forEach((sc, i) => {
+      m.compose(new THREE.Vector3(sc.x, sc.y, sc.z), q, s1);
+      mesh.setMatrixAt(i, m);
+      if (i % 4 === 0) {
+        emitters.push({
+          pos: new THREE.Vector3(sc.x, sc.y, sc.z + 0.4),
+          color: new THREE.Color(0x54ff8a), intensity: 2.4, on: true,
+        });
+      }
+    });
+    mesh.instanceMatrix.needsUpdate = true;
+    scene.add(mesh);
+  }
+}
+
+/* ---- doors ------------------------------------------------------------- */
+const matDoor = new THREE.MeshPhongMaterial({ color: 0x8c8c8c, specular: 0x3a3a3a, shininess: 46 });
+function findCell(l, chr) {
+  for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) if (at(l, r, c) === chr) return [r, c];
+  return null;
+}
+for (let l = 0; l < NLEV; l++) for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+  const ch = at(l, r, c);
+  if (!DOORCH.includes(ch)) continue;
+  const id = DOORCH.indexOf(ch) + 1;
+  const p = cellCentre(r, c);
+  const numTex = numeralTexture(id, '#2a2a2a', '#dcdcdc');
+  const face = new THREE.MeshPhongMaterial({
+    map: numTex, emissiveMap: numTex, emissive: 0x000000, specular: 0x333333, shininess: 40,
+  });
+  const leaf = new THREE.Mesh(new THREE.BoxGeometry(CELL, WALL_H, 0.3),
+    [matDoor, matDoor, matDoor, matDoor, face, face]);
+  leaf.castShadow = leaf.receiveShadow = true;
+  leaf.position.set(CELL / 2, WALL_H / 2, 0);
+
+  const alongZ = at(l, r - 1, c) === '#' && at(l, r + 1, c) === '#';
+  const base = alongZ ? Math.PI / 2 : 0;
+  const pivot = new THREE.Group();
+  pivot.position.set(alongZ ? p.x : p.x - CELL / 2, levelY(l), alongZ ? p.z + CELL / 2 : p.z);
+  pivot.rotation.y = base;
+  pivot.add(leaf);
+  scene.add(pivot);
+
+  const gem = findCell(l, String(id));
+  const sign = alongZ ? (gem[1] < c ? 1 : -1) : (gem[0] < r ? 1 : -1);
+  props.doors.push({ id, lev: l, cell: [r, c], pivot, face, base, sign, open: false, t: 0 });
+}
+for (let l = 0; l < NLEV; l++) for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+  const ch = at(l, r, c);
+  if (!'ABCDEF'.includes(ch)) continue;
+  const id = 'ABCDEF'.indexOf(ch) + 1;
+  props.buttons.push({
+    id, lev: l, cell: [r, c], pos: cellCentre(r, c).setY(levelY(l)),
+    mesh: makePanel(l, r, c, 'button', id), pressed: false,
+  });
+}
+
+/* ---- crystals and their return portals --------------------------------- */
+const crystalGeo = new THREE.OctahedronGeometry(0.36, 0);
+for (let l = 0; l < NLEV; l++) for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+  const ch = at(l, r, c);
+  if (!'123456'.includes(ch)) continue;
+  const spec = CRYSTALS[+ch - 1];
+  const p = cellCentre(r, c);
+  const y = levelY(l);
+  const mesh = new THREE.Mesh(crystalGeo, new THREE.MeshPhongMaterial({
+    color: spec.color, emissive: spec.color, emissiveIntensity: 0.85,
+    specular: 0xffffff, shininess: 90, transparent: true, opacity: 0.93,
+  }));
+  mesh.position.set(p.x, y + 1.05, p.z);
+  scene.add(mesh);
+  const plinth = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.55, 0.62, 14), matHousing);
+  plinth.position.set(p.x, y + 0.31, p.z);
+  plinth.castShadow = plinth.receiveShadow = true;
+  scene.add(plinth);
+  const emitter = { pos: new THREE.Vector3(p.x, y + 1.05, p.z), color: new THREE.Color(spec.color), intensity: 7, on: true };
+  emitters.push(emitter);
+  props.crystals.push({ ...spec, lev: l, cell: [r, c], pos: p.clone().setY(y), mesh, emitter, taken: false, home: y + 1.05 });
+}
+for (let l = 0; l < NLEV; l++) for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+  if (at(l, r, c) !== 'P') continue;
+  const p = cellCentre(r, c), y = levelY(l);
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.85, 0.09, 8, 28), matHousing);
+  ring.rotation.x = Math.PI / 2;
+  ring.position.set(p.x, y + 0.12, p.z);
+  const disc = new THREE.Mesh(new THREE.CircleGeometry(0.82, 28),
+    new THREE.MeshPhongMaterial({ color: 0x202020, emissive: 0x000000, transparent: true, opacity: 0.9 }));
+  disc.rotation.x = -Math.PI / 2;
+  disc.position.set(p.x, y + 0.14, p.z);
+  scene.add(ring, disc);
+  const emitter = { pos: new THREE.Vector3(p.x, y + 0.8, p.z), color: new THREE.Color(0xffffff), intensity: 0, on: false };
+  emitters.push(emitter);
+  props.portals.push({ lev: l, cell: [r, c], pos: p.clone().setY(y), ring, disc, emitter, active: false });
+}
+
+/* ---- hub pedestals ----------------------------------------------------- */
+const hubCentre = cellCentre((HUB.r1 + HUB.r2) / 2, (HUB.c1 + HUB.c2) / 2);
+for (let i = 0; i < 6; i++) {
+  const a = (i / 6) * Math.PI * 2 - Math.PI / 2;
+  const x = hubCentre.x + Math.cos(a) * 8.6, z = hubCentre.z + Math.sin(a) * 8.6;
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.48, 1.02, 16), matHousing);
+  base.position.set(x, 0.51, z);
+  base.castShadow = base.receiveShadow = true;
+  hubFloor.add(base);          // rides the lift; scene-parented it would be left behind
+  const gem = new THREE.Mesh(crystalGeo, new THREE.MeshPhongMaterial({
+    color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 1,
+    specular: 0xffffff, shininess: 90, transparent: true, opacity: 0.95,
+  }));
+  gem.position.set(x, 1.42, z);
+  gem.visible = false;
+  scene.add(gem);
+  const emitter = { pos: new THREE.Vector3(x, 1.42, z), color: new THREE.Color(0xffffff), intensity: 0, on: false };
+  emitters.push(emitter);
+  props.pedestals.push({ pos: new THREE.Vector3(x, 0, z), gem, emitter, filled: null });
+}
+const hubLamp = new THREE.PointLight(0xdfe6f2, 11, 34, 1.1);
+hubLamp.position.set(hubCentre.x, WALL_H - 0.5, hubCentre.z);
+hubFloor.add(hubLamp);         // ditto, so the platform stays lit as it climbs
+
+/* ============================================================ AUDIO */
+let actx = null;
+const audio = () => (actx ||= new (window.AudioContext || window.webkitAudioContext)());
+function blip(freq, dur, type = 'square', gain = 0.06) {
+  try {
+    const a = audio(), o = a.createOscillator(), g = a.createGain();
+    o.type = type; o.frequency.value = freq;
+    g.gain.setValueAtTime(gain, a.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.0001, a.currentTime + dur);
+    o.connect(g).connect(a.destination);
+    o.start(); o.stop(a.currentTime + dur);
+  } catch (e) { /* audio is a nicety, never fatal */ }
+}
+const sfx = {
+  click: () => blip(880, 0.07, 'square', 0.05),
+  hum:   () => { blip(120, 0.55, 'sawtooth', 0.035); setTimeout(() => blip(240, 0.4, 'sine', 0.03), 60); },
+  door:  () => { blip(70, 0.9, 'sawtooth', 0.05); setTimeout(() => blip(52, 0.7, 'square', 0.03), 220); },
+  take:  () => { blip(660, 0.12, 'sine', 0.06); setTimeout(() => blip(990, 0.16, 'sine', 0.05), 90); },
+  place: () => { [523, 659, 784].forEach((f, i) => setTimeout(() => blip(f, 0.5, 'sine', 0.05), i * 130)); },
+  warp:  () => { [1200, 900, 600, 400].forEach((f, i) => setTimeout(() => blip(f, 0.25, 'sine', 0.05), i * 70)); },
+  land:  () => { blip(58, 0.22, 'square', 0.07); setTimeout(() => blip(95, 0.14, 'sine', 0.04), 40); },
+  finale:() => { [523, 659, 784, 1046].forEach((f, i) => setTimeout(() => blip(f, 1.6, 'sine', 0.06), i * 300)); },
+};
+
+/* ============================================================ PLAYER */
+const startCell = (() => {
+  for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) if (at(0, r, c) === 'S') return [r, c];
+  return [Math.floor(ROWS / 2), Math.floor(COLS / 2)];
+})();
+const player = {
+  pos: cellCentre(startCell[0], startCell[1]).setY(EYE),
+  lev: 0,
+  yaw: 0,
+  pitch: 0,
+  vel: new THREE.Vector3(),
+  yawVel: 0,
+  pitchVel: 0,
+  walked: 0,                  // distance travelled, drives the torch sway
+  falling: false,
+  vy: 0,
+  battery: BAT_MAX,
+  carrying: null,
+  placed: 0,
+};
+let camTilt = 0;
+let riseY = 0;                  // elevator offset during the finale
+let landJolt = 0, landJoltVel = 0;   // damped spring, runs on landing
+
+const keys = new Set();
+let started = false, ending = 0, endTime = 0, endShown = false;
+
+addEventListener('keydown', (e) => {
+  keys.add(e.code);
+  if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault();
+  if (e.code === 'KeyE' || e.code === 'Space') interact();
+});
+addEventListener('keyup', (e) => keys.delete(e.code));
+
+const startScreen = document.getElementById('startscreen');
+startScreen.addEventListener('click', () => {
+  startScreen.classList.add('hidden');
+  started = true;
+  audio();
+  renderer.domElement.requestPointerLock?.();
+});
+renderer.domElement.addEventListener('click', () => {
+  if (started && !ending) renderer.domElement.requestPointerLock?.();
+});
+// Mouse writes both axes directly — it is already an analog device, and easing
+// it reads as lag rather than weight. The keys get the eased treatment instead.
+addEventListener('mousemove', (e) => {
+  if (document.pointerLockElement !== renderer.domElement || !started || ending) return;
+  player.yaw -= e.movementX * LOOK_MOUSE;
+  player.pitch = Math.max(-PITCH_MAX, Math.min(PITCH_MAX, player.pitch - e.movementY * LOOK_MOUSE));
+});
+
+/* ---- collision ---------------------------------------------------------- */
+const doorAtCell = new Map(props.doors.map((d) => [`${d.lev},${d.cell[0]},${d.cell[1]}`, d]));
+// Two balconies have a gap in the parapet. The void beyond them is walkable —
+// you step off it and fall — where every other void is a wall you bump into.
+const dropOpen = new Set(DROP_POINTS.map((d) => `${d.lev},${d.into[0]},${d.into[1]}`));
+
+function isSolid(l, r, c) {
+  const ch = at(l, r, c);
+  if (ch === VOID) return !dropOpen.has(`${l},${r},${c}`);
+  if (ch === '#') return true;
+  if (DOORCH.includes(ch)) {
+    const d = doorAtCell.get(`${l},${r},${c}`);
+    return d ? !d.open : true;
+  }
+  return false;
+}
+function collide(pos, lev) {
+  const c0 = Math.floor((pos.x - RADIUS) / CELL), c1 = Math.floor((pos.x + RADIUS) / CELL);
+  const r0 = Math.floor((pos.z - RADIUS) / CELL), r1 = Math.floor((pos.z + RADIUS) / CELL);
+  for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) {
+    if (!isSolid(lev, r, c)) continue;
+    const x0 = c * CELL, x1 = x0 + CELL, z0 = r * CELL, z1 = z0 + CELL;
+    const nx = Math.max(x0, Math.min(pos.x, x1));
+    const nz = Math.max(z0, Math.min(pos.z, z1));
+    const dx = pos.x - nx, dz = pos.z - nz;
+    const d2 = dx * dx + dz * dz;
+    if (d2 > RADIUS * RADIUS) continue;
+    if (d2 > 1e-9) {
+      const d = Math.sqrt(d2), push = RADIUS - d;
+      pos.x += (dx / d) * push;
+      pos.z += (dz / d) * push;
+    } else {
+      const l = pos.x - x0, rr = x1 - pos.x, t = pos.z - z0, b = z1 - pos.z;
+      const m = Math.min(l, rr, t, b);
+      if (m === l) pos.x = x0 - RADIUS;
+      else if (m === rr) pos.x = x1 + RADIUS;
+      else if (m === t) pos.z = z0 - RADIUS;
+      else pos.z = z1 + RADIUS;
+    }
+  }
+}
+const cellOf = (pos) => [Math.floor(pos.z / CELL), Math.floor(pos.x / CELL)];
+
+/* ============================================================ MINIMAP
+   A chart you fill in, not one you are given: only the hub, rooms whose
+   lights you switched on, and tunnels within three cells of those. The level
+   you are on is drawn solid; the others sit behind it, faint, so the vertical
+   structure is legible without swamping where you actually are.            */
+const MM_PX = 280, MM_REVEAL = 3;
+const mmCanvas = document.getElementById('minimap');
+const mmCtx = mmCanvas.getContext('2d');
+{
+  const dpr = Math.min(devicePixelRatio, 2);
+  mmCanvas.width = MM_PX * dpr;
+  mmCanvas.height = MM_PX * dpr;
+  mmCtx.scale(dpr, dpr);
+}
+const MM_S = MM_PX / COLS;
+const mmX = (col) => col * MM_S;
+const mmY = (row) => row * MM_S;
+
+const revealed = new Set();
+const mmSegments = [[], [], []];
+
+function revealFrom(lev, seeds, radius) {
+  const seen = new Set();
+  const q = [];
+  for (const s of seeds) {
+    const k = `${lev},${s[0]},${s[1]}`;
+    seen.add(k); revealed.add(k); q.push([s[0], s[1], 0]);
+  }
+  for (let head = 0; head < q.length; head++) {
+    const [r, c, d] = q[head];
+    if (d >= radius) continue;
+    for (const [dr, dc] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
+      const nr = r + dr, nc = c + dc, k = `${lev},${nr},${nc}`;
+      if (seen.has(k) || !isWalkableChar(at(lev, nr, nc))) continue;
+      seen.add(k); revealed.add(k);
+      const ch = at(lev, nr, nc);
+      if (DOORCH.includes(ch) && !doorAtCell.get(k)?.open) continue;
+      q.push([nr, nc, d + 1]);
+    }
+  }
+}
+function rebuildReveal() {
+  revealed.clear();
+  const hubSeeds = [];
+  for (let r = HUB.r1; r <= HUB.r2; r++) for (let c = HUB.c1; c <= HUB.c2; c++) hubSeeds.push([r, c]);
+  revealFrom(0, hubSeeds, MM_REVEAL);
+  for (const room of props.switches) if (room.on) revealFrom(room.lev, room.cells, MM_REVEAL);
+  // Pressing a button puts that spot on the chart, and opening a door puts the
+  // door on it — so a button you found tells you where you found it, and which
+  // door it answers to.
+  // A button you pressed puts its surroundings on the chart — you stood there.
+  // The door it answers does NOT: you get a marker telling you where it is, but
+  // none of the floor plan around it, so you still have to find your way over.
+  for (const b of props.buttons) if (b.pressed) revealFrom(b.lev, [b.cell], MM_REVEAL);
+
+  for (let l = 0; l < NLEV; l++) mmSegments[l] = [];
+  for (const key of revealed) {
+    const [l, r, c] = key.split(',').map(Number);
+    // an edge is drawn only against solid rock; open-but-unrevealed is left
+    // open, so known corridors trail off rather than ending in a false wall
+    if (at(l, r - 1, c) === '#') mmSegments[l].push([c, r, c + 1, r]);
+    if (at(l, r + 1, c) === '#') mmSegments[l].push([c, r + 1, c + 1, r + 1]);
+    if (at(l, r, c - 1) === '#') mmSegments[l].push([c, r, c, r + 1]);
+    if (at(l, r, c + 1) === '#') mmSegments[l].push([c + 1, r, c + 1, r + 1]);
+  }
+}
+function drawMinimap() {
+  const g = mmCtx;
+  g.clearRect(0, 0, MM_PX, MM_PX);
+
+  for (let l = 0; l < NLEV; l++) {
+    const here = l === player.lev;
+    g.strokeStyle = here ? 'rgba(240,240,240,.85)' : 'rgba(150,170,190,.22)';
+    g.lineWidth = here ? 1 : 0.7;
+    g.beginPath();
+    for (const [x1, y1, x2, y2] of mmSegments[l]) {
+      g.moveTo(mmX(x1), mmY(y1));
+      g.lineTo(mmX(x2), mmY(y2));
+    }
+    g.stroke();
+  }
+
+  // stairs you know about, so the way up reads on the chart
+  g.strokeStyle = 'rgba(150,220,255,.8)';
+  g.lineWidth = 1.4;
+  for (const s of stairs) {
+    if (!revealed.has(`${s.lo},${s.cells[0][0]},${s.cells[0][1]}`)
+      && !revealed.has(`${s.lo + 1},${s.cells[0][0]},${s.cells[0][1]}`)) continue;
+    g.beginPath();
+    for (const [r, c] of s.cells) {
+      g.moveTo(mmX(c + 0.2), mmY(r + 0.5));
+      g.lineTo(mmX(c + 0.8), mmY(r + 0.5));
+    }
+    g.stroke();
+  }
+
+  // Buttons you have pressed, numbered so you can pair each with its door.
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  for (const b of props.buttons) {
+    if (!b.pressed) continue;
+    const p = cellCentre(b.cell[0], b.cell[1]);
+    const x = mmX(p.x / CELL), y = mmY(p.z / CELL);
+    const here = b.lev === player.lev;
+    g.fillStyle = here ? 'rgba(255,206,90,.95)' : 'rgba(255,206,90,.30)';
+    g.fillRect(x - 2.5, y - 2.5, 5, 5);
+    g.font = `${here ? 'bold ' : ''}9px ui-monospace, monospace`;
+    g.fillText(String(b.id), x + 6, y - 6);
+  }
+
+  // Doors. An opened one is marked wherever it is, even across unexplored
+  // ground — you learn where it is, not the way there. No floor label: a marker
+  // on a level you are not on is drawn faint like the rest of that level, so
+  // position alone says which storey to go looking on.
+  for (const d of props.doors) {
+    const known = d.open || revealed.has(`${d.lev},${d.cell[0]},${d.cell[1]}`);
+    if (!known) continue;
+    const p = cellCentre(d.cell[0], d.cell[1]);
+    const x = mmX(p.x / CELL), y = mmY(p.z / CELL);
+    const here = d.lev === player.lev;
+    const fade = here ? 1 : 0.32;
+    g.strokeStyle = d.open ? `rgba(255,196,68,${0.95 * fade})` : `rgba(150,150,150,${0.75 * fade})`;
+    g.lineWidth = d.open ? 1.8 : 2.2;
+    const half = MM_S * 0.34;
+    const alongZ = at(d.lev, d.cell[0] - 1, d.cell[1]) === '#' && at(d.lev, d.cell[0] + 1, d.cell[1]) === '#';
+    g.beginPath();
+    if (alongZ) { g.moveTo(x, y - half); g.lineTo(x, y + half); }
+    else { g.moveTo(x - half, y); g.lineTo(x + half, y); }
+    g.stroke();
+
+    if (d.open) {
+      g.fillStyle = `rgba(255,206,90,${0.98 * fade})`;
+      g.font = `${here ? 'bold ' : ''}9px ui-monospace, monospace`;
+      g.fillText(String(d.id), x + 6, y - 6);
+    }
+  }
+
+  for (const p of props.pedestals) {
+    if (!p.filled) continue;
+    g.fillStyle = '#' + p.filled.color.toString(16).padStart(6, '0');
+    g.beginPath();
+    g.arc(mmX(p.pos.x / CELL), mmY(p.pos.z / CELL), 3, 0, Math.PI * 2);
+    g.fill();
+  }
+
+  if (player.carrying) {
+    const hex = '#' + player.carrying.color.toString(16).padStart(6, '0');
+    const cx = mmX(player.pos.x / CELL), cy = mmY(player.pos.z / CELL);
+    g.save();
+    g.shadowColor = hex; g.shadowBlur = 9;
+    g.strokeStyle = hex; g.lineWidth = 2;
+    g.beginPath(); g.arc(cx, cy, 7, 0, Math.PI * 2); g.stroke();
+    g.restore();
+  }
+
+  const px = mmX(player.pos.x / CELL), py = mmY(player.pos.z / CELL);
+  const fx = -Math.sin(player.yaw), fy = -Math.cos(player.yaw);
+  g.fillStyle = '#ffffff';
+  g.beginPath();
+  g.moveTo(px + fx * 5.2, py + fy * 5.2);
+  g.lineTo(px - fx * 2.6 - fy * 3.1, py - fy * 2.6 + fx * 3.1);
+  g.lineTo(px - fx * 2.6 + fy * 3.1, py - fy * 2.6 - fx * 3.1);
+  g.closePath();
+  g.fill();
+}
+
+/* ============================================================ HUD */
+const el = {
+  batfill: document.getElementById('batfill'),
+  batpct: document.getElementById('batpct'),
+  battery: document.getElementById('battery'),
+  tracker: document.getElementById('tracker'),
+  carried: document.getElementById('carried'),
+  carriedname: document.getElementById('carriedname'),
+  prompt: document.getElementById('prompt'),
+  message: document.getElementById('message'),
+  banner: document.getElementById('banner'),
+  levelbadge: document.getElementById('levelbadge'),
+  endscreen: document.getElementById('endscreen'),
+};
+const slots = CRYSTALS.map(() => {
+  const d = document.createElement('div');
+  d.className = 'slot';
+  el.tracker.appendChild(d);
+  return d;
+});
+let msgTimer = 0, bannerTimer = 0;
+function say(text, secs = 3.2) {
+  el.message.textContent = text;
+  el.message.classList.add('on');
+  msgTimer = secs;
+}
+function announce(text, colorHex, secs = 4.8) {
+  el.banner.textContent = text;
+  el.banner.style.color = colorHex;
+  el.banner.classList.add('on');
+  bannerTimer = secs;
+}
+const COMPASS = ['north', 'north-east', 'east', 'south-east', 'south', 'south-west', 'west', 'north-west'];
+function bearing(from, to) {
+  const a = Math.atan2(to.x - from.x, -(to.z - from.z));
+  return COMPASS[Math.round(((a + Math.PI * 2) % (Math.PI * 2)) / (Math.PI / 4)) % 8];
+}
+
+/* ============================================================ INTERACTION */
+function nearestTarget() {
+  let best = null, bestD = REACH * REACH;
+  const consider = (obj, pos, kind) => {
+    if (obj.lev !== undefined && obj.lev !== player.lev) return;
+    const d = pos.distanceToSquared(player.pos.clone().setY(pos.y));
+    if (d < bestD) { bestD = d; best = { obj, kind }; }
+  };
+  for (const s of props.switches) if (!s.on) consider(s, s.pos, 'switch');
+  for (const b of props.buttons) if (!b.pressed) consider(b, b.pos, 'button');
+  for (const c of props.crystals) if (!c.taken) consider(c, c.pos, 'crystal');
+  for (const p of props.portals) if (p.active) consider(p, p.pos, 'portal');
+  if (player.carrying) {
+    for (const p of props.pedestals) if (!p.filled) {
+      if (player.lev !== 0) continue;
+      const d = p.pos.distanceToSquared(player.pos.clone().setY(0));
+      if (d < bestD) { bestD = d; best = { obj: p, kind: 'pedestal' }; }
+    }
+  }
+  return best;
+}
+
+function interact() {
+  if (!started || ending) return;
+  const t = nearestTarget();
+  if (!t) return;
+
+  if (t.kind === 'switch') {
+    t.obj.on = true;
+    for (const f of t.obj.fixtures) { f.emitter.on = true; f.tube.material = matFixOn; }
+    if (t.obj.mesh.userData.rocker) t.obj.mesh.userData.rocker.position.y = -0.12;
+    sfx.hum();
+    rebuildReveal();
+    say('the lights come up — this room is on your map now');
+  }
+
+  else if (t.kind === 'button') {
+    t.obj.pressed = true;
+    const door = props.doors.find((d) => d.id === t.obj.id);
+    if (door && !door.open) {
+      door.open = true;
+      door.face.emissive.setHex(0xffc23a);
+      sfx.door();
+      rebuildReveal();
+      const dp = cellCentre(door.cell[0], door.cell[1]);
+      const where = door.lev === player.lev ? `${bearing(player.pos, dp)} of here`
+        : door.lev > player.lev ? `${bearing(player.pos, dp)}, and ${door.lev - player.lev} level up`
+        : `${bearing(player.pos, dp)}, and ${player.lev - door.lev} level down`;
+      say(`door ${door.id} swings open — ${where}`, 4.6);
+    }
+    if (t.obj.mesh.userData.knob) t.obj.mesh.userData.knob.position.z = 0.03;
+    sfx.click();
+  }
+
+  else if (t.kind === 'crystal') {
+    if (player.carrying) { say('your hands are already full'); return; }
+    t.obj.taken = true;
+    t.obj.mesh.visible = false;
+    t.obj.emitter.on = false;
+    player.carrying = t.obj;
+    carriedMesh.material.color.setHex(t.obj.color);
+    carriedMesh.material.emissive.setHex(t.obj.color);
+    carriedMesh.visible = true;
+    carriedEmitter.color.setHex(t.obj.color);
+    carriedEmitter.on = true;
+    el.carried.classList.add('on');
+    el.carriedname.textContent = t.obj.name;
+    sfx.take();
+    announce(`Congratulations, you've discovered the ${t.obj.name} CRYSTAL`,
+             '#' + t.obj.color.toString(16).padStart(6, '0'));
+
+    // wake the portal beside it — the way home, so the long walk out is the
+    // journey and the retrace never is
+    const near = props.portals
+      .filter((p) => p.lev === t.obj.lev)
+      .sort((a, b) => a.pos.distanceToSquared(t.obj.pos) - b.pos.distanceToSquared(t.obj.pos))[0];
+    if (near && !near.active) {
+      near.active = true;
+      near.emitter.on = true;
+      near.emitter.intensity = 16;
+      near.emitter.color.setHex(t.obj.color);
+      near.disc.material.emissive.setHex(t.obj.color);
+    }
+    say('the portal beside it has woken — step in to return', 5);
+  }
+
+  else if (t.kind === 'portal') {
+    player.pos.set(hubCentre.x, EYE, hubCentre.z + 4);
+    player.lev = 0;
+    player.vel.set(0, 0, 0);
+    sfx.warp();
+    say('back at the centre', 3.4);
+  }
+
+  else if (t.kind === 'pedestal') {
+    const crystal = player.carrying;
+    t.obj.filled = crystal;
+    t.obj.gem.visible = true;
+    t.obj.gem.material.color.setHex(crystal.color);
+    t.obj.gem.material.emissive.setHex(crystal.color);
+    t.obj.emitter.color.setHex(crystal.color);
+    t.obj.emitter.intensity = 26;
+    t.obj.emitter.on = true;
+    player.carrying = null;
+    carriedMesh.visible = false;
+    carriedEmitter.on = false;
+    el.carried.classList.remove('on');
+    const i = CRYSTALS.findIndex((c) => c.id === crystal.id);
+    slots[i].classList.add('set');
+    slots[i].style.background = '#' + crystal.color.toString(16).padStart(6, '0');
+    slots[i].style.boxShadow = '0 0 13px #' + crystal.color.toString(16).padStart(6, '0');
+    player.placed++;
+    sfx.place();
+    if (player.placed === 6) beginEnding();
+    else say(`${player.placed} of 6 set — ${6 - player.placed} still out there`, 4);
+  }
+}
+
+const carriedMesh = new THREE.Mesh(crystalGeo, new THREE.MeshPhongMaterial({
+  color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 0.9,
+  specular: 0xffffff, shininess: 90, transparent: true, opacity: 0.95,
+}));
+const HELD = new THREE.Vector3(-0.72, -0.54, -1.8);
+carriedMesh.position.copy(HELD);
+carriedMesh.scale.setScalar(0.4);
+carriedMesh.visible = false;
+camera.add(carriedMesh);
+const carriedEmitter = { pos: new THREE.Vector3(), color: new THREE.Color(0xffffff), intensity: 6, on: false };
+emitters.push(carriedEmitter);
+
+/* ============================================================ ENDING */
+function beginEnding() {
+  ending = 1; endTime = 0;
+  document.exitPointerLock?.();
+  sfx.finale();
+  say('they are one', 5);
+}
+const endLight = new THREE.PointLight(0xffffff, 0, 120, 0.8);
+endLight.position.set(hubCentre.x, 3.0, hubCentre.z);
+scene.add(endLight);
+
+function updateEnding(dt) {
+  endTime += dt;
+  if (ending === 1) {
+    const k = Math.min(1, endTime / 4.5);
+    const e = k * k * (3 - 2 * k);
+    for (const p of props.pedestals) {
+      if (!p.filled) continue;
+      p.gem.position.lerpVectors(
+        new THREE.Vector3(p.pos.x, 1.42, p.pos.z),
+        new THREE.Vector3(hubCentre.x, 3.0, hubCentre.z), e);
+      p.emitter.pos.copy(p.gem.position);
+      p.emitter.color.lerp(new THREE.Color(0xffffff), dt * 0.55);
+    }
+    endLight.intensity = e * 55;
+    if (endTime > 4.5) { ending = 2; endTime = 0; }
+  } else if (ending === 2) {
+    for (const p of props.pedestals) if (p.filled) p.gem.visible = false;
+    endLight.intensity = 55 + Math.sin(endTime * 5) * 10;
+    hubLamp.color.lerp(new THREE.Color(0xffffff), dt * 2);
+    hubLamp.intensity += dt * 22;
+    scene.fog.density = Math.max(0.005, scene.fog.density - dt * 0.014);
+    if (endTime > 1.9) { ending = 3; endTime = 0; }
+  } else if (ending === 3) {
+    const k = Math.min(1, endTime / 9);
+    riseY = k ** 1.7 * 58;
+    hubFloor.position.y = riseY;
+    endLight.position.y = 3.0 + riseY;
+    for (const p of props.pedestals) p.emitter.pos.y = 1.42 + riseY;
+    endLight.intensity = 55 + riseY * 3.2;
+    // the one place the camera leaves level: a glance down at what you escaped
+    camTilt = -Math.sin(Math.min(1, endTime / 7) * Math.PI) * 0.55;
+    if (endTime > 4.5 && !endShown) {
+      endShown = true;
+      el.endscreen.classList.remove('hidden');
+      setTimeout(() => el.endscreen.classList.add('lit'), 60);
+    }
+    if (k >= 1) ending = 4;
+  }
+}
+
+/* ============================================================ LOOP */
+const clock = new THREE.Clock();
+const tmp = new THREE.Vector3();
+
+function litHere() {
+  const [r, c] = cellOf(player.pos);
+  if (inHub(player.lev, r, c)) return true;
+  return roomOf.get(`${player.lev},${r},${c}`)?.on === true;
+}
+function assignPool() {
+  const live = [];
+  for (const e of emitters) {
+    if (!e.on || e.intensity <= 0) continue;
+    live.push([e, e.pos.distanceToSquared(player.pos)]);
+  }
+  live.sort((a, b) => a[1] - b[1]);
+  for (let i = 0; i < POOL_SIZE; i++) {
+    const l = pool[i];
+    if (i < live.length) {
+      const e = live[i][0];
+      l.position.copy(e.pos);
+      l.color.copy(e.color);
+      l.intensity = e.intensity;
+    } else l.intensity = 0;
+  }
+}
+
+function tick() {
+  requestAnimationFrame(tick);
+  const dt = Math.min(0.05, clock.getDelta());
+  const now = clock.elapsedTime;
+
+  if (started && !ending) {
+    let turn = 0;
+    if (keys.has('ArrowLeft')) turn += 1;
+    if (keys.has('ArrowRight')) turn -= 1;
+    player.yawVel += (turn * TURN_RATE - player.yawVel) * (1 - Math.exp(-TURN_ACCEL * dt));
+    player.yaw += player.yawVel * dt;
+
+    // Pitch uses the same eased model as turning, so looking up at a walkway
+    // has the same weight as turning toward one.
+    let look = 0;
+    if (keys.has('ArrowUp')) look += 1;
+    if (keys.has('ArrowDown')) look -= 1;
+    player.pitchVel += (look * PITCH_RATE - player.pitchVel) * (1 - Math.exp(-PITCH_ACCEL * dt));
+    player.pitch += player.pitchVel * dt;
+    if (player.pitch > PITCH_MAX || player.pitch < -PITCH_MAX) {
+      player.pitch = Math.max(-PITCH_MAX, Math.min(PITCH_MAX, player.pitch));
+      player.pitchVel = 0;                 // otherwise it winds up against the stop
+    }
+
+    let fwd = 0, strafe = 0;
+    if (keys.has('KeyW')) fwd += 1;
+    if (keys.has('KeyS')) fwd -= 1;
+    if (keys.has('KeyD')) strafe += 1;
+    if (keys.has('KeyA')) strafe -= 1;
+
+    const [pr, pc] = cellOf(player.pos);
+    const wading = at(player.lev, pr, pc) === '~';
+    let wantX = 0, wantZ = 0;
+    if (fwd || strafe) {
+      let speed = (keys.has('ShiftLeft') || keys.has('ShiftRight')) ? RUN : WALK;
+      if (wading) speed *= WADE;
+      const len = Math.hypot(fwd, strafe);
+      const sin = Math.sin(player.yaw), cos = Math.cos(player.yaw);
+      wantX = (-sin * fwd + cos * strafe) / len * speed;
+      wantZ = (-cos * fwd - sin * strafe) / len * speed;
+    }
+    const k = 1 - Math.exp(-((fwd || strafe) ? ACCEL : DECEL) * dt);
+    player.vel.x += (wantX - player.vel.x) * k;
+    player.vel.z += (wantZ - player.vel.z) * k;
+
+    if (player.vel.lengthSq() > 1e-6) {
+      player.walked += player.vel.length() * dt;      // drives the torch sway
+      player.pos.x += player.vel.x * dt;
+      player.pos.z += player.vel.z * dt;
+      tmp.copy(player.pos);
+      collide(player.pos, player.lev);
+      const pushX = player.pos.x - tmp.x, pushZ = player.pos.z - tmp.z;
+      if (pushX * pushX + pushZ * pushZ > 1e-9) {
+        const inv = 1 / Math.hypot(pushX, pushZ);
+        const nx = pushX * inv, nz = pushZ * inv;
+        const into = player.vel.x * nx + player.vel.z * nz;
+        if (into < 0) { player.vel.x -= nx * into; player.vel.z -= nz * into; }
+      }
+    }
+
+    /* height: nothing ever snaps downward. Any drop past a kerb becomes a
+       real fall under gravity — off a balcony, off the side of a stair flight,
+       off anything — and you land with a jolt scaled by how hard you hit. */
+    const [cr, cc] = cellOf(player.pos);
+    const here = groundUnder(cr, cc, player.pos.x, player.pos.z, player.lev);
+
+    if (!player.falling) {
+      const footY = player.pos.y - EYE;
+      if (!here || here.y < footY - STEP_DOWN) {
+        player.falling = true;                 // ground fell away, or a real drop
+        player.vy = 0;
+      }
+    }
+
+    if (player.falling) {
+      // Anchor the search to where the feet were BEFORE this step. A window
+      // measured from the new position is narrower than the distance a fast
+      // fall covers in one frame, and you drop straight through the floor.
+      const prevFoot = player.pos.y - EYE;
+      player.vy -= GRAVITY * dt;
+      player.pos.y += player.vy * dt;
+      const land = groundUnder(cr, cc, player.pos.x, player.pos.z, null, prevFoot + 0.25);
+      // never let a fall run away if a cell has nothing walkable at all
+      if (!land && player.pos.y - EYE < -3) {
+        player.pos.y = EYE; player.lev = 0; player.falling = false; player.vy = 0;
+      }
+      if (land && player.pos.y - EYE <= land.y) {
+        player.pos.y = land.y + EYE;
+        player.lev = land.lev;
+        player.falling = false;
+        // damped spring: knees give, then push back with a little overshoot
+        landJoltVel = -Math.min(4.2, Math.abs(player.vy) * 0.42);
+        player.vy = 0;
+        sfx.land();
+      }
+    } else {
+      let floorY = here.y;
+      player.lev = here.lev;
+      if (at(player.lev, cr, cc) === '~') floorY -= 0.12;   // sunk slightly in water
+      player.pos.y = floorY + EYE;
+    }
+  }
+
+  // The jolt runs whether or not you are in control, so a landing during the
+  // finale still reads.
+  if (landJolt !== 0 || landJoltVel !== 0) {
+    landJoltVel += (-landJolt * 62 - landJoltVel * 9.5) * dt;
+    landJolt += landJoltVel * dt;
+    if (Math.abs(landJolt) < 0.002 && Math.abs(landJoltVel) < 0.01) { landJolt = 0; landJoltVel = 0; }
+  }
+
+  if (started && !ending) {
+
+    const charging = litHere();
+    player.battery += charging ? BAT_CHARGE * dt : -BAT_DRAIN * dt;
+    player.battery = Math.max(0, Math.min(BAT_MAX, player.battery));
+    const b = player.battery / BAT_MAX;
+    const power = b > 0.28 ? 1 : 0.1 + (b / 0.28) * 0.9;
+    torch.intensity = 46 * power;
+    torchFill.intensity = 2.4 * power;
+    el.batfill.style.width = (b * 100).toFixed(1) + '%';
+    el.batpct.textContent = Math.round(b * 100) + '%';
+    el.battery.className = charging ? 'charging' : b < 0.15 ? 'critical' : b < 0.35 ? 'low' : '';
+    el.levelbadge.textContent = 'LEVEL ' + player.lev;
+
+    const t2 = nearestTarget();
+    if (t2) {
+      const verb = t2.kind === 'switch' ? 'turn on the lights'
+        : t2.kind === 'button' ? `open door ${t2.obj.id}`
+        : t2.kind === 'crystal' ? `take the ${t2.obj.name.toLowerCase()} crystal`
+        : t2.kind === 'portal' ? 'step through to the centre'
+        : 'set the crystal down';
+      el.prompt.innerHTML = `<b>E</b> &nbsp;${verb}`;
+      el.prompt.classList.add('on');
+    } else el.prompt.classList.remove('on');
+  }
+
+  if (ending) updateEnding(dt);
+
+  for (const d of props.doors) {
+    if (!d.open || d.t >= 1) continue;
+    d.t = Math.min(1, d.t + dt / 1.7);
+    const e = d.t * d.t * (3 - 2 * d.t);
+    d.pivot.rotation.y = d.base + d.sign * e * DOOR_SWING;
+  }
+
+  for (const c of props.crystals) {
+    if (c.taken) continue;
+    c.mesh.rotation.y = now * 0.9;
+    c.mesh.rotation.x = Math.sin(now * 0.7) * 0.25;
+    c.mesh.position.y = c.home + Math.sin(now * 1.5 + c.id) * 0.09;
+    c.emitter.pos.y = c.mesh.position.y;
+  }
+  for (const p of props.portals) {
+    if (!p.active) continue;
+    p.ring.rotation.z = now * 0.8;
+    p.emitter.intensity = 13 + Math.sin(now * 2.4) * 4;
+  }
+  for (const p of props.pedestals) {
+    if (p.filled && ending < 1) {
+      p.gem.rotation.y = now * 0.7;
+      p.gem.position.y = 1.42 + Math.sin(now * 1.3 + p.pos.x) * 0.07;
+      p.emitter.pos.y = p.gem.position.y;
+    }
+  }
+  carriedMesh.rotation.y = now * 1.5;
+  carriedMesh.rotation.x = now * 0.6;
+  if (carriedEmitter.on) carriedEmitter.pos.copy(camera.localToWorld(tmp.copy(HELD)));
+
+  texWater.offset.x = now * 0.014;
+  texWater.offset.y = now * 0.009;
+
+  camera.position.copy(player.pos);
+  if (ending >= 3) camera.position.y = EYE + riseY;
+  camera.position.y += landJolt;                  // the knees
+  // ease whatever the player was doing back to level so the finale's scripted
+  // glance-down is not fighting them
+  if (ending) player.pitch += (0 - player.pitch) * (1 - Math.exp(-2.5 * dt));
+  camera.rotation.set(player.pitch + camTilt, player.yaw, landJolt * 0.09);   // and a little roll
+  camera.updateMatrixWorld();
+
+  // Hand sway, and a beam that catches up rather than snapping. The target sits
+  // in world space, so it trails the view during a fast turn and settles after.
+  const bob = Math.sin(player.walked * 2.1) * TORCH_SWAY;
+  const roll = Math.cos(player.walked * 1.05) * TORCH_SWAY * 1.4;
+  torch.position.set(TORCH_HOME.x + roll, TORCH_HOME.y + bob, TORCH_HOME.z);
+  torchFill.position.copy(torch.position);
+  tmp.set(0, 0, -6).applyQuaternion(camera.quaternion).add(camera.position);
+  torch.target.position.lerp(tmp, 1 - Math.exp(-TORCH_LAG * dt));
+
+  assignPool();
+
+  if (msgTimer > 0) { msgTimer -= dt; if (msgTimer <= 0) el.message.classList.remove('on'); }
+  if (bannerTimer > 0) { bannerTimer -= dt; if (bannerTimer <= 0) el.banner.classList.remove('on'); }
+
+  drawMinimap();
+  renderer.render(scene, camera);
+}
+
+rebuildReveal();
+tick();
+
+/* Dev handle: `__maze.go(level, row, col)` teleports. */
+window.__maze = {
+  player, props, fixtures, emitters, pool, scene, camera, torch, renderer, stairs, CRYSTALS,
+  perf: () => ({ frame: renderer.info.render.frame, t: performance.now(),
+                 calls: renderer.info.render.calls, tris: renderer.info.render.triangles }),
+  state: () => ({ started, ending, level: player.lev }),
+  go(l, r, c) { const p = cellCentre(r, c); player.pos.set(p.x, levelY(l) + EYE, p.z); player.lev = l; },
+  face(deg) { player.yaw = deg * Math.PI / 180; },
+  tilt(deg) { camTilt = deg * Math.PI / 180; },   // inspection only; not a control
+  interact, isSolid, collide, cellCentre, cellOf, rebuildReveal, revealed,
+  finale(seconds = 0) { beginEnding(); for (let t = 0; t < seconds; t += 0.05) updateEnding(0.05); },
+  step(seconds) { for (let t = 0; t < seconds; t += 0.05) updateEnding(0.05); },
+};
+</script>
+</body>
+</html>
