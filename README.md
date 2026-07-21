@@ -195,6 +195,14 @@ code knows what "undo" means, and nothing has to detect proximity to a switch: i
 where you walked, so it arrives at everything you touched, exactly when you touched it
 plus the lag.
 
+**It carries a twin.** When it replays the moment you picked a crystal up, it picks up
+the negative of that crystal — same shape, lit from inside rather than glowing out — and
+carries it along your route. When it replays you setting it down, the real crystal goes
+back to the vault it came from, wherever it had got to. So every crystal you bring home
+is followed, minutes later, by the memory of you bringing it home, and you have until it
+arrives to put that memory out. Killing the carrier destroys the twin and the crystal is
+safe. It is the clearest reason the game gives you to hunt one down.
+
 **Lit rooms are sanctuary.** Its beam cannot take you in a room whose lights are on, or
 in the hub — which is precisely why its putting them out matters. If a beam does land on
 you, you are held for 1.9 seconds to see the torch that found you, and then every
@@ -208,6 +216,16 @@ cannot win. Killing one puts the clock back to 5:00, the only way to buy time.
 rooms down a corridor with its back to you, line it up, and it goes out — verified at
 10, 20, 45 and 75 metres, and blocked by a wall in between. This is deliberately the
 player's advantage, and the one thing you can do that it can never do back.
+
+Landing that shot used to be fiddly for three reasons, all of them fixed. The test used
+your head's yaw, but the beam is carried in your hand and lags behind where you look, so
+what you saw and what the test measured were different directions — it now aims from the
+torch at the torch's own world target. It was flat, so pointing at one on a stair or
+across an atrium threw the pitch away — it is a 3D cone now. And a miss was silent, with
+no way to tell "not quite on it" from "on it, but it is facing you, which can never
+work". Both states now draw a bracket round it: white while it is yours to take, red
+while it is looking back at you. A short dwell finishes the kill, so a beam sweeping past
+cannot clip one by luck.
 
 It also produces the sharpest bit of geometry in the game for free. Doubling back along
 your own route walks you straight into your past selves *face-on*, because they are
@@ -254,9 +272,16 @@ They all run off the same battery as the plain beam, which is what ties them to 
 of the game: a power is paid for in light, and light only comes back in a lit room — and
 the Anti-players are busy putting those out.
 
-**Portals remove the retrace.** Beside each crystal is a portal, dormant until you
-take it. Stepping through returns you to the hub. The outbound hunt across a maze this
-size is the game; walking the same route back would only be the tax on it.
+**Portals remove the retrace.** Beside each crystal is a portal, lit from the start —
+you can see it glowing through the grate before you have opened the gate. You do not
+press it; you walk into it, and it puts you back in the hub. The outbound hunt across a
+maze this size is the game; walking the same route back would only be the tax on it.
+
+**The crystal seats itself.** Carry one into the hub and it leaves your hands on its
+own, arcing up and spinning down onto its stand. And once a vault has been visited, its
+stand in the hub is the way back out to it — occupied or empty, since the crystal itself
+is the ticket. If the gate has since been shut behind you, the portal is still there to
+get you home.
 
 **Lights are pooled.** Three.js compiles the light count into its shaders, so adding
 lights during play would stall on a recompile. Instead a fixed pool of 14 `PointLight`s

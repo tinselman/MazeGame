@@ -1744,12 +1744,11 @@ for (let l = 0; l < NLEV; l++) for (let r = 0; r < ROWS; r++) for (let c = 0; c 
   const side = wallSide(l, r, c) || [0, 1];
   grp.position.set(p.x - side[1] * (CELL / 2 - 0.2), y + 1.45, p.z - side[0] * (CELL / 2 - 0.2));
   grp.rotation.y = Math.atan2(-side[1], -side[0]);
-  grp.visible = false;
   scene.add(grp);
 
-  const emitter = { pos: new THREE.Vector3(grp.position.x, y + 1.45, grp.position.z), color: new THREE.Color(0xbfe6ff), intensity: 0, on: false };
+  const emitter = { pos: new THREE.Vector3(grp.position.x, y + 1.45, grp.position.z), color: new THREE.Color(0xbfe6ff), intensity: 14, on: true };
   emitters.push(emitter);
-  props.portals.push({ lev: l, cell: [r, c], pos: p.clone().setY(y), grp, view, halo, emitter, active: false });
+  props.portals.push({ lev: l, cell: [r, c], pos: p.clone().setY(y), grp, view, halo, emitter, active: true });
 }
 
 /* ---- the chamber network -----------------------------------------------
@@ -2178,7 +2177,12 @@ function drawMinimap() {
     g.beginPath(); g.arc(ax, ay, here ? 3.8 : 2.6, 0, Math.PI * 2); g.fill();
     g.font = '9px ui-monospace, monospace';
     g.textAlign = 'left';
-    g.fillText(`F${a.tag}`, ax + 5.5, ay - 4);
+    g.fillText(a.carrying ? `F${a.tag}*` : `F${a.tag}`, ax + 5.5, ay - 4);
+    if (a.carrying) {                     // ringed while it is carrying a twin
+      g.strokeStyle = '#' + a.carrying.color.toString(16).padStart(6, '0');
+      g.lineWidth = 1.6;
+      g.beginPath(); g.arc(ax, ay, 6.5, 0, Math.PI * 2); g.stroke();
+    }
     g.restore();
   }
 
@@ -2269,7 +2273,6 @@ function nearestTarget() {
   }
   for (const b of props.buttons) consider(b, b.pos, 'button');   // toggles, so always offered
   for (const c of props.crystals) if (!c.taken) consider(c, c.pos, 'crystal');
-  for (const p of props.portals) if (p.active) consider(p, p.pos, 'portal');
   for (const c of props.crystals) {
     for (const lk of c.links || []) if (lk.live) consider(lk, lk.pos, 'link');
   }
@@ -2277,8 +2280,10 @@ function nearestTarget() {
     for (const p of props.pedestals) {
       // carrying: this is where that crystal goes. empty-handed: it is the way
       // back out to its vault, once that vault has been opened.
-      const usable = player.carrying ? (!p.filled && p.id === player.carrying.id)
-                                     : (!p.filled && visitedVault(p.id));
+      // Empty-handed, a stand is the way back out to its vault whether or not
+      // its crystal is sitting on it — the crystal itself is the ticket. With
+      // a crystal in hand it flies home on its own, so nothing to press.
+      const usable = player.carrying ? false : visitedVault(p.id);
       if (!usable) continue;
       const d = p.pos.distanceToSquared(player.pos.clone().setY(0));
       if (d < bestD) { bestD = d; best = { obj: p, kind: 'pedestal' }; }
@@ -2343,29 +2348,8 @@ function interact() {
     announce(`Congratulations, you've discovered the ${t.obj.name} CRYSTAL`,
              '#' + t.obj.color.toString(16).padStart(6, '0'));
 
-    // wake the portal beside it — the way home, so the long walk out is the
-    // journey and the retrace never is
-    const near = props.portals
-      .filter((p) => p.lev === t.obj.lev)
-      .sort((a, b) => a.pos.distanceToSquared(t.obj.pos) - b.pos.distanceToSquared(t.obj.pos))[0];
-    if (near && !near.active) {
-      near.active = true;
-      near.grp.visible = true;
-      near.emitter.on = true;
-      near.emitter.intensity = 14;
-    }
-    say('a way back to the centre has opened beside it', 5);
+    trailEvent('take', props.crystals.indexOf(t.obj));
     grantPower();                  // the vault's lamp, in the order you opened them
-  }
-
-  else if (t.kind === 'portal') {
-    player.pos.set(hubCentre.x, EYE, hubCentre.z + 4);
-    player.lev = 0;
-    player.vel.set(0, 0, 0);
-    player.falling = false;
-    sfx.warp();
-    trailSnap();
-    say('back at the centre', 3.4);
   }
 
   else if (t.kind === 'link') {
@@ -2374,34 +2358,47 @@ function interact() {
     }
   }
 
-  else if (t.kind === 'pedestal' && !player.carrying) {
+  else if (t.kind === 'pedestal') {
     if (warpToChamber(t.obj.id)) {
       announce(`the ${t.obj.spec.name} chamber`, '#' + t.obj.spec.color.toString(16).padStart(6, '0'), 3);
     }
   }
 
-  else if (t.kind === 'pedestal') {
-    const crystal = player.carrying;
-    t.obj.filled = crystal;
-    t.obj.gem.visible = true;
-    t.obj.gem.material.color.setHex(crystal.color);
-    t.obj.gem.material.emissive.setHex(crystal.color);
-    t.obj.emitter.color.setHex(crystal.color);
-    t.obj.emitter.intensity = 26;
-    t.obj.emitter.on = true;
-    player.carrying = null;
-    carriedMesh.visible = false;
-    carriedEmitter.on = false;
-    el.carried.classList.remove('on');
-    const i = CRYSTALS.findIndex((c) => c.id === crystal.id);
-    slots[i].classList.add('set');
-    slots[i].style.background = '#' + crystal.color.toString(16).padStart(6, '0');
-    slots[i].style.boxShadow = '0 0 13px #' + crystal.color.toString(16).padStart(6, '0');
-    player.placed++;
-    sfx.place();
-    if (player.placed === 6) beginEnding();
-    else say(`${player.placed} of 6 set — ${6 - player.placed} still out there`, 4);
-  }
+}
+
+function seatCrystal(crystal, ped) {
+  ped.filled = crystal;
+  ped.gem.visible = true;
+  ped.gem.material.color.setHex(crystal.color);
+  ped.gem.material.emissive.setHex(crystal.color);
+  ped.emitter.color.setHex(crystal.color);
+  ped.emitter.intensity = 26;
+  ped.emitter.on = true;
+  const i = CRYSTALS.findIndex((c) => c.id === crystal.id);
+  slots[i].classList.add('set');
+  slots[i].style.background = '#' + crystal.color.toString(16).padStart(6, '0');
+  slots[i].style.boxShadow = '0 0 13px #' + crystal.color.toString(16).padStart(6, '0');
+  player.placed++;
+  sfx.place();
+  trailEvent('seat', props.pedestals.indexOf(ped));
+  if (player.placed === 6) beginEnding();
+  else say(`${player.placed} of 6 set — ${6 - player.placed} still out there`, 4);
+}
+
+// Taken back off its stand — by an Anti-player delivering its twin, or by one
+// catching you. The crystal returns to the vault it came from.
+function unseatCrystal(ped) {
+  const c = ped.filled;
+  if (!c) return null;
+  ped.filled = null;
+  ped.gem.visible = false;
+  ped.emitter.on = false;
+  const i = CRYSTALS.findIndex((x) => x.id === c.id);
+  slots[i].classList.remove('set');
+  slots[i].style.background = ''; slots[i].style.boxShadow = '';
+  player.placed = Math.max(0, player.placed - 1);
+  c.taken = false; c.mesh.visible = true; c.emitter.on = true;
+  return c;
 }
 
 const carriedMesh = new THREE.Mesh(crystalGeo, new THREE.MeshPhongMaterial({
@@ -2415,6 +2412,58 @@ carriedMesh.visible = false;
 camera.add(carriedMesh);
 const carriedEmitter = { pos: new THREE.Vector3(), color: new THREE.Color(0xffffff), intensity: 6, on: false };
 emitters.push(carriedEmitter);
+
+/* ---- the crystal leaves your hands on its own ---------------------------
+   Step into the hub carrying one and it goes, rather than waiting for you to
+   find its stand and press a key. It arcs up out of your hands and down onto
+   the pedestal, spinning, and seats itself when it lands.                    */
+let warpCool = 0, flight = null;
+const flatDist2 = (a, b) => (a.x - b.x) ** 2 + (a.z - b.z) ** 2;
+const flyMesh = new THREE.Mesh(crystalGeo, new THREE.MeshPhongMaterial({
+  color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 1.1,
+  specular: 0xffffff, shininess: 90, transparent: true, opacity: 0.96,
+}));
+flyMesh.scale.setScalar(0.42);
+flyMesh.visible = false;
+scene.add(flyMesh);
+const flyEmitter = { pos: new THREE.Vector3(), color: new THREE.Color(0xffffff), intensity: 20, on: false };
+emitters.push(flyEmitter);
+
+function beginFlight() {
+  const crystal = player.carrying;
+  const ped = props.pedestals.find((p) => p.id === crystal.id && !p.filled);
+  if (!ped) return;                       // already seated: nothing to fly
+  player.carrying = null;
+  carriedMesh.visible = false;
+  carriedEmitter.on = false;
+  el.carried.classList.remove('on');
+  const from = carriedMesh.getWorldPosition(new THREE.Vector3());
+  flight = { crystal, ped, t: 0, from, to: new THREE.Vector3(ped.pos.x, 1.42, ped.pos.z) };
+  flyMesh.material.color.setHex(crystal.color);
+  flyMesh.material.emissive.setHex(crystal.color);
+  flyEmitter.color.setHex(crystal.color);
+  flyEmitter.on = true;
+  flyMesh.visible = true;
+  sfx.take();
+  say(`the ${crystal.name.toLowerCase()} crystal leaves your hands`, 3);
+}
+
+function stepFlight(dt) {
+  flight.t = Math.min(1, flight.t + dt / 1.15);
+  const k = flight.t, e = k * k * (3 - 2 * k);
+  flyMesh.position.lerpVectors(flight.from, flight.to, e);
+  flyMesh.position.y += Math.sin(e * Math.PI) * 1.5;      // an arc, not a slide
+  flyMesh.rotation.y += dt * 7;
+  flyMesh.rotation.x += dt * 3;
+  flyMesh.scale.setScalar(0.42 + Math.sin(e * Math.PI) * 0.22);
+  flyEmitter.pos.copy(flyMesh.position);
+  flyEmitter.intensity = 20 + Math.sin(e * Math.PI) * 22;
+  if (flight.t < 1) return;
+  flyMesh.visible = false;
+  flyEmitter.on = false;
+  seatCrystal(flight.crystal, flight.ped);
+  flight = null;
+}
 
 /* ============================================================ ENDING */
 function beginEnding() {
@@ -2672,6 +2721,25 @@ const tagTex = (() => {
   };
 })();
 
+// The bracket that says whether a shot will land. Two states, because the two
+// failures feel identical through a torch beam and are not remotely the same:
+// off-target you can fix by aiming, facing-you you cannot.
+const markTex = (col) => {
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = 64;
+  const g = cv.getContext('2d');
+  g.strokeStyle = col; g.lineWidth = 4; g.lineCap = 'square';
+  const a = 8, b = 56, k = 17;
+  [[a, a, 1, 1], [b, a, -1, 1], [a, b, 1, -1], [b, b, -1, -1]].forEach(([x, y, sx, sy]) => {
+    g.beginPath();
+    g.moveTo(x + sx * k, y); g.lineTo(x, y); g.lineTo(x, y + sy * k);
+    g.stroke();
+  });
+  return new THREE.CanvasTexture(cv);
+};
+const markOpen = markTex('rgba(255,255,255,.95)');   // yours to take
+const markShut = markTex('rgba(255,86,60,.95)');     // looking back at you
+
 let antiCount = 0;
 const antis = [];
 for (let i = 0; i < MAX_ANTI; i++) {
@@ -2701,7 +2769,23 @@ for (let i = 0; i < MAX_ANTI; i++) {
   tag.scale.set(0.07, 0.035, 1);
   tag.center.set(0.5, -0.75);
   tag.position.z = -0.3;
-  grp.add(casing, bezel, lens, halo, tag);
+  // The twin it carries when it replays you taking a crystal: the same shape,
+  // but lit from inside rather than glowing out, so it reads as the negative.
+  const twin = new THREE.Mesh(crystalGeo, new THREE.MeshPhongMaterial({
+    color: 0x0a0a0c, emissive: 0xffffff, emissiveIntensity: 0.22,
+    specular: 0xffffff, shininess: 80, transparent: true, opacity: 0.92,
+  }));
+  twin.scale.setScalar(0.32);
+  twin.position.set(0, -0.42, 0.1);
+  twin.visible = false;
+  const mark = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: markOpen, sizeAttenuation: false, transparent: true,
+    depthWrite: false, depthTest: false, fog: false,
+  }));
+  mark.scale.set(0.09, 0.09, 1);
+  mark.visible = false;
+  mark.renderOrder = 998;
+  grp.add(casing, bezel, lens, halo, tag, twin, mark);
   grp.visible = false;
   scene.add(grp);
 
@@ -2714,7 +2798,8 @@ for (let i = 0; i < MAX_ANTI; i++) {
   scene.add(light, target);
 
   antis.push({ live: false, delay: 0, idx: 0, evIdx: 0, pos: new THREE.Vector3(),
-               lev: 0, yaw: 0, done: false, tag: 0, grp, lens, halo, tagSprite: tag,
+               lev: 0, yaw: 0, done: false, tag: 0, carrying: null,
+               aimT: 0, grp, lens, halo, tagSprite: tag, twin, markSprite: mark,
                light, target });
 }
 
@@ -2735,6 +2820,7 @@ function spawnAnti() {
   const a = antis.find((x) => !x.live);
   if (!a) return null;
   a.live = true; a.done = false;
+  a.carrying = null; a.twin.visible = false;
   a.tag = ++antiCount;              // named on arrival, and it keeps the name
   a.tagSprite.material.map = tagTex(a.tag);
   a.tagSprite.material.needsUpdate = true;
@@ -2749,12 +2835,20 @@ function spawnAnti() {
 
 function retireAnti(a) {
   a.live = false;
+  a.carrying = null;
+  a.twin.visible = false;
+  a.markSprite.visible = false;
+  a.aimT = 0;
   a.grp.visible = false;
   a.light.intensity = 0;
 }
 
 function killAnti(a) {
+  const had = a.carrying;
   retireAnti(a);
+  if (had) {
+    say(`the ${had.name.toLowerCase()} twin goes out with it — your crystal is safe`, 5.5);
+  }
   clockT = ANTI_PERIOD;                     // you bought yourself five minutes
   clockShown = -1;
   sfx.kill();
@@ -2771,6 +2865,37 @@ function replayEvent(ev) {
     else for (const f of s.fixtures) setFixture(f, 0);
     if (s.mesh.userData.rocker) s.mesh.userData.rocker.position.y = s.on ? -0.12 : 0.12;
     rebuildReveal(); sfx.hum();
+  } else if (ev.kind === 'take') {
+    const c = props.crystals[ev.ref];
+    if (!c) return;
+    ev.by.carrying = c;
+    ev.by.twin.visible = true;
+    ev.by.twin.material.emissive.setHex(c.color);
+    sfx.take();
+    announce(`F${ev.by.tag} HAS THE ${c.name}`, '#' + c.color.toString(16).padStart(6, '0'), 4.2);
+    say('put it out before it reaches the centre', 5.5);
+  } else if (ev.kind === 'seat') {
+    const a = ev.by;
+    if (!a.carrying) return;
+    const c = a.carrying;
+    a.carrying = null;
+    a.twin.visible = false;
+    // Whatever became of the real one, it goes back to the vault it came from.
+    const ped = props.pedestals.find((p) => p.filled && p.filled.id === c.id);
+    if (ped) unseatCrystal(ped);
+    else if (player.carrying && player.carrying.id === c.id) {
+      player.carrying = null;
+      carriedMesh.visible = false; carriedEmitter.on = false;
+      el.carried.classList.remove('on');
+      c.taken = false; c.mesh.visible = true; c.emitter.on = true;
+    } else if (flight && flight.crystal.id === c.id) {
+      flight = null; flyMesh.visible = false; flyEmitter.on = false;
+      c.taken = false; c.mesh.visible = true; c.emitter.on = true;
+    } else return;                       // it was already home; nothing to undo
+    rebuildReveal();
+    sfx.caught();
+    hitFlash = 0.75;
+    announce(`THE ${c.name} IS BACK IN ITS VAULT`, '#' + c.color.toString(16).padStart(6, '0'), 5.2);
   } else if (ev.kind === 'button') {
     const b = props.buttons[ev.ref];
     const d = b && props.doors.find((x) => x.id === b.id);
@@ -2840,7 +2965,9 @@ function stepAnti(a) {
   const pt = trailT - a.delay;
   if (pt <= 0) return;
   while (a.evIdx < trailEvents.length && trailEvents[a.evIdx].t <= pt) {
-    replayEvent(trailEvents[a.evIdx++]);
+    const ev = trailEvents[a.evIdx++];
+    ev.by = a;                            // so a replayed pickup knows whose hands
+    replayEvent(ev);
   }
   while (a.idx < trail.length - 1 && trail[a.idx + 1].t <= pt) a.idx++;
   if (a.idx >= trail.length - 1) { a.done = true; return; }
@@ -2863,19 +2990,46 @@ function stepAnti(a) {
 
 // Your beam kills it only while it is looking somewhere else — and since it
 // cannot turn, whether it is looking away is decided by what you did, then.
-function torchDuel() {
-  if (player.battery <= 0) return;
-  const fx = -Math.sin(player.yaw), fz = -Math.cos(player.yaw);
+/* Hitting one with the torch was fiddly for three reasons, all fixed here.
+
+   The test used your head's yaw, but the beam is carried in your hand and lags
+   behind where you look, so what you saw and what the test measured were two
+   different directions. It now aims from the torch, at the torch's actual
+   world-space target, which is the thing you have been aiming all along.
+
+   It was flat, and the torch is not: pointing at one on a stair or across an
+   atrium missed because pitch was thrown away. It is a 3D cone now.
+
+   And a miss was silent. There was no way to tell "not quite on it" from "on it
+   but it is facing you, which can never work" — so you would stand there
+   shining at something that was never going to die. Both states now show a
+   bracket round it: white while it is yours to take, red while it is looking
+   back at you. */
+const aimFrom = new THREE.Vector3(), aimDir = new THREE.Vector3(), toAnti = new THREE.Vector3();
+function torchDuel(dt) {
+  const powered = player.battery > 0;
+  torch.getWorldPosition(aimFrom);
+  aimDir.copy(torch.target.position).sub(aimFrom).normalize();
   for (const a of antis) {
-    if (!a.live || a.lev !== player.lev) continue;
+    if (!a.live) { a.markSprite.visible = false; continue; }
+    toAnti.set(a.pos.x - aimFrom.x, a.pos.y + 1.12 - aimFrom.y, a.pos.z - aimFrom.z);
+    const dist = toAnti.length();
+    const lit = powered && dist > 1e-3 && dist <= KILL_RANGE
+      && toAnti.dot(aimDir) / dist > KILL_COS
+      && clearLine(player.pos, a.pos, player.lev)
+      && a.lev === player.lev;
+    if (!lit) { a.markSprite.visible = false; a.aimT = 0; continue; }
+    // is its back to you? the one thing you cannot change by aiming better
     const dx = a.pos.x - player.pos.x, dz = a.pos.z - player.pos.z;
-    const dist = Math.hypot(dx, dz);
-    if (dist > KILL_RANGE || dist < 1e-3) continue;
-    if ((fx * dx + fz * dz) / dist < KILL_COS) continue;             // not in your cone
-    const ax = -Math.sin(a.yaw), az = -Math.cos(a.yaw);
-    if ((ax * -dx + az * -dz) / dist > AVERT_COS) continue;          // it is looking at you
-    if (!clearLine(player.pos, a.pos, player.lev)) continue;
-    killAnti(a);
+    const flat = Math.hypot(dx, dz) || 1;
+    const open = (-Math.sin(a.yaw) * -dx - Math.cos(a.yaw) * -dz) / flat <= AVERT_COS;
+    a.markSprite.visible = true;
+    a.markSprite.material.map = open ? markOpen : markShut;
+    a.markSprite.material.needsUpdate = true;
+    if (!open) { a.aimT = 0; continue; }
+    // a beat of steady aim, so a beam sweeping past does not clip one by luck
+    a.aimT = (a.aimT || 0) + dt;
+    if (a.aimT >= 0.22) killAnti(a);
   }
 }
 
@@ -2922,7 +3076,8 @@ function updateAntis(dt) {
           && clearLine(a.pos, player.pos, a.lev)) caughtBy();
     }
   }
-  if (caughtT <= 0) torchDuel();
+  if (caughtT <= 0) torchDuel(dt);
+  else for (const a of antis) a.markSprite.visible = false;
 }
 
 /* ====================================================== THE SIX LIGHTS
@@ -3407,6 +3562,30 @@ function frame(dt) {
       }
     }
 
+    // You walk into the way home. It is a hole in the air, not a switch — the
+    // cooldown is only so arriving somewhere never bounces you straight back.
+    if (warpCool > 0) warpCool -= dt;
+    else for (const p of props.portals) {
+      if (p.lev !== player.lev) continue;
+      if (flatDist2(p.pos, player.pos) > 1.15 ** 2) continue;
+      player.pos.set(hubCentre.x, EYE, hubCentre.z + 4);
+      player.lev = 0;
+      player.vel.set(0, 0, 0);
+      player.falling = false;
+      warpCool = 1.4;
+      sfx.warp();
+      trailSnap();
+      say('back at the centre', 3.4);
+      break;
+    }
+
+    // Carry one into the hub and it leaves your hands on its own.
+    if (player.carrying && !flight && player.lev === 0) {
+      const [r, c] = cellOf(player.pos);
+      if (inHub(0, r, c)) beginFlight();
+    }
+    if (flight) stepFlight(dt);
+
     const charging = litHere();
     player.battery += charging ? BAT_CHARGE * dt : -BAT_DRAIN * dt;
     player.battery = Math.max(0, Math.min(BAT_MAX, player.battery));
@@ -3425,9 +3604,8 @@ function frame(dt) {
         : t2.kind === 'button'
           ? (props.doors.find((d) => d.id === t2.obj.id)?.open ? 'close the gate' : 'open the gate')
         : t2.kind === 'crystal' ? `take the ${t2.obj.name.toLowerCase()} crystal`
-        : t2.kind === 'portal' ? 'step through to the centre'
         : t2.kind === 'link' ? `cross to the ${t2.obj.to.name.toLowerCase()} chamber`
-        : (t2.kind === 'pedestal' && !player.carrying)
+        : t2.kind === 'pedestal'
           ? `cross to the ${t2.obj.spec.name.toLowerCase()} chamber`
         : 'set the crystal down';
       el.prompt.innerHTML = `<b>E</b> &nbsp;${verb}`;
@@ -3549,9 +3727,12 @@ window.__maze = {
   tilt(deg) { camTilt = deg * Math.PI / 180; },   // inspection only; not a control
   interact, isSolid, collide, cellCentre, cellOf, rebuildReveal, revealed, at,
   antis, trail, trailEvents, spawnAnti, killAnti, clearLine, safeInLight,
+  markOpen, markShut,
   POWERS, held, holes, fireHeld, wallAhead, roomAhead, portalPick,
   pick(n) { if (n < held.length) { sel = n; drawPowers(); } return POWERS[held[n]]?.name; },
   cloak: () => cloakT,
+  flying: () => flight && { id: flight.crystal.id, t: +flight.t.toFixed(2) },
+  seatCrystal, unseatCrystal,
   setCloak(s) { cloakT = s; if (s <= 0) el.cloak.classList.remove('on'); },
   grantAll() { while (held.length < POWERS.length) grantPower(); },
   clock: () => clockT,
