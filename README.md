@@ -26,6 +26,8 @@ over HTTP rather than opened as a `file://` URL, because it loads an ES module.
 | `↑` `↓` | look up and down |
 | mouse | look, after clicking to capture the pointer |
 | `E` or `Space` | press buttons, take crystals, enter portals |
+| `1`–`6` | choose among the lamps you have found |
+| `F` | fire the lamp you hold (hold it for the X-ray) |
 
 Movement, turning and pitch are all analog. Velocity and both look axes chase
 their target exponentially rather than snapping on and off, and you accelerate
@@ -169,40 +171,71 @@ which side its crystal sits on, so a gate never opens out into the corridor you 
 standing in. Light switches toggle the same way, and flicking one off forces every
 fixture in the room dark rather than waiting for the flicker model to decide.
 
-**Something else is walking.** A clock hangs over the hub counting down from 5:00.
+**Something else is walking.** A clock hangs over the hub counting down from 5:00, and
+the same countdown draws at the foot of the screen so it reaches you three floors away.
 When it runs out an Anti-player starts from the hub, and another every five minutes
-after that — so the hub is the last place you want to be on the marker. It carries a
-light of its own, puts out the lights you lit, shuts the gates you opened, and steps
-through the portals it watched you use.
+after — so the hub is the last place you want to be on the marker.
 
-The whole system rests on one recorded trail, which is what makes it cheap. Because it
-retraces your exact steps it arrives at every switch you flicked and every button you
-pressed without knowing what a room is or how the building connects: being near the
-thing you touched is enough to undo it. It never path-finds, because you already did.
+**It is not a pursuer. It is a playback head.** The trail records where you were and
+which way you faced every tenth of a second, plus every switch, button and portal as a
+timestamped event, and an Anti-player is that recording played at 1x with a fixed lag.
+It moves at your speed, hesitates where you hesitated, climbs the stairs you climbed and
+doubles back where you doubled back. It cannot deviate, cannot turn to look at you,
+cannot be steered. It is caught in time. Measured against a reference log of a 26-second
+walk: worst position error 0.000m, worst heading error 0.03 degrees.
 
-What it does not replay is your dithering. Walking the trail it looks ahead for a later
-breadcrumb within arm's reach and skips straight to it, so every loop you doubled back
-on collapses — a route that wandered twenty metres out and back is cut to nothing. It
-follows your route, not your mistakes, and that is the whole of its cunning.
+Which means it never runs you down — it only ever arrives where you have already been.
+The threat is not being hunted. It is that your own past keeps walking, that it keeps
+arriving at the hub you have to keep returning to, and that it puts out every light you
+lit on the way.
 
-Get within about eleven metres in clear sight and it drops the trail and comes straight
-at you; inside three and a half it stops, winds up for half a second, and flashes. If
-that beam lands on you, every crystal goes back to its vault and every gate falls shut.
-Your own beam kills it — but only while it is looking somewhere else, so head-on you
-cannot win. Break line of sight and come around. Killing one puts the clock back to
-5:00, which is the only way to buy time.
+**Replaying a flick is what undoes it.** You left the switch on, so its flick turns it
+off. You pressed the button to open the gate, so its press closes it. Nothing in the
+code knows what "undo" means, and nothing has to detect proximity to a switch: it walks
+where you walked, so it arrives at everything you touched, exactly when you touched it
+plus the lag.
 
-Two things keep it fair rather than merely punishing. It will not bring a gate down on
-your head while you stand in the doorway, and it cannot re-shut the same gate for nine
-seconds, so one loitering nearby harries you instead of locking you out for good. And
-you can always see them: on the map as a pale dot with the wedge its beam covers, red
-once it has seen you, and in the world as a halo sprite drawn with fog off — the one
-thing that defeats the dark is another flashlight.
+**Lit rooms are sanctuary.** Its beam cannot take you in a room whose lights are on, or
+in the hub — which is precisely why its putting them out matters. If a beam does land on
+you, you are held for 1.9 seconds to see the torch that found you, and then every
+crystal goes home to its vault and so do you.
 
-The four walkers are allocated at load and never added or removed. Three.js bakes the
-light count into its shaders, so spawning one mid-game would stall on a recompile; a
-dormant Anti-player is a live light at zero intensity. Four of them on screen cost 16
-draw calls and 2,248 triangles.
+Your own beam kills one, but only while it is looking somewhere else — and since it
+cannot turn, whether it is looking away was decided by what you did, then. Head-on you
+cannot win. Killing one puts the clock back to 5:00, the only way to buy time.
+
+**No body.** A black casing floating at chest height with its lens at the front, so from
+behind it occludes its own light and you get a cylinder and nothing else, and from the
+front you get the beam. You can always see them: on the chart as a pale dot with the
+wedge its beam covers, red while it could actually take you, and in the world as a halo
+sprite drawn with fog off and depth-tested — a bare lens is two pixels at thirty metres,
+and the one thing that defeats the dark is another flashlight.
+
+Six are pooled, because several playback heads coexist by design; at 4, 9, 14 and 19
+seconds' lag they string out 22m apart down a corridor. They are allocated at load and
+never added or removed — Three.js bakes light count into its shaders, so a dormant
+Anti-player is a live SpotLight at zero intensity.
+
+## The six lights
+
+Each vault hands over its lamp in the order you open them, so the first vault always
+yields the X-ray and the last always the Ultra Blast: the route you take decides which
+colour carries which power, never which power comes when. You keep every one you find,
+pick between them with `1`-`6`, and fire with `F`. The row of icons is drawn as white
+vector line, like the rest of the instrument.
+
+| | | |
+|---|---|---|
+| 1 | **X-ray** | Held, not fired. The room ahead draws through the wall as a plan in pale blue line — its floor cells, its switch, and any crystal or portal inside. Drains while held. |
+| 2 | **Holy Light** | Everything walking within 19m, gone, regardless of which way you face. |
+| 3 | **Walk Through Walls** | The wall you shine on opens for 14 seconds, then closes again. The block is taken out of the instanced mesh and put back. |
+| 4 | **Portal** | Shine at a wall, then click the chart. Restricted to ground you have actually charted, so it can never drop you inside a vault you have not opened. |
+| 5 | **Cloak** | Thirty seconds where they cannot see you at all — you can still kill them. The last five seconds it visibly flickers, so you are told before it lapses. |
+| 6 | **Ultra Blast** | Everything in a wide cone, through walls, through floors, to the end of the maze. Costs 90% of your light. |
+
+They all run off the same battery as the plain beam, which is what ties them to the rest
+of the game: a power is paid for in light, and light only comes back in a lit room — and
+the Anti-players are busy putting those out.
 
 **Portals remove the retrace.** Beside each crystal is a portal, dormant until you
 take it. Stepping through returns you to the hub. The outbound hunt across a maze this
@@ -255,9 +288,13 @@ __maze.interact()     // act on whatever is in reach
 __maze.step(2.5)      // advance the world 2.5 seconds by hand
 __maze.finale(17)     // run the ending; camera should land at y 59.6
 __maze.perf()         // frame counter, draw calls, triangles
-__maze.spawnAnti()    // let one out at the hub now
+__maze.spawnAnti()    // let one out at the hub now, replaying from minute zero
+__maze.ghost(12)      // one that is exactly 12 seconds behind you
 __maze.setClock(10)   // seconds until the next one
 __maze.antiOff()      // clear the board and stop spawning
+__maze.grantAll()     // hand over all six lamps
+__maze.pick(3)        // select one; __maze.fireHeld() fires it
+__maze.setCloak(0)    // clear the cloak between experiments
 ```
 
 `step()` exists because `requestAnimationFrame` is throttled to zero in a preview pane,
@@ -268,8 +305,9 @@ work is in `frame(dt)`, which both paths call.
 
 Constants near the top of the script: `WALK` / `RUN` / `WADE` speeds, `ACCEL` /
 `DECEL`, `TURN_RATE` / `TURN_ACCEL` and `PITCH_RATE` / `PITCH_ACCEL` / `PITCH_MAX`
-for the analog feel, `ANTI_PERIOD` / `ANTI_WALK` / `ANTI_RUSH` / `RUSH_RANGE` /
-`FLASH_WIND` / `UNDO_COOL` for how hard you are hunted,
+for the analog feel, `ANTI_PERIOD` for how long between walkers, `TRAIL_DT` for how finely you are
+recorded, `CATCH_RANGE` / `BEAM_COS` for its reach and `KILL_RANGE` / `KILL_COS` /
+`AVERT_COS` for yours, the `POWERS` table for what each lamp costs,
 `TORCH_LAG` and `TORCH_SWAY` for how handheld the beam feels,
 `TORCH_HOME` for where it is carried, `SLAB` for floor thickness and therefore how
 heavy the fascia reads, `BAT_DRAIN` / `BAT_CHARGE`, `POOL_SIZE`, and the `FLUOR`

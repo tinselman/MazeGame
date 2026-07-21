@@ -99,6 +99,29 @@
   }
   #hudclockwrap.on { opacity: .92; }
   #hudclock { width: 118px; height: 32px; display: block; }
+  /* the lamps you have found, as white line drawings */
+  #powers {
+    position: absolute; left: 34px; bottom: 74px;
+    width: 204px; height: 31px; opacity: 0; transition: opacity .6s;
+  }
+  #powers.on { opacity: 1; }
+  /* thirty seconds where they cannot see you */
+  #cloak {
+    position: absolute; inset: 0; pointer-events: none; opacity: 0;
+    transition: opacity .4s;
+    box-shadow: inset 0 0 150px 40px rgba(120,255,200,.5);
+  }
+  #cloak.on { opacity: .3; }
+  #aim {
+    position: absolute; left: 50%; top: 12%; transform: translateX(-50%);
+    font-size: 12px; letter-spacing: .16em; color: #bfe4ff; opacity: 0;
+    transition: opacity .3s; white-space: nowrap; pointer-events: none;
+    text-shadow: 0 2px 14px rgba(0,0,0,.95);
+  }
+  #aim.on { opacity: 1; }
+  /* the chart only takes clicks while the portal light is waiting on one */
+  #hud.aiming #minimap { pointer-events: auto; cursor: crosshair;
+                         outline: 1px solid rgba(191,228,255,.85); }
   /* the moment its beam lands on you */
   #hitflash {
     position: absolute; inset: 0; pointer-events: none; opacity: 0;
@@ -149,6 +172,9 @@
   <div id="banner"></div>
   <div id="hitflash"></div>
   <div id="hudclockwrap"><canvas id="hudclock"></canvas></div>
+  <canvas id="powers"></canvas>
+  <div id="cloak"></div>
+  <div id="aim">CHOOSE CHARTED GROUND ON THE CHART &nbsp;·&nbsp; ESC TO CANCEL</div>
 
   <div class="overlay" id="startscreen">
     <h1>CRYSTAL MAZE</h1>
@@ -684,12 +710,15 @@ for (let l = 0; l < NLEV; l++) for (let r = 0; r < ROWS; r++) for (let c = 0; c 
 console.info(`windows: ${windowCells.length} arched openings`);
 const wallMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(CELL, WALL_H, CELL), matWall, wallCells.length);
 wallMesh.castShadow = wallMesh.receiveShadow = true;
+// cell -> instance, so a wall can be taken out of the mesh and put back
+const wallIndex = new Map();
 {
   const m = new THREE.Matrix4();
   wallCells.forEach(([l, r, c], i) => {
     const p = cellCentre(r, c);
     m.makeTranslation(p.x, levelY(l) + WALL_H / 2, p.z);
     wallMesh.setMatrixAt(i, m);
+    wallIndex.set(`${l},${r},${c}`, i);
   });
   wallMesh.instanceMatrix.needsUpdate = true;
 }
@@ -1828,6 +1857,10 @@ const sfx = {
   charge:() => { [300, 460, 700, 1060].forEach((f, i) => setTimeout(() => blip(f, 0.16, 'square', 0.045), i * 120)); },
   kill:  () => { [900, 500, 260].forEach((f, i) => setTimeout(() => blip(f, 0.3, 'sine', 0.05), i * 90)); },
   caught:() => { blip(88, 1.4, 'sawtooth', 0.08); setTimeout(() => blip(62, 1.8, 'square', 0.05), 180); },
+  holy:  () => { [784, 1046, 1318].forEach((f, i) => setTimeout(() => blip(f, 0.9, 'sine', 0.06), i * 90)); },
+  cloak: () => { [660, 520, 410, 330].forEach((f, i) => setTimeout(() => blip(f, 0.45, 'sine', 0.05), i * 110)); },
+  blast: () => { blip(1600, 0.1, 'square', 0.09);
+                 [1200, 800, 420, 180].forEach((f, i) => setTimeout(() => blip(f, 1.5, 'sawtooth', 0.07), 60 + i * 130)); },
 };
 
 /* ============================================================ PLAYER */
@@ -1861,6 +1894,12 @@ addEventListener('keydown', (e) => {
   keys.add(e.code);
   if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault();
   if (e.code === 'KeyE' || e.code === 'Space') interact();
+  if (e.code === 'KeyF') fireHeld();
+  if (e.code === 'Escape') cancelPortal();
+  if (/^Digit[1-6]$/.test(e.code)) {
+    const n = +e.code.slice(5) - 1;
+    if (n < held.length) { sel = n; drawPowers(); say(POWERS[held[n]].name.toLowerCase(), 2); }
+  }
 });
 addEventListener('keyup', (e) => keys.delete(e.code));
 
@@ -1872,6 +1911,7 @@ startScreen.addEventListener('click', () => {
   renderer.domElement.requestPointerLock?.();
 });
 renderer.domElement.addEventListener('click', () => {
+  if (portalAiming) return;              // the chart has the pointer for a moment
   if (started && !ending) renderer.domElement.requestPointerLock?.();
 });
 // Mouse writes both axes directly — it is already an analog device, and easing
@@ -1888,10 +1928,11 @@ const doorAtCell = new Map(props.doors.map((d) => [`${d.lev},${d.cell[0]},${d.ce
 // you step off it and fall — where every other void is a wall you bump into.
 const dropOpen = new Set(DROP_POINTS.map((d) => `${d.lev},${d.into[0]},${d.into[1]}`));
 
+const holes = new Map();               // "l,r,c" -> expiry, punched by the third light
 function isSolid(l, r, c) {
   const ch = at(l, r, c);
   if (ch === VOID) return !dropOpen.has(`${l},${r},${c}`);
-  if (ch === '#') return true;
+  if (ch === '#') return !holes.has(`${l},${r},${c}`);
   if (DOORCH.includes(ch)) {
     const d = doorAtCell.get(`${l},${r},${c}`);
     return d ? !d.open : true;
@@ -2162,6 +2203,11 @@ const el = {
   banner: document.getElementById('banner'),
   hitflash: document.getElementById('hitflash'),
   hudclockwrap: document.getElementById('hudclockwrap'),
+  powers: document.getElementById('powers'),
+  cloak: document.getElementById('cloak'),
+  aim: document.getElementById('aim'),
+  minimap: document.getElementById('minimap'),
+  hud: document.getElementById('hud'),
   levelbadge: document.getElementById('levelbadge'),
   endscreen: document.getElementById('endscreen'),
 };
@@ -2306,6 +2352,7 @@ function interact() {
       near.emitter.intensity = 14;
     }
     say('a way back to the centre has opened beside it', 5);
+    grantPower();                  // the vault's lamp, in the order you opened them
   }
 
   else if (t.kind === 'portal') {
@@ -2821,7 +2868,7 @@ function updateAntis(dt) {
     a.light.position.set(a.pos.x, a.pos.y + 1.12, a.pos.z);
     a.target.position.set(a.pos.x - Math.sin(a.yaw) * 6, a.pos.y + 0.7, a.pos.z - Math.cos(a.yaw) * 6);
 
-    if (caughtT <= 0 && !safeInLight() && a.lev === player.lev) {
+    if (caughtT <= 0 && cloakT <= 0 && !safeInLight() && a.lev === player.lev) {
       const dx = player.pos.x - a.pos.x, dz = player.pos.z - a.pos.z;
       const dist = Math.hypot(dx, dz);
       if (dist < CATCH_RANGE && dist > 1e-3
@@ -2830,6 +2877,361 @@ function updateAntis(dt) {
     }
   }
   if (caughtT <= 0) torchDuel();
+}
+
+/* ====================================================== THE SIX LIGHTS
+
+   Each vault you open hands over its lamp, in the order you open them, so the
+   first vault always yields the X-ray and the last always the Ultra Blast — the
+   route you take decides which colour carries which power, never which power
+   comes when. You keep every one you find and pick between them with 1-6; `F`
+   fires the one you hold.
+
+   They all run off the same battery as the plain beam, which is what ties them
+   to the rest of the game: a power is paid for in light, and light only comes
+   back in a lit room. The Anti-players put those rooms out. */
+
+const POWERS = [
+  { key: 'xray',   name: 'X-RAY',            cost: 0,    hold: 26,
+    blurb: 'the next room shows through the wall' },
+  { key: 'holy',   name: 'HOLY LIGHT',       cost: 34,
+    blurb: 'nothing walking survives the rooms around you' },
+  { key: 'through',name: 'WALK THROUGH',     cost: 26,
+    blurb: 'the wall you shine on opens' },
+  { key: 'portal', name: 'PORTAL',           cost: 52,
+    blurb: 'shine at a wall, then choose charted ground' },
+  { key: 'cloak',  name: 'CLOAK',            cost: 42,
+    blurb: 'thirty seconds where they cannot see you' },
+  { key: 'blast',  name: 'ULTRA BLAST',      cost: 90,
+    blurb: 'everything in its path, through the maze itself' },
+];
+const held = [];                    // indices into POWERS, in the order found
+let sel = 0, cloakT = 0, xrayOn = false, portalAiming = null, blastT = 0;
+
+/* ---- vector line icons -------------------------------------------------- */
+// Drawn rather than modelled: the HUD is a white-line instrument everywhere
+// else, so the lamps read as part of the same chart.
+const powCv = document.getElementById('powers');
+const powG = powCv.getContext('2d');
+const POW_W = 46, POW_H = 42;
+powCv.width = POW_W * 6; powCv.height = POW_H;
+
+function iconPath(g, i, x, y) {
+  g.beginPath();
+  if (i === 0) {                                   // X-ray: a box with bones showing
+    g.rect(x - 9, y - 8, 18, 16);
+    g.moveTo(x - 4, y - 3); g.lineTo(x - 4, y + 3);
+    g.moveTo(x, y - 5); g.lineTo(x, y + 5);
+    g.moveTo(x + 4, y - 3); g.lineTo(x + 4, y + 3);
+  } else if (i === 1) {                            // Holy Light: rays from a point
+    for (let k = 0; k < 8; k++) {
+      const a = k * Math.PI / 4;
+      g.moveTo(x + Math.cos(a) * 4, y + Math.sin(a) * 4);
+      g.lineTo(x + Math.cos(a) * 10, y + Math.sin(a) * 10);
+    }
+    g.moveTo(x + 3, y); g.arc(x, y, 3, 0, Math.PI * 2);
+  } else if (i === 2) {                            // Walk Through: a gap in a wall
+    g.moveTo(x - 10, y - 8); g.lineTo(x - 10, y + 8);
+    g.moveTo(x - 10, y + 8); g.lineTo(x - 3, y + 8);
+    g.moveTo(x - 10, y - 8); g.lineTo(x - 3, y - 8);
+    g.moveTo(x + 10, y - 8); g.lineTo(x + 10, y + 8);
+    g.moveTo(x + 10, y + 8); g.lineTo(x + 3, y + 8);
+    g.moveTo(x + 10, y - 8); g.lineTo(x + 3, y - 8);
+  } else if (i === 3) {                            // Portal: two frames, linked
+    g.rect(x - 10, y - 7, 7, 14);
+    g.rect(x + 3, y - 7, 7, 14);
+    g.moveTo(x - 3, y); g.lineTo(x + 3, y);
+  } else if (i === 4) {                            // Cloak: an outline, dashed
+    g.moveTo(x - 7, y + 8); g.lineTo(x - 7, y - 2);
+    g.moveTo(x - 5, y - 6); g.arc(x, y - 6, 5, Math.PI, 0);
+    g.moveTo(x + 7, y - 2); g.lineTo(x + 7, y + 8);
+    g.moveTo(x - 4, y + 3); g.lineTo(x + 4, y + 3);
+  } else {                                         // Ultra Blast: a widening cone
+    g.moveTo(x - 9, y); g.lineTo(x + 2, y - 9);
+    g.moveTo(x - 9, y); g.lineTo(x + 2, y + 9);
+    g.moveTo(x + 5, y - 10); g.lineTo(x + 5, y + 10);
+    g.moveTo(x + 9, y - 7); g.lineTo(x + 9, y + 7);
+  }
+  g.stroke();
+}
+function drawPowers() {
+  powG.clearRect(0, 0, powCv.width, powCv.height);
+  if (!held.length) return;
+  powG.lineWidth = 1.3;
+  powG.lineCap = 'round';
+  held.forEach((pi, slot) => {
+    const cx = slot * POW_W + POW_W / 2, cy = POW_H / 2 - 2;
+    const active = slot === sel;
+    const live = pi === 4 ? cloakT > 0 : false;
+    powG.strokeStyle = active ? 'rgba(255,255,255,.95)' : 'rgba(190,205,230,.34)';
+    if (active) {                                   // the selection bracket
+      powG.beginPath();
+      powG.moveTo(cx - 18, cy - 15); powG.lineTo(cx - 18, cy + 15);
+      powG.moveTo(cx + 18, cy - 15); powG.lineTo(cx + 18, cy + 15);
+      powG.stroke();
+    }
+    if (live) powG.strokeStyle = 'rgba(150,255,190,.95)';
+    if (player.battery < POWERS[pi].cost) powG.strokeStyle = 'rgba(255,110,80,.42)';
+    iconPath(powG, pi, cx, cy);
+    powG.fillStyle = powG.strokeStyle;
+    powG.font = '9px ui-monospace, monospace';
+    powG.textAlign = 'center';
+    powG.fillText(String(slot + 1), cx, POW_H - 1);
+  });
+}
+
+function grantPower() {
+  if (held.length >= POWERS.length) return;
+  const pi = held.length;
+  held.push(pi);
+  sel = pi;
+  el.powers.classList.add('on');
+  drawPowers();
+  setTimeout(() => announce(POWERS[pi].name, '#dfe9ff', 4.2), 2600);
+  setTimeout(() => say(POWERS[pi].blurb + ` — press ${pi + 1}, then F`, 6.5), 2600);
+}
+
+/* ---- what the beam is pointed at ---------------------------------------- */
+// Walks the beam a cell at a time and reports the first wall it meets.
+function wallAhead(maxDist = 9) {
+  const fx = -Math.sin(player.yaw), fz = -Math.cos(player.yaw);
+  for (let d = 0.4; d < maxDist; d += 0.3) {
+    const x = player.pos.x + fx * d, z = player.pos.z + fz * d;
+    const r = Math.floor(z / CELL), c = Math.floor(x / CELL);
+    if (at(player.lev, r, c) === '#') return { lev: player.lev, r, c, d };
+  }
+  return null;
+}
+// The room whose cells lie ahead of you, for the X-ray.
+function roomAhead() {
+  const fx = -Math.sin(player.yaw), fz = -Math.cos(player.yaw);
+  for (let d = 0.5; d < 16; d += 0.4) {
+    const x = player.pos.x + fx * d, z = player.pos.z + fz * d;
+    const room = roomOf.get(`${player.lev},${Math.floor(z / CELL)},${Math.floor(x / CELL)}`);
+    if (room && room !== roomOf.get(`${player.lev},${cellOf(player.pos)[0]},${cellOf(player.pos)[1]}`)) return room;
+  }
+  return null;
+}
+
+/* ---- the X-ray overlay -------------------------------------------------- */
+// depthTest off, so it draws over the wall in front of it. Only the things that
+// decide whether a room is worth crossing for: the gate, the switch, the way
+// out, and the crystal itself.
+const xrayGrp = new THREE.Group();
+xrayGrp.visible = false;
+scene.add(xrayGrp);
+// Edges, not wireframe: a wireframe box draws its triangulation diagonals too,
+// which reads as noise. The rest of the HUD is clean vector line, so this is.
+const matXray = new THREE.LineBasicMaterial({
+  color: 0x9fd2ff, transparent: true, opacity: 0.8,
+  depthTest: false, depthWrite: false, fog: false,
+});
+const xrayEdges = new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1));
+const xrayPool = [];
+for (let i = 0; i < 40; i++) {
+  const m = new THREE.LineSegments(xrayEdges, matXray);
+  m.visible = false;
+  m.renderOrder = 999;
+  xrayGrp.add(m);
+  xrayPool.push(m);
+}
+function paintXray(room) {
+  let n = 0;
+  const put = (x, y, z, sx, sy, sz) => {
+    if (n >= xrayPool.length) return;
+    const m = xrayPool[n++];
+    m.visible = true;
+    m.position.set(x, y, z);
+    m.scale.set(sx, sy, sz);
+  };
+  if (room) {
+    // one plate per cell, drawn as an outline, so the room reads as a plan
+    for (const [r, c] of room.cells) {
+      const p = cellCentre(r, c);
+      put(p.x, levelY(room.lev) + 0.06, p.z, CELL * 0.94, 0.001, CELL * 0.94);
+    }
+    const near = (o) => o.lev === room.lev
+      && room.cells.some(([r, c]) => { const p = cellCentre(r, c);
+        return (p.x - o.pos.x) ** 2 + (p.z - o.pos.z) ** 2 < (CELL * 1.1) ** 2; });
+    for (const cr of props.crystals) if (near(cr)) put(cr.pos.x, cr.pos.y, cr.pos.z, 0.7, 1.4, 0.7);
+    for (const pt of props.portals) if (near(pt)) put(pt.pos.x, pt.pos.y + 1.2, pt.pos.z, 1.5, 2.4, 0.4);
+    put(room.pos.x, room.pos.y + 1.3, room.pos.z, 0.5, 0.7, 0.5);       // its switch
+  }
+  for (let i = n; i < xrayPool.length; i++) xrayPool[i].visible = false;
+  xrayGrp.visible = n > 0;
+}
+
+/* ---- the holes the third light punches ---------------------------------- */
+const holeGrp = new THREE.Group();
+scene.add(holeGrp);
+const matHole = new THREE.MeshBasicMaterial({
+  color: 0xbfe4ff, transparent: true, opacity: 0.34, side: THREE.DoubleSide, fog: false,
+});
+function punchHole(w, secs) {
+  const key = `${w.lev},${w.r},${w.c}`;
+  if (holes.has(key)) { holes.set(key, clock.elapsedTime + secs); return; }
+  holes.set(key, clock.elapsedTime + secs);
+  const idx = wallIndex.get(key);
+  if (idx !== undefined) {                          // take the block out of the mesh
+    const m = new THREE.Matrix4().makeScale(0, 0, 0);
+    wallMesh.setMatrixAt(idx, m);
+    wallMesh.instanceMatrix.needsUpdate = true;
+  }
+  const p = cellCentre(w.r, w.c);
+  const box = new THREE.Mesh(new THREE.BoxGeometry(CELL, WALL_H, CELL), matHole);
+  box.position.set(p.x, levelY(w.lev) + WALL_H / 2, p.z);
+  box.userData.key = key;
+  holeGrp.add(box);
+}
+function closeHole(key) {
+  holes.delete(key);
+  const idx = wallIndex.get(key);
+  if (idx !== undefined) {
+    const [l, r, c] = key.split(',').map(Number);
+    const p = cellCentre(r, c);
+    wallMesh.setMatrixAt(idx, new THREE.Matrix4().makeTranslation(p.x, levelY(l) + WALL_H / 2, p.z));
+    wallMesh.instanceMatrix.needsUpdate = true;
+  }
+  for (const m of [...holeGrp.children]) if (m.userData.key === key) holeGrp.remove(m);
+}
+
+/* ---- firing ------------------------------------------------------------- */
+const blastLight = new THREE.PointLight(0xffffff, 0, 90, 0.9);
+scene.add(blastLight);
+
+function fireHeld() {
+  if (!started || ending || !held.length) return;
+  if (portalAiming) return;
+  const pi = held[sel], P = POWERS[pi];
+  if (pi === 0) return;                             // X-ray is held, not fired
+  if (player.battery < P.cost) { say('not enough light left for that'); sfx.click(); return; }
+
+  if (pi === 1) {                                   // HOLY LIGHT
+    player.battery -= P.cost;
+    let n = 0;
+    for (const a of antis) {
+      if (!a.live || a.lev !== player.lev) continue;
+      if ((a.pos.x - player.pos.x) ** 2 + (a.pos.z - player.pos.z) ** 2 > 19 ** 2) continue;
+      retireAnti(a); n++;
+    }
+    if (n) { clockT = ANTI_PERIOD; clockShown = -1; }
+    blastT = 0.5;
+    sfx.holy();
+    say(n ? `${n} put out` : 'nothing was walking near you', 3.6);
+
+  } else if (pi === 2) {                            // WALK THROUGH WALLS
+    const w = wallAhead(6);
+    if (!w) { say('no wall close enough to open'); return; }
+    player.battery -= P.cost;
+    punchHole(w, 14);
+    sfx.warp();
+    say('the wall opens — it will close again', 4.4);
+
+  } else if (pi === 3) {                            // PORTAL
+    const w = wallAhead(6);
+    if (!w) { say('shine it at a wall first'); return; }
+    portalAiming = w;
+    el.aim.classList.add('on');
+    el.hud.classList.add('aiming');
+    document.exitPointerLock?.();
+    say('choose charted ground on the chart — escape to cancel', 8);
+
+  } else if (pi === 4) {                            // CLOAK
+    player.battery -= P.cost;
+    cloakT = 30;
+    sfx.cloak();
+    announce('UNSEEN', '#9fffd0', 3);
+
+  } else if (pi === 5) {                            // ULTRA BLAST
+    player.battery -= P.cost;
+    const fx = -Math.sin(player.yaw), fz = -Math.cos(player.yaw);
+    let n = 0;
+    for (const a of antis) {                        // through walls, through floors
+      if (!a.live) continue;
+      const dx = a.pos.x - player.pos.x, dz = a.pos.z - player.pos.z;
+      const d = Math.hypot(dx, dz);
+      if (d > 1e-3 && (fx * dx + fz * dz) / d < Math.cos(0.42)) continue;
+      retireAnti(a); n++;
+    }
+    if (n) { clockT = ANTI_PERIOD; clockShown = -1; }
+    blastT = 1.5;
+    sfx.blast();
+    announce(n ? `${n} GONE` : 'THE LIGHT PASSES THROUGH EVERYTHING', '#ffffff', 4);
+  }
+  drawPowers();
+}
+
+// The portal's second half: a click on the chart, restricted to ground you have
+// actually charted, so it can never drop you inside a vault you have not opened.
+function portalPick(ev) {
+  if (!portalAiming) return;
+  const rect = el.minimap.getBoundingClientRect();
+  const mx = (ev.clientX - rect.left) / rect.width * MM_PX;
+  const my = (ev.clientY - rect.top) / rect.height * MM_PX;
+  const c = Math.floor(mx / MM_S), r = Math.floor(my / MM_S);
+  let target = null;
+  for (let l = NLEV - 1; l >= 0 && !target; l--) {
+    if (revealed.has(`${l},${r},${c}`) && isWalkableChar(at(l, r, c)) && !isSolid(l, r, c)) {
+      target = { l, r, c };
+    }
+  }
+  if (!target) { say('you have not charted that ground'); return; }
+  player.battery -= POWERS[3].cost;
+  punchHole(portalAiming, 8);
+  const p = cellCentre(target.r, target.c);
+  player.pos.set(p.x, levelY(target.l) + EYE, p.z);
+  player.lev = target.l;
+  player.vel.set(0, 0, 0);
+  player.falling = false;
+  portalAiming = null;
+  el.aim.classList.remove('on');
+  el.hud.classList.remove('aiming');
+  trailSnap();
+  sfx.warp();
+  say('through the wall, and out somewhere you had already been', 5);
+  drawPowers();
+}
+function cancelPortal() {
+  if (!portalAiming) return;
+  portalAiming = null;
+  el.aim.classList.remove('on');
+  el.hud.classList.remove('aiming');
+  say('cancelled');
+}
+
+el.minimap.addEventListener('click', portalPick);
+
+function updatePowers(dt) {
+  if (!held.length) return;
+  const pi = held[sel];
+
+  xrayOn = pi === 0 && keys.has('KeyF') && player.battery > 0;
+  if (xrayOn) {
+    player.battery = Math.max(0, player.battery - POWERS[0].hold * dt);
+    paintXray(roomAhead());
+  } else if (xrayGrp.visible) {
+    xrayGrp.visible = false;
+  }
+
+  if (cloakT > 0) {
+    cloakT -= dt;
+    // the last five seconds it starts to go, so you are told before it lapses
+    const fade = cloakT < 5 ? 0.35 + 0.65 * Math.abs(Math.sin(cloakT * 7)) : 1;
+    el.cloak.style.opacity = String(0.30 * fade);
+    el.cloak.classList.add('on');
+    if (cloakT <= 0) { el.cloak.classList.remove('on'); say('you are visible again', 3.4); }
+  }
+
+  if (blastT > 0) {
+    blastT -= dt;
+    blastLight.position.copy(player.pos);
+    blastLight.intensity = Math.max(0, blastT) * 420;
+    hitFlash = Math.max(hitFlash, Math.min(1, blastT));
+  } else blastLight.intensity = 0;
+
+  for (const [key, until] of holes) if (clock.elapsedTime > until) closeHole(key);
+
+  drawPowers();
 }
 
 function tick() {
@@ -3076,7 +3478,7 @@ function frame(dt) {
   tmp.set(0, 0, -6).applyQuaternion(camera.quaternion).add(camera.position);
   torch.target.position.lerp(tmp, 1 - Math.exp(-TORCH_LAG * dt));
 
-  if (started) { trailMark(dt); updateAntis(dt); }
+  if (started) { trailMark(dt); updateAntis(dt); updatePowers(dt); }
 
   assignPool();
 
@@ -3101,6 +3503,11 @@ window.__maze = {
   tilt(deg) { camTilt = deg * Math.PI / 180; },   // inspection only; not a control
   interact, isSolid, collide, cellCentre, cellOf, rebuildReveal, revealed, at,
   antis, trail, trailEvents, spawnAnti, killAnti, clearLine, safeInLight,
+  POWERS, held, holes, fireHeld, wallAhead, roomAhead, portalPick,
+  pick(n) { if (n < held.length) { sel = n; drawPowers(); } return POWERS[held[n]]?.name; },
+  cloak: () => cloakT,
+  setCloak(s) { cloakT = s; if (s <= 0) el.cloak.classList.remove('on'); },
+  grantAll() { while (held.length < POWERS.length) grantPower(); },
   clock: () => clockT,
   trailTime: () => trailT,
   setClock(s) { clockT = s; clockShown = -1; },
