@@ -1178,21 +1178,16 @@ MODELS.partition = mergeGeos([
 ]);
 
 MODELS.column = mergeGeos([
-  at3(Box(1.14, 0.10, 1.14), 0, 0.05, 0),                    // base plate
-  ...[[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([sx, sz]) =>  // and its bolts
-    at3(Cyl(0.05, 0.05, 0.06, 6), sx * 0.44, 0.13, sz * 0.44)),
-  at3(Box(0.86, 0.14, 0.86), 0, 0.17, 0),
-  at3(Box(0.62, WALL_H - 0.66, 0.62), 0, (WALL_H - 0.66) / 2 + 0.24, 0),   // square shaft
-  // a recessed panel down each face, which is what a plain pier gives a beam
+  // Brutalism does not decorate a pier, it just makes it heavy and lets the
+  // light do the rest. A blunt square shaft, a plain pad top and bottom, and
+  // one recessed shadow line down each face — which is the only thing a
+  // moving torch needs to read the mass.
+  at3(Box(1.18, 0.26, 1.18), 0, 0.13, 0),                    // base pad
+  at3(Box(0.86, WALL_H - 0.72, 0.86), 0, (WALL_H - 0.72) / 2 + 0.26, 0),
   ...[[0, 1], [0, -1], [1, 0], [-1, 0]].map(([sx, sz]) =>
-    at3(Box(sx ? 0.06 : 0.40, WALL_H - 1.3, sz ? 0.06 : 0.40),
-        sx * 0.32, (WALL_H - 0.66) / 2 + 0.24, sz * 0.32)),
-  at3(Box(0.86, 0.14, 0.86), 0, WALL_H - 0.34, 0),           // head plate
-  at3(Box(1.14, 0.10, 1.14), 0, WALL_H - 0.22, 0),
-  // welded gussets under the head, the one thing that says steel rather than stone
-  ...[[0, 1], [0, -1], [1, 0], [-1, 0]].map(([sx, sz]) =>
-    at3(Box(sx ? 0.05 : 0.34, 0.34, sz ? 0.05 : 0.34),
-        sx * 0.30, WALL_H - 0.58, sz * 0.30)),
+    at3(Box(sx ? 0.03 : 0.26, WALL_H - 1.30, sz ? 0.03 : 0.26),
+        sx * 0.43, (WALL_H - 0.72) / 2 + 0.26, sz * 0.43)),
+  at3(Box(1.18, 0.30, 1.18), 0, WALL_H - 0.31, 0),           // head pad
 ]);
 
 // No fire in it. A dead hearth in a room nobody sat in for a long time.
@@ -2274,10 +2269,8 @@ for (let l = 0; l < NLEV; l++) for (let r = 0; r < ROWS; r++) for (let c = 0; c 
   // restaurants are the exception and keep a domestic moulded profile, because
   // those are the rooms that were somebody's.
   const corniceInd = mergeGeos([
-    at3(Box(CELL, 0.10, 0.13), 0, 0.05, 0),
-    at3(Box(CELL, 0.05, 0.22), 0, 0.13, 0.05),
-    at3(Box(CELL, 0.05, 0.28), 0, 0.22, 0.08),
-    ...[-1, 0, 1].map((f) => at3(Cyl(0.03, 0.03, 0.05, 6), f * CELL * 0.3, 0.13, 0.17, Math.PI / 2, 0, 0)),
+    at3(Box(CELL, 0.30, 0.16), 0, 0.15, 0),                  // one deep plain band
+    at3(Box(CELL, 0.05, 0.24), 0, 0.02, 0.05),               // and the shadow line under it
   ]);
   const corniceDom = mergeGeos([
     at3(Box(CELL, 0.07, 0.10), 0, 0.03, 0),
@@ -2295,16 +2288,12 @@ for (let l = 0; l < NLEV; l++) for (let r = 0; r < ROWS; r++) for (let c = 0; c 
   ]);
   // A square pier against the wall: base plate, plain shaft with a recessed
   // channel, head plate, rivets. Nothing fluted and nothing turned.
+  // A plain rib standing off the wall with a shadow gap either side. No plate,
+  // no rivets, no capital — the projection is the whole of the detail.
   const pilasterRun = mergeGeos([
-    at3(Box(0.84, 0.11, 0.28), 0, 0.055, 0),                                  // base plate
-    at3(Box(0.70, 0.09, 0.22), 0, 0.155, 0),
-    at3(Box(0.60, WALL_H - 0.68, 0.17), 0, (WALL_H - 0.68) / 2 + 0.20, 0),    // shaft
-    at3(Box(0.30, WALL_H - 0.92, 0.06), 0, (WALL_H - 0.68) / 2 + 0.20, 0.10), // recessed channel
-    ...[0.5, 0.34, 0.18].map((f, i) =>                                        // rivets
-      at3(Cyl(0.035, 0.035, 0.05, 6), (i - 1) * 0.20, WALL_H * f, 0.10, Math.PI / 2, 0, 0)),
-    at3(Box(0.70, 0.09, 0.22), 0, WALL_H - 0.42, 0),                          // head plate
-    at3(Box(0.84, 0.11, 0.28), 0, WALL_H - 0.31, 0),
-    ...[-1, 1].map((sx) => at3(Box(0.07, 0.30, 0.20), sx * 0.28, WALL_H - 0.60, 0.02)),  // gussets
+    at3(Box(0.72, WALL_H, 0.20), 0, WALL_H / 2, 0),
+    at3(Box(0.44, WALL_H, 0.07), 0, WALL_H / 2, 0.12),
+    at3(Box(0.86, 0.22, 0.26), 0, 0.11, 0.01),               // a heavier foot
   ]);
   const doorHead = mergeGeos([
     at3(Box(CELL + 0.5, 0.14, 0.34), 0, 0, 0),
@@ -2384,12 +2373,60 @@ for (let l = 0; l < NLEV; l++) for (let r = 0; r < ROWS; r++) for (let c = 0; c 
     mesh.userData.detail = 1;
     scene.add(mesh);
   }
+  /* Coffered ceilings — downstand beams on a grid wherever there is a slab
+     overhead. This is the single most brutalist thing in the building and the
+     cheapest: a flat ceiling gives a torch beam nothing at all, and a coffer
+     grid gives it an edge every three metres and a pool of shadow between. It
+     is also what makes the place read as poured concrete rather than as an
+     extruded plan, without touching a single material. */
+  {
+    const beamX = mergeGeos([
+      at3(Box(CELL, 0.34, 0.30), 0, -0.17, 0),
+      at3(Box(CELL, 0.07, 0.40), 0, -0.36, 0),               // a lip on the underside
+    ]);
+    const beamZ = mergeGeos([
+      at3(Box(0.30, 0.34, CELL), 0, -0.17, 0),
+      at3(Box(0.40, 0.07, CELL), 0, -0.36, 0),
+    ]);
+    const xs = [], zs = [];
+    for (let l = 0; l < NLEV; l++) for (let r = 1; r < ROWS - 1; r++) for (let c = 1; c < COLS - 1; c++) {
+      if (!isWalkableChar(at(l, r, c))) continue;
+      // only where something is actually built overhead
+      const roofed = l === NLEV - 1 ? true : at(l + 1, r, c) !== VOID;
+      if (!roofed) continue;
+      const p = cellCentre(r, c);
+      const y = levelY(l) + WALL_H;
+      if (r % 3 === 0) xs.push([p.x, y, p.z]);
+      if (c % 3 === 0) zs.push([p.x, y, p.z]);
+    }
+    const m2 = new THREE.Matrix4(), q2 = new THREE.Quaternion(), one2 = new THREE.Vector3(1, 1, 1);
+    for (const [list, geo] of [[xs, beamX], [zs, beamZ]]) {
+      if (!list.length) continue;
+      const mesh = new THREE.InstancedMesh(geo, matTrim, list.length);
+      mesh.castShadow = mesh.receiveShadow = true;
+      list.forEach((t, i) => {
+        m2.compose(new THREE.Vector3(t[0], t[1], t[2]), q2, one2);
+        mesh.setMatrixAt(i, m2);
+      });
+      mesh.instanceMatrix.needsUpdate = true;
+      mesh.userData.detail = 1;
+      scene.add(mesh);
+    }
+    window.__coffers = { alongX: xs.length, alongZ: zs.length };
+  }
+
   window.__trim = Object.fromEntries(Object.entries(runs).map(([k, v]) => [k, v.length]));
 
   /* Rails up the stairs. Every flight had open sides — the one place in the
-     building you most want something to hold. Each unit is raked to the pitch
-     of its own run rather than stepped, so a balustrade climbs with the
-     treads. Which kind it is follows the same rule as everywhere else. */
+     building you most want something to hold.
+
+     Built from the segment, not from an angle. The first version composed a
+     yaw and a rake as Euler angles and let the rotation order sort it out,
+     which raked some flights about the wrong axis and sent them up sideways.
+     Each unit now gets the two world points its handrail has to span, and its
+     matrix is built directly from that basis: X down the segment, Y the part
+     of world-up perpendicular to it, Z their cross product. A rail cannot come
+     out bent, because it is told where both of its ends go. */
   const stairRails = { domestic: [], public: [], wire: [] };
   const RAIL_FOR2 = {
     living: 'domestic', restaurant: 'domestic',
@@ -2407,38 +2444,50 @@ for (let l = 0; l < NLEV; l++) for (let r = 0; r < ROWS; r++) for (let c = 0; c 
   };
   for (const st of stairs) {
     const n = st.cells.length;
-    const rake = Math.atan2(LEVEL_H, n * CELL);
-    const first = cellCentre(st.cells[0][0], st.cells[0][1]);
-    const last = cellCentre(st.cells[n - 1][0], st.cells[n - 1][1]);
-    const dir = (st.horiz ? Math.sign(last.x - first.x) : Math.sign(last.z - first.z)) || 1;
+    const foot = cellCentre(st.cells[0][0], st.cells[0][1]);
+    const head = cellCentre(st.cells[n - 1][0], st.cells[n - 1][1]);
+    // unit vector from the foot of the flight toward its head
+    const ux = st.horiz ? Math.sign(head.x - foot.x) || 1 : 0;
+    const uz = st.horiz ? 0 : Math.sign(head.z - foot.z) || 1;
     const kind = nearestKind(st.cells[0][0], st.cells[0][1]);
-    st.cells.forEach((cc, i) => {
-      const p = cellCentre(cc[0], cc[1]);
-      const t = (i + 0.5) / n;
-      const yy = levelY(st.lo) + t * LEVEL_H;
+    const off = CELL / 2 - 0.09;
+    for (let i = 0; i < n; i++) {
+      const t0 = i / n, t1 = (i + 1) / n;
+      const bx = foot.x + ux * (i - 0.5) * CELL, bz = foot.z + uz * (i - 0.5) * CELL;
       for (const side of [-1, 1]) {
-        const ox = st.horiz ? 0 : side * (CELL / 2 - 0.09);
-        const oz = st.horiz ? side * (CELL / 2 - 0.09) : 0;
-        stairRails[kind].push({ x: p.x + ox, y: yy, z: p.z + oz,
-                                yaw: st.horiz ? 0 : Math.PI / 2, rake: -rake * dir * (st.horiz ? 1 : 1) });
+        // perpendicular to the run, in plan
+        const sx = uz ? side * off : 0, sz = ux ? side * off : 0;
+        stairRails[kind].push({
+          a: new THREE.Vector3(bx + sx, levelY(st.lo) + t0 * LEVEL_H, bz + sz),
+          b: new THREE.Vector3(bx + ux * CELL + sx, levelY(st.lo) + t1 * LEVEL_H, bz + uz * CELL + sz),
+        });
       }
-    });
+    }
   }
-  const em = new THREE.Matrix4(), eq = new THREE.Quaternion(), eone = new THREE.Vector3(1, 1, 1);
-  for (const kind of Object.keys(stairRails)) {
-    const list = stairRails[kind];
-    if (!list.length) continue;
-    const mesh = new THREE.InstancedMesh(RAILS[kind], matRail, list.length);
-    mesh.castShadow = mesh.receiveShadow = true;
-    list.forEach((t, i) => {
-      // yaw the unit along the flight, then tip it to the flight's pitch
-      eq.setFromEuler(new THREE.Euler(0, t.yaw, t.rake, 'YZX'));
-      em.compose(new THREE.Vector3(t.x, t.y, t.z), eq, eone);
-      mesh.setMatrixAt(i, em);
-    });
-    mesh.instanceMatrix.needsUpdate = true;
-    mesh.userData.detail = 1;
-    scene.add(mesh);
+  {
+    const axX = new THREE.Vector3(), axY = new THREE.Vector3(), axZ = new THREE.Vector3();
+    const up = new THREE.Vector3(0, 1, 0), mid = new THREE.Vector3();
+    for (const kind of Object.keys(stairRails)) {
+      const list = stairRails[kind];
+      if (!list.length) continue;
+      const mesh = new THREE.InstancedMesh(RAILS[kind], matRail, list.length);
+      mesh.castShadow = mesh.receiveShadow = true;
+      list.forEach((seg, i) => {
+        axX.subVectors(seg.b, seg.a);
+        const len = axX.length();
+        axX.divideScalar(len);
+        axZ.crossVectors(axX, up).normalize();      // across the flight, level
+        axY.crossVectors(axZ, axX).normalize();     // up, square to the handrail
+        mid.addVectors(seg.a, seg.b).multiplyScalar(0.5);
+        const m = new THREE.Matrix4().makeBasis(
+          axX.clone().multiplyScalar(len / CELL), axY, axZ);
+        m.setPosition(mid);
+        mesh.setMatrixAt(i, m);
+      });
+      mesh.instanceMatrix.needsUpdate = true;
+      mesh.userData.detail = 1;
+      scene.add(mesh);
+    }
   }
   window.__stairRails = Object.fromEntries(
     Object.entries(stairRails).map(([k, v]) => [k, v.length]));

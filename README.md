@@ -108,17 +108,30 @@ samples that render by its own screen position rather than by a UV, which is wha
 the view through the hole line up with the world around it instead of sliding as you
 move. Aim at a wall and it opens in the wall; look down and it opens in the floor.
 
-**The building is industrial, and says so.** Piers are square: base plate, plain shaft
-with a recessed channel, head plate, bolts and welded gussets. Pilasters are flat plates
-with rivets, not flutes. Cornices step out through plates rather than a classical cove —
-except in living rooms and restaurants, which keep a domestic moulded profile, because
-those are the rooms that were somebody's. 616 industrial cornices to 156 domestic. The
-arches stay.
+**Brutalist, and minimal with it.** Brutalism does not decorate a pier, it makes it heavy
+and lets the light do the rest: a blunt square shaft on plain pads with one recessed
+shadow line down each face, which is all a moving torch needs to read the mass.
+Pilasters are plain ribs standing off the wall with a shadow gap either side — no plate,
+no rivets, no capital. Cornices are one deep band and the shadow under it. Living rooms
+and restaurants are the exception and keep a domestic moulded profile, because those are
+the rooms that were somebody's: 616 industrial to 156 domestic. The arches stay.
+
+**Coffered ceilings** — downstand beams on a three-metre grid wherever there is a slab
+overhead, about 4,300 of them. This is the cheapest brutalist move in the building and
+the most effective: a flat ceiling gives a torch beam nothing at all, a coffer grid gives
+it an edge every three metres and a pool of shadow between, and it makes the place read
+as poured concrete rather than as an extruded plan without touching a single material.
 
 **Rails go up the stairs**, which is the one place in the building you most want
 something to hold and the one place that had nothing. 120 units, raked to the pitch of
-their own flight rather than stepped, so a balustrade climbs with the treads. Kind is
-chosen the same way as everywhere else.
+their own flight rather than stepped, so a balustrade climbs with the treads.
+
+They are built from the segment, not from an angle. The first attempt composed a yaw and
+a rake as Euler angles and let the rotation order sort it out, which raked some flights
+about the wrong axis and sent them up sideways. Each unit is now handed the two world
+points its handrail has to span, and its matrix comes straight from that basis: X down
+the segment, Y the part of world-up perpendicular to it, Z their cross product. A rail
+cannot come out bent, because it is told where both of its ends go.
 
 **Two dead hearths** in the living rooms — surround, lintel, mantel, chimney breast and a
 cold grate, set against a real wall and facing in. Never a fire; nobody has been here to
