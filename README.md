@@ -204,6 +204,23 @@ Your own beam kills one, but only while it is looking somewhere else — and sin
 cannot turn, whether it is looking away was decided by what you did, then. Head-on you
 cannot win. Killing one puts the clock back to 5:00, the only way to buy time.
 
+**There is no range on that kill.** Line of sight is the only limit: spot a halo three
+rooms down a corridor with its back to you, line it up, and it goes out — verified at
+10, 20, 45 and 75 metres, and blocked by a wall in between. This is deliberately the
+player's advantage, and the one thing you can do that it can never do back.
+
+It also produces the sharpest bit of geometry in the game for free. Doubling back along
+your own route walks you straight into your past selves *face-on*, because they are
+retracing the direction you were going — the one angle you cannot shoot from. To kill
+one you have to leave your own line and take it from the side or behind.
+
+Each is named as it arrives — F1, F2, F3 — and keeps the name until it goes out. The
+name is over the torch in the world, beside the dot on the chart, and in the
+announcements, so with several on the floor you can tell which is which. In the world
+it is drawn with size attenuation off and lifted by the sprite's `center` rather than a
+world offset: both so it stays legible at the range you can now kill from, and because
+a world-space offset shrinks with distance until the label sits inside its own halo.
+
 **No body.** A black casing floating at chest height with its lens at the front, so from
 behind it occludes its own light and you get a cylinder and nothing else, and from the
 front you get the beam. You can always see them: on the chart as a pale dot with the

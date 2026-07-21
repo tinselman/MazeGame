@@ -2176,6 +2176,9 @@ function drawMinimap() {
     const near = here && Math.hypot(a.pos.x - player.pos.x, a.pos.z - player.pos.z) < CATCH_RANGE;
     g.fillStyle = near && !safeInLight() ? '#ff6a4a' : '#a8c8ff';
     g.beginPath(); g.arc(ax, ay, here ? 3.8 : 2.6, 0, Math.PI * 2); g.fill();
+    g.font = '9px ui-monospace, monospace';
+    g.textAlign = 'left';
+    g.fillText(`F${a.tag}`, ax + 5.5, ay - 4);
     g.restore();
   }
 
@@ -2523,7 +2526,11 @@ const CATCH_RANGE = 8.5;                 // "relatively close", and its beam on 
 const BEAM_COS    = Math.cos(0.38);      // its cone, for catching you
 const KILL_COS    = Math.cos(0.30);      // your cone, for killing it
 const AVERT_COS   = Math.cos(1.05);      // it must be looking ~60 deg away to be vulnerable
-const KILL_RANGE  = 15;
+// No range on the kill: if you can see it down a corridor and its back is
+// turned, it goes out. Line of sight is the only limit, and that is meant to be
+// a real advantage — spotting a halo three rooms away and lining it up is the
+// one thing you can do that it can never do back.
+const KILL_RANGE  = Infinity;
 
 const trail = [];                        // {t, x, y, z, lev, yaw}
 const trailEvents = [];                  // {t, kind, ref}
@@ -2643,6 +2650,29 @@ const haloTex = (() => {
   return new THREE.CanvasTexture(cv);
 })();
 
+// Each one is named as it arrives, and keeps that name until it goes out. With
+// several on the floor at once you need to be able to say which is which — on
+// the chart, in the announcements, and over the torch itself.
+const tagTex = (() => {
+  const cache = new Map();
+  return (n) => {
+    if (cache.has(n)) return cache.get(n);
+    const cv = document.createElement('canvas');
+    cv.width = 128; cv.height = 64;
+    const g = cv.getContext('2d');
+    g.font = 'bold 42px ui-monospace, "SF Mono", Menlo, monospace';
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.lineWidth = 6; g.strokeStyle = 'rgba(0,0,0,.85)';
+    g.strokeText(`F${n}`, 64, 34);
+    g.fillStyle = '#dbe8ff';
+    g.fillText(`F${n}`, 64, 34);
+    const t = new THREE.CanvasTexture(cv);
+    cache.set(n, t);
+    return t;
+  };
+})();
+
+let antiCount = 0;
 const antis = [];
 for (let i = 0; i < MAX_ANTI; i++) {
   const grp = new THREE.Group();
@@ -2660,7 +2690,18 @@ for (let i = 0; i < MAX_ANTI; i++) {
   }));
   halo.scale.setScalar(1.15);
   halo.position.z = -0.44;
-  grp.add(casing, bezel, lens, halo);
+  // sizeAttenuation off, so the name stays the same size however far away it is
+  // — you have to be able to read it at the range you can now kill from. The
+  // lift above the torch is done with `center` rather than a local offset for
+  // the same reason: a world-space offset shrinks with distance and the label
+  // ends up sitting in the middle of its own halo.
+  const tag = new THREE.Sprite(new THREE.SpriteMaterial({
+    sizeAttenuation: false, transparent: true, depthWrite: false, fog: false,
+  }));
+  tag.scale.set(0.07, 0.035, 1);
+  tag.center.set(0.5, -0.75);
+  tag.position.z = -0.3;
+  grp.add(casing, bezel, lens, halo, tag);
   grp.visible = false;
   scene.add(grp);
 
@@ -2673,7 +2714,8 @@ for (let i = 0; i < MAX_ANTI; i++) {
   scene.add(light, target);
 
   antis.push({ live: false, delay: 0, idx: 0, evIdx: 0, pos: new THREE.Vector3(),
-               lev: 0, yaw: 0, done: false, grp, lens, halo, light, target });
+               lev: 0, yaw: 0, done: false, tag: 0, grp, lens, halo, tagSprite: tag,
+               light, target });
 }
 
 let clockT = ANTI_PERIOD, antiOn = true, hitFlash = 0, caughtT = 0;
@@ -2693,6 +2735,9 @@ function spawnAnti() {
   const a = antis.find((x) => !x.live);
   if (!a) return null;
   a.live = true; a.done = false;
+  a.tag = ++antiCount;              // named on arrival, and it keeps the name
+  a.tagSprite.material.map = tagTex(a.tag);
+  a.tagSprite.material.needsUpdate = true;
   a.delay = trailT;                 // it begins at the beginning: you, at minute zero
   a.idx = 0; a.evIdx = 0;
   a.pos.set(hubCentre.x, 0, hubCentre.z);
@@ -2713,7 +2758,7 @@ function killAnti(a) {
   clockT = ANTI_PERIOD;                     // you bought yourself five minutes
   clockShown = -1;
   sfx.kill();
-  announce('IT GOES OUT', '#cfe0ff', 3.4);
+  announce(`F${a.tag} GOES OUT`, '#cfe0ff', 3.4);
 }
 
 // It repeats the action you took, at the moment you took it.
@@ -2852,7 +2897,8 @@ function updateAntis(dt) {
     clockT -= dt;
     if (clockT <= 0) {
       clockT = ANTI_PERIOD;
-      if (spawnAnti()) { sfx.spawn(); announce('SOMETHING ELSE IS WALKING', '#cfe0ff', 4.4); }
+      const born = spawnAnti();
+      if (born) { sfx.spawn(); announce(`F${born.tag} IS WALKING`, '#cfe0ff', 4.4); }
     }
   }
   drawClockFace(clockT);
