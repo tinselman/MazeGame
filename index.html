@@ -600,25 +600,81 @@ const texFloor = noiseTexture(120, 40, true);
 const texCeil  = noiseTexture(132, 26, true);
 // A CRT still showing something. Green monospace on black — the machines in
 // this building never got switched off.
-function screenTexture() {
-  const W = 128, H = 96, cv = document.createElement('canvas');
+/* The terminals. These were 128x96 with a 7px font, which at the size a screen
+   actually fills your view is a couple of pixels per glyph — it stopped being
+   text and became a green smear. They are 640x480 now with a 19px monospace
+   face, which is a real character cell, and every line is something a machine
+   would plausibly have printed rather than random glyphs.
+
+   Six variants, so a floor of terminals is not one terminal repeated. The
+   content is generated from a seeded hash rather than Math.random, so a given
+   screen says the same thing on every playthrough — the room is a place you can
+   come to recognise, not a slot machine.
+
+   These are the one deliberate exception to "no colour in materials". A screen
+   is a light source, not a lit surface, so its green is emitted.             */
+function screenTexture(seed) {
+  const W = 640, H = 480, cv = document.createElement('canvas');
   cv.width = W; cv.height = H;
   const ctx = cv.getContext('2d');
-  ctx.fillStyle = '#02120a'; ctx.fillRect(0, 0, W, H);
-  ctx.font = '7px ui-monospace, monospace';
-  const glyphs = 'ABCDEF0123456789>/\\_:.#$%*=+-';
-  for (let line = 0; line < 11; line++) {
-    const y = 8 + line * 8;
-    const n = 3 + Math.floor(Math.random() * 16);
-    let s = '';
-    for (let i = 0; i < n; i++) s += glyphs[Math.floor(Math.random() * glyphs.length)];
-    ctx.fillStyle = `rgba(120,255,150,${0.5 + Math.random() * 0.5})`;
-    ctx.fillText(s, 5, y);
+  let n = seed * 9301 + 49297;
+  const rnd = () => { n = (n * 9301 + 49297) % 233280; return n / 233280; };
+  const pick = (arr) => arr[Math.floor(rnd() * arr.length) % arr.length];
+  const hex = (len) => Array.from({ length: len },
+    () => '0123456789ABCDEF'[Math.floor(rnd() * 16)]).join('');
+  const pad = (v, w) => String(v).padStart(w, '0');
+
+  ctx.fillStyle = '#03170c';
+  ctx.fillRect(0, 0, W, H);
+  ctx.font = '19px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
+  ctx.textBaseline = 'top';
+
+  const UNITS = ['NODE', 'SEG', 'BANK', 'VOL', 'TAPE', 'CORE'];
+  const VERBS = ['READ', 'WRITE', 'SEEK', 'PARITY', 'RETRY', 'VERIFY'];
+  const line = (i) => {
+    const r = rnd();
+    if (r < 0.20) return `0x${hex(4)}  ${hex(2)} ${hex(2)} ${hex(2)} ${hex(2)} ${hex(2)} ${hex(2)}`;
+    if (r < 0.38) return `${pick(UNITS)}-${pad(Math.floor(rnd() * 64), 2)}  ${pick(VERBS)}  OK`;
+    if (r < 0.50) return `${pick(UNITS)}-${pad(Math.floor(rnd() * 64), 2)}  ${pick(VERBS)}  FAIL ${hex(3)}`;
+    if (r < 0.60) return `>> BATCH ${pad(Math.floor(rnd() * 400), 3)} QUEUED`;
+    if (r < 0.68) return `   ...${Math.floor(rnd() * 9000 + 200)} BLOCKS`;
+    if (r < 0.76) return `WAIT: OPERATOR RESPONSE`;
+    if (r < 0.84) return `[${'#'.repeat(Math.floor(rnd() * 14) + 2).padEnd(16, '.')}]`;
+    if (r < 0.92) return `${pad(Math.floor(rnd() * 24), 2)}:${pad(Math.floor(rnd() * 60), 2)}:${pad(Math.floor(rnd() * 60), 2)}  SYNC`;
+    return `> ${'ABCDEFGHJKLMNPRSTUVWXYZ'[Math.floor(rnd() * 23)]}${hex(3)}`;
+  };
+
+  const rows = 20, lh = H / rows;
+  for (let i = 0; i < rows; i++) {
+    const txt = line(i);
+    // a scanned phosphor line is not uniformly bright
+    ctx.fillStyle = `rgba(150,255,175,${0.55 + rnd() * 0.45})`;
+    ctx.fillText(txt, 16, i * lh + 2);
   }
+  // the cursor, sitting where the operator left it
+  ctx.fillStyle = 'rgba(190,255,205,.9)';
+  ctx.fillRect(16, (rows - 1) * lh + 3, 11, lh - 8);
+
+  // bloom: phosphor spreads, so the whole thing is soft rather than sharp
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.filter = 'blur(3px)';
+  ctx.drawImage(cv, 0, 0);
+  ctx.filter = 'none';
+  ctx.globalCompositeOperation = 'source-over';
+
   // scanlines, so it reads as a tube rather than a poster
-  ctx.fillStyle = 'rgba(0,0,0,.28)';
-  for (let y = 0; y < H; y += 3) ctx.fillRect(0, y, W, 1);
-  return new THREE.CanvasTexture(cv);
+  ctx.fillStyle = 'rgba(0,0,0,.30)';
+  for (let y = 0; y < H; y += 4) ctx.fillRect(0, y, W, 2);
+  // and the corners fall away, the way a curved screen does
+  const vig = ctx.createRadialGradient(W / 2, H / 2, H * 0.32, W / 2, H / 2, H * 0.78);
+  vig.addColorStop(0, 'rgba(0,0,0,0)');
+  vig.addColorStop(1, 'rgba(0,0,0,.55)');
+  ctx.fillStyle = vig;
+  ctx.fillRect(0, 0, W, H);
+
+  const t = new THREE.CanvasTexture(cv);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  return t;
 }
 
 const texWater = rippleTexture();
@@ -1155,7 +1211,10 @@ MODELS.desk = mergeGeos([
 MODELS.monitor = mergeGeos([
   at3(Box(0.34, 0.04, 0.26), 0, 0.02, 0),                    // foot
   at3(Cyl(0.05, 0.07, 0.10, 10), 0, 0.09, 0),                // neck
-  at3(Box(0.62, 0.46, 0.42), 0, 0.36, -0.06),                // tube body
+  // The body stops short of the bezel. It used to reach z +0.15 while the
+  // screen sat at +0.13, so the case covered its own screen and what you saw
+  // was grey plastic with the room's green light on it.
+  at3(Box(0.62, 0.46, 0.40), 0, 0.36, -0.09),                // tube body
   // The bezel is a frame with a hole in it. It used to be a solid panel across
   // the front, which sat exactly where the emissive screen goes and hid it.
   at3(Box(0.62, 0.055, 0.05), 0, 0.585, 0.145),
@@ -2055,7 +2114,7 @@ const ATRIUM_AREAS = [];        // where a dry fountain might stand
         place('chair', px, y, pz + cd / 5, Math.PI, g(i + j + 4));
         place('monitor', px, y + 0.76, pz - cd / 4 - 0.1, 0, g(i + j + 5));
         place('keyboard', px + 0.42, y + 0.78, pz - cd / 4 + 0.16, 0.2, g(i + j + 6));
-        screens.push({ x: px, y: y + 1.12, z: pz - cd / 4 + 0.03, lev: rm.lev });
+        screens.push({ x: px, y: y + 1.12, z: pz - cd / 4 + 0.05, lev: rm.lev });
       }
 
     } else if (t === 'hall') {
@@ -2327,24 +2386,43 @@ const ATRIUM_AREAS = [];        // where a dry fountain might stand
   // so a cubicle floor is faintly green before you ever find its switch — which
   // makes it findable in the dark, and unmistakable once found.
   if (screens.length) {
-    const tex = screenTexture();
-    const matScreen = new THREE.MeshPhongMaterial({
-      map: tex, emissiveMap: tex, emissive: 0x9fffb4, emissiveIntensity: 1.15, color: 0x111111,
-    });
-    const mesh = new THREE.InstancedMesh(new THREE.PlaneGeometry(0.6, 0.42), matScreen, screens.length);
+    // An InstancedMesh carries one texture, so six variants means six meshes —
+    // six draw calls for seventy-odd terminals, against one draw call for
+    // seventy identical ones. Worth it: a floor of screens all saying exactly
+    // the same thing is the tell that gives away the whole trick.
+    const VARIANTS = 6;
+    const texes = Array.from({ length: VARIANTS }, (_, i) => screenTexture(i * 977 + 13));
+    // Unlit. A Phong screen is both lit and emissive, so shining a torch at one
+    // from a metre away saturated it to flat white and the text vanished — the
+    // exact failure this was meant to fix. A tube emits; it is not a surface
+    // you illuminate. Basic keeps the texture exactly as drawn at any range,
+    // and still takes fog so a distant screen sits back in the dark properly.
+    const mats = texes.map((tex) => new THREE.MeshBasicMaterial({ map: tex, fog: true }));
+    const buckets = Array.from({ length: VARIANTS }, () => []);
+    screens.forEach((sc, i) => buckets[i % VARIANTS].push(sc));
+
     const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s1 = new THREE.Vector3(1, 1, 1);
-    screens.forEach((sc, i) => {
-      m.compose(new THREE.Vector3(sc.x, sc.y, sc.z), q, s1);
-      mesh.setMatrixAt(i, m);
-      if (i % 4 === 0) {
-        emitters.push({
-          pos: new THREE.Vector3(sc.x, sc.y, sc.z + 0.4),
-          color: new THREE.Color(0x54ff8a), intensity: 2.4, on: true,
-        });
-      }
+    let lit = 0;
+    buckets.forEach((list, vi) => {
+      if (!list.length) return;
+      // 4:3, matching the texture and the bezel's opening
+      const mesh = new THREE.InstancedMesh(new THREE.PlaneGeometry(0.52, 0.39), mats[vi], list.length);
+      list.forEach((sc, i) => {
+        m.compose(new THREE.Vector3(sc.x, sc.y, sc.z), q, s1);
+        mesh.setMatrixAt(i, m);
+        // every fourth screen feeds the light pool, so a cubicle floor is
+        // faintly green before you ever find its switch
+        if (lit++ % 4 === 0) {
+          emitters.push({
+            pos: new THREE.Vector3(sc.x, sc.y, sc.z + 0.4),
+            color: new THREE.Color(0x54ff8a), intensity: 2.4, on: true,
+          });
+        }
+      });
+      mesh.instanceMatrix.needsUpdate = true;
+      scene.add(mesh);
     });
-    mesh.instanceMatrix.needsUpdate = true;
-    scene.add(mesh);
+    window.__screens = { count: screens.length, variants: VARIANTS, texes };
   }
 }
 

@@ -147,6 +147,19 @@ The monitors are the one thing in the building still making light on their own: 
 fourth screen feeds the light pool, so a cubicle floor glows faintly green before you
 have found its switch. It is the only room type you can locate in the dark.
 
+**The terminals say something.** 640x480 with a 19px monospace face — a real character
+cell — and every line is something a machine would plausibly have printed: hex dumps,
+`TAPE-43 RETRY FAIL A27`, progress bars, `WAIT: OPERATOR RESPONSE`, and a cursor sitting
+where the operator left it. Phosphor bloom, scanlines and a vignette so it reads as a
+tube rather than a poster. Six variants, one instanced mesh each, because a floor of
+seventy screens all saying exactly the same thing is the tell that gives the trick away.
+Content is generated from a seeded hash rather than `Math.random`, so a given screen says
+the same thing on every playthrough — the room is somewhere you can come to recognise.
+
+They are drawn unlit. A screen that is both lit and emissive saturates to flat white the
+moment you put a torch on it from a metre away, which is exactly the failure this was
+meant to fix: a tube emits, it is not a surface you illuminate.
+
 **Nothing snaps downward.** Any drop deeper than a kerb becomes a real fall under
 gravity — off a balcony, off the side of a stair flight, off anything — and you land
 with a damped-spring jolt and a touch of camera roll, scaled by how hard you hit. The
