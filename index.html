@@ -1190,21 +1190,46 @@ MODELS.column = mergeGeos([
   at3(Box(1.18, 0.30, 1.18), 0, WALL_H - 0.31, 0),           // head pad
 ]);
 
-// No fire in it. A dead hearth in a room nobody sat in for a long time.
-MODELS.fireplace = mergeGeos([
-  at3(Box(2.10, 0.12, 0.92), 0, 0.06, 0.10),                 // hearth slab
-  at3(Box(1.86, 0.10, 0.72), 0, 0.15, 0.14),
-  at3(Box(0.42, 1.24, 0.44), -0.84, 0.74, -0.10),            // jambs
-  at3(Box(0.42, 1.24, 0.44), 0.84, 0.74, -0.10),
-  at3(Box(2.10, 0.26, 0.44), 0, 1.49, -0.10),                // lintel
-  at3(Box(2.34, 0.10, 0.58), 0, 1.67, -0.06),                // mantel shelf
-  at3(Box(2.42, 0.06, 0.64), 0, 1.74, -0.05),
-  at3(Box(1.70, 2.10, 0.34), 0, 2.85, -0.16),                // chimney breast
-  at3(Box(1.86, 0.10, 0.42), 0, 1.84, -0.13),
-  at3(Box(1.26, 1.18, 0.30), 0, 0.71, -0.26),                // the dark opening
-  at3(Box(1.10, 0.08, 0.26), 0, 0.20, -0.24),                // a grate, cold
+// No fire in either. A dead hearth in a room nobody sat in for a long time.
+const hearthGeo = (k) => mergeGeos([
+  at3(Box(2.10 * k, 0.12, 0.92 * k), 0, 0.06, 0.10 * k),                  // hearth slab
+  at3(Box(1.86 * k, 0.10, 0.72 * k), 0, 0.15, 0.14 * k),
+  at3(Box(0.42 * k, 1.24 * k, 0.44 * k), -0.84 * k, 0.74 * k, -0.10),     // jambs
+  at3(Box(0.42 * k, 1.24 * k, 0.44 * k), 0.84 * k, 0.74 * k, -0.10),
+  at3(Box(2.10 * k, 0.26, 0.44 * k), 0, 1.49 * k, -0.10),                 // lintel
+  at3(Box(2.34 * k, 0.10, 0.58 * k), 0, 1.67 * k, -0.06),                 // mantel shelf
+  at3(Box(2.42 * k, 0.06, 0.64 * k), 0, 1.74 * k, -0.05),
+  at3(Box(1.70 * k, WALL_H - 1.8 * k, 0.34 * k), 0,                       // chimney breast
+      1.78 * k + (WALL_H - 1.8 * k) / 2, -0.16),
+  at3(Box(1.86 * k, 0.10, 0.42 * k), 0, 1.84 * k, -0.13),
+  at3(Box(1.26 * k, 1.18 * k, 0.30 * k), 0, 0.71 * k, -0.26),             // the dark opening
+  at3(Box(1.10 * k, 0.08, 0.26 * k), 0, 0.20, -0.24),                     // a grate, cold
   ...[-0.36, -0.12, 0.12, 0.36].map((x) =>
-    at3(Cyl(0.022, 0.022, 0.26, 6), x, 0.26, -0.24, Math.PI / 2, 0, 0)),
+    at3(Cyl(0.022, 0.022, 0.26 * k, 6), x * k, 0.26, -0.24, Math.PI / 2, 0, 0)),
+]);
+MODELS.fireplaceBig = hearthGeo(1.45);
+MODELS.fireplaceSmall = hearthGeo(0.78);
+
+/* A formal fountain, dry. Basin, tiers and a spout that has not run in a long
+   time — the staining is in the geometry rather than the material, as stepped
+   rings where the water line used to sit. Nothing here carries colour. */
+MODELS.fountain = mergeGeos([
+  at3(Cyl(2.30, 2.45, 0.34, 24), 0, 0.17, 0),                  // outer basin wall
+  at3(Cyl(2.10, 2.10, 0.16, 24), 0, 0.42, 0),                  // coping
+  at3(Cyl(1.95, 1.95, 0.10, 24), 0, 0.10, 0),                  // basin floor
+  ...[0.20, 0.28].map((h) => at3(Cyl(1.99, 1.99, 0.03, 24), 0, h, 0)),   // old water lines
+  at3(Cyl(0.62, 0.78, 0.42, 16), 0, 0.31, 0),                  // pedestal
+  at3(Cyl(0.90, 0.90, 0.10, 20), 0, 0.56, 0),                  // lower dish
+  at3(Cyl(0.80, 0.72, 0.16, 20), 0, 0.66, 0),
+  at3(Cyl(0.26, 0.34, 0.72, 12), 0, 1.06, 0),                  // stem
+  at3(Cyl(0.58, 0.58, 0.09, 18), 0, 1.46, 0),                  // upper dish
+  at3(Cyl(0.50, 0.42, 0.14, 18), 0, 1.55, 0),
+  at3(Cyl(0.10, 0.14, 0.46, 10), 0, 1.85, 0),                  // the dry spout
+  at3(Sph(0.13, 10, 8), 0, 2.12, 0),
+  ...Array.from({ length: 8 }, (_, i) => {                     // bollards round the rim
+    const a = (i / 8) * Math.PI * 2;
+    return at3(Box(0.16, 0.40, 0.16), Math.cos(a) * 2.9, 0.20, Math.sin(a) * 2.9, 0, -a, 0);
+  }),
 ]);
 
 MODELS.bench = mergeGeos([
@@ -1717,6 +1742,8 @@ for (let l = 0; l < NLEV; l++) for (let r = 0; r < ROWS; r++) for (let c = 0; c 
   props.switches.push(room);
 }
 
+const ATRIUM_CENTRES = [];      // where a dry fountain can stand
+
 /* ---- atrium lighting ---------------------------------------------------
    One switch lights a whole three-storey volume, and it comes up a storey at a
    time from the bottom: the first balcony strikes, then the one above it, then
@@ -1741,6 +1768,14 @@ for (let l = 0; l < NLEV; l++) for (let r = 0; r < ROWS; r++) for (let c = 0; c 
     if (cells.length >= 30) groups.push(cells);
   }
   groups.sort((a, b) => b.length - a.length);
+
+  // every atrium big enough to hold one, not only the two that get a switch
+  for (const cells of groups) {
+    if (cells.length < 40) continue;
+    let sr = 0, sc = 0;
+    for (const [cr, cc] of cells) { sr += cr; sc += cc; }
+    ATRIUM_CENTRES.push([Math.round(sr / cells.length), Math.round(sc / cells.length)]);
+  }
 
   for (const cells of groups.slice(0, 2)) {
     const inAtrium = new Set(cells.map((x) => x.join(',')));
@@ -1840,8 +1875,37 @@ for (let l = 0; l < NLEV; l++) for (let r = 0; r < ROWS; r++) for (let c = 0; c 
   const greys = [0x7d7d7d, 0x868686, 0x8f8f8f, 0x979797, 0xa0a0a0];
   const grey = (r, c, n) => greys[Math.floor(wobble(r, c, n) * greys.length) % greys.length];
 
-  // the two rooms lit by chandelier rather than by strip light
+  // the rooms lit by chandelier rather than by strip light
   const chandelierRooms = [];
+  // six hearths across the building: four monumental, two modest
+  const hearthsLeft = { big: 4, small: 2 };
+  // a few rooms somebody decorated and never took down
+  const xmasRooms = [], XMAS_MAX = 4;
+
+  // A hearth stands against the inside face of a wall, facing in. The first
+  // version placed it at the wall cell itself — its offset into the room was
+  // multiplied by zero — so every one was built into the masonry and none was
+  // ever visible from inside the room. Four monumental and two modest, spread
+  // across the rooms that were somebody's.
+  function tryHearth(rm, y, g) {
+    if (hearthsLeft.big <= 0 && hearthsLeft.small <= 0) return;
+    for (const [wr, wc, rot, px, pz] of [
+      [rm.r1 - 1, Math.round((rm.c1 + rm.c2) / 2), 0, 0, 1],
+      [rm.r2 + 1, Math.round((rm.c1 + rm.c2) / 2), Math.PI, 0, -1],
+      [Math.round((rm.r1 + rm.r2) / 2), rm.c1 - 1, Math.PI / 2, 1, 0],
+      [Math.round((rm.r1 + rm.r2) / 2), rm.c2 + 1, -Math.PI / 2, -1, 0],
+    ]) {
+      if (at(rm.lev, wr, wc) !== '#') continue;
+      const inRoom = [wr + pz, wc + px];                 // the cell it faces into
+      if (!isWalkableChar(at(rm.lev, inRoom[0], inRoom[1]))) continue;
+      const wp = cellCentre(wr, wc);
+      const big = hearthsLeft.big > 0;
+      place(big ? 'fireplaceBig' : 'fireplaceSmall',
+            wp.x + px * (CELL / 2 + 0.34), y, wp.z + pz * (CELL / 2 + 0.34), rot, g(11));
+      if (big) hearthsLeft.big--; else hearthsLeft.small--;
+      return;                                            // one to a room
+    }
+  }
 
   function furnish(rm) {
     const y = levelY(rm.lev);
@@ -1877,7 +1941,9 @@ for (let l = 0; l < NLEV; l++) for (let r = 0; r < ROWS; r++) for (let c = 0; c 
           }
         }
       }
-      if (chandelierRooms.length < 2) chandelierRooms.push(rm);
+      tryHearth(rm, y, g);
+      chandelierRooms.push(rm);
+      if (xmasRooms.length < XMAS_MAX) xmasRooms.push(rm);
 
     } else if (t === 'living') {
       for (const q of [[-1, -1], [1, 1]]) {
@@ -1887,21 +1953,10 @@ for (let l = 0; l < NLEV; l++) for (let r = 0; r < ROWS; r++) for (let c = 0; c 
         place('armchair', gx + 2.1, y, gz + 0.5, 0.9, g(3));
         place('lowTable', gx, y, gz + 0.7, 0, g(4));
       }
+      if (xmasRooms.length < XMAS_MAX) xmasRooms.push(rm);
       place('shelfUnit', cx, y, z0 + 0.5, 0, g(5));
       place('shelfUnit', cx - 3.2, y, z0 + 0.5, 0, g(6));
-      // One or two dead hearths, set against a real wall and facing into the
-      // room. Never a fire — nobody has been here to light one.
-      let hearths = 0;
-      for (const [wr, wc, rot] of [[rm.r1 - 1, Math.round((rm.c1 + rm.c2) / 2), 0],
-                                   [rm.r2 + 1, Math.round((rm.c1 + rm.c2) / 2), Math.PI],
-                                   [Math.round((rm.r1 + rm.r2) / 2), rm.c1 - 1, Math.PI / 2],
-                                   [Math.round((rm.r1 + rm.r2) / 2), rm.c2 + 1, -Math.PI / 2]]) {
-        if (hearths >= 2 || at(rm.lev, wr, wc) !== '#') continue;
-        const wp = cellCentre(wr, wc);
-        place('fireplace', wp.x - Math.sin(rot) * 0, y,
-              wp.z, rot, g(10 + hearths));
-        hearths++;
-      }
+      tryHearth(rm, y, g);
 
     } else if (t === 'museum') {
       const cols = Math.max(2, Math.floor(w / 6)), rows = Math.max(2, Math.floor(d / 6));
@@ -1919,6 +1974,7 @@ for (let l = 0; l < NLEV; l++) for (let r = 0; r < ROWS; r++) for (let c = 0; c 
       for (let bi = 0; bi < 2; bi++) {
         place('bench', cx + bo[bi][0], y, cz + bo[bi][1], longX ? 0 : Math.PI / 2, g(7 + bi));
       }
+      chandelierRooms.push(rm);
 
     } else if (t === 'gallery') {
       const n = Math.max(3, Math.floor((w + d) / 7));
@@ -2004,10 +2060,24 @@ for (let l = 0; l < NLEV; l++) for (let r = 0; r < ROWS; r++) for (let c = 0; c 
       for (let i = 0; i < cols; i++) for (let j = 0; j < rows; j++) {
         place('column', x0 + ((i + 0.5) / cols) * w, y, z0 + ((j + 0.5) / rows) * d, 0, g(i + j));
       }
+      chandelierRooms.push(rm);
     }
   }
 
   for (const meta of ROOM_META) furnish(meta);
+
+  // Dry fountains where there is height and floor to spare: the atriums, and
+  // the hub. Formal, and long out of use.
+  for (const [ar, ac] of ATRIUM_CENTRES) {
+    const p = cellCentre(ar, ac);
+    place('fountain', p.x, 0, p.z, 0, 0x8f8f8f);
+  }
+  // hubCentre is declared further down the file, so take the hub's middle from
+  // HUB itself rather than reaching forward into a dead zone
+  {
+    const hc = cellCentre((HUB.r1 + HUB.r2) / 2, (HUB.c1 + HUB.c2) / 2);
+    place('fountain', hc.x, 0, hc.z - 9.5, 0, 0x8f8f8f);
+  }
   // Mark the switch rooms that will be lit by chandelier, so the fluorescent
   // pass leaves their tubes dark and the strike model skips them entirely.
   for (const rm of chandelierRooms) {
@@ -2164,6 +2234,74 @@ for (let l = 0; l < NLEV; l++) for (let r = 0; r < ROWS; r++) for (let c = 0; c 
     }
   }
   window.__chandeliers = chandeliers;
+
+  /* ---- the lights somebody put up ---------------------------------------
+     A few rooms were decorated once and never undecorated. Strings of coloured
+     bulbs swagged across the ceiling, which come on with the room's switch and
+     blink alongside the fluorescents rather than instead of them.
+
+     They do not break the rule the whole game runs on — every surface here is
+     still neutral grey, and the colour arrives the way all colour in this
+     building arrives, as light. It is just the only light in the place that was
+     hung for pleasure.                                                        */
+  const XMAS_HUES = [0xff3b30, 0x34c759, 0x2f6bff, 0xffd60a, 0xff2d9b, 0x30d8d8];
+  const xmasBulbs = [], xmasStrings = [];
+  {
+    const bulbGeo = mergeGeos([
+      at3(Sph(0.042, 8, 6), 0, 0, 0),
+      at3(Cyl(0.016, 0.020, 0.035, 6), 0, 0.052, 0),
+    ]);
+    for (const rm of xmasRooms) {
+      const y = levelY(rm.lev) + WALL_H;
+      const x0 = rm.c1 * CELL, x1 = (rm.c2 + 1) * CELL;
+      const z0 = rm.r1 * CELL, z1 = (rm.r2 + 1) * CELL;
+      const longX = (x1 - x0) >= (z1 - z0);
+      const runs = 3, per = 26;
+      const first = xmasBulbs.length;
+      const roomEmitters = [];
+      for (let s2 = 0; s2 < runs; s2++) {
+        const f = (s2 + 1) / (runs + 1);
+        for (let i = 0; i < per; i++) {
+          const u = i / (per - 1);
+          const sag = Math.sin(u * Math.PI) * 0.42;          // a swag, not a straight line
+          const px = longX ? x0 + u * (x1 - x0) : x0 + f * (x1 - x0);
+          const pz = longX ? z0 + f * (z1 - z0) : z0 + u * (z1 - z0);
+          xmasBulbs.push({ x: px, y: y - 0.16 - sag, z: pz,
+                           hue: XMAS_HUES[(i + s2) % XMAS_HUES.length],
+                           phase: (i * 0.7 + s2 * 1.9) % 6.283 });
+        }
+        // one pooled light per swag, so the colour actually lands on something
+        const mx = longX ? (x0 + x1) / 2 : x0 + f * (x1 - x0);
+        const mz = longX ? z0 + f * (z1 - z0) : (z0 + z1) / 2;
+        const em = { pos: new THREE.Vector3(mx, y - 0.9, mz),
+                     color: new THREE.Color(XMAS_HUES[s2 % XMAS_HUES.length]),
+                     intensity: 0, on: false };
+        emitters.push(em);
+        roomEmitters.push(em);
+      }
+      const room = props.switches.find((sw) => !sw.atrium && sw.cells.some(
+        ([r, c]) => r >= rm.r1 && r <= rm.r2 && c >= rm.c1 && c <= rm.c2));
+      xmasStrings.push({ room, from: first, to: xmasBulbs.length, emitters: roomEmitters });
+    }
+    if (xmasBulbs.length) {
+      // No vertexColors: that makes the shader look for a per-vertex colour
+      // attribute the merged geometry does not have, and every bulb comes out
+      // black. Per-instance colour alone is what is wanted here.
+      const mat = new THREE.MeshBasicMaterial({ fog: true });
+      const mesh = new THREE.InstancedMesh(bulbGeo, mat, xmasBulbs.length);
+      const m3 = new THREE.Matrix4(), q3 = new THREE.Quaternion(), s3 = new THREE.Vector3(1, 1, 1);
+      const c3 = new THREE.Color();
+      xmasBulbs.forEach((b, i) => {
+        m3.compose(new THREE.Vector3(b.x, b.y, b.z), q3, s3);
+        mesh.setMatrixAt(i, m3);
+        mesh.setColorAt(i, c3.setHex(b.hue));
+      });
+      mesh.instanceMatrix.needsUpdate = true;
+      mesh.userData.detail = 1;
+      scene.add(mesh);
+      window.__xmas = { mesh, bulbs: xmasBulbs, strings: xmasStrings };
+    }
+  }
 
   window.__props = { groups, propMeshes, chandelierRooms };
 
@@ -2847,6 +2985,20 @@ function rebuildReveal() {
     if (at(l, r, c + 1) === '#') mmSegments[l].push([c + 1, r, c + 1, r + 1]);
   }
 }
+/* Charting one cell at a time. rebuildReveal walks the whole building, which
+   is fine for a switch you flick but not for something moving through the
+   place every frame — so a walker adds its surroundings this way instead, in
+   the same white-line vocabulary as everything else. */
+function chartCell(l, r, c) {
+  const k = `${l},${r},${c}`;
+  if (revealed.has(k) || !isWalkableChar(at(l, r, c))) return;
+  revealed.add(k); charted.add(k);
+  if (at(l, r - 1, c) === '#') mmSegments[l].push([c, r, c + 1, r]);
+  if (at(l, r + 1, c) === '#') mmSegments[l].push([c, r + 1, c + 1, r + 1]);
+  if (at(l, r, c - 1) === '#') mmSegments[l].push([c, r, c, r + 1]);
+  if (at(l, r, c + 1) === '#') mmSegments[l].push([c + 1, r, c + 1, r + 1]);
+}
+
 function drawMinimap() {
   const g = mmCtx;
   g.clearRect(0, 0, MM_PX, MM_PX);
@@ -2965,6 +3117,23 @@ function drawMinimap() {
   // counterplay, and without it being hunted would just be arbitrary.
   for (const a of antis) {
     if (!a.live) continue;
+    // where it has just been, fading out behind it
+    const now = clock.elapsedTime;
+    g.save();
+    g.lineWidth = 2;
+    g.lineCap = 'round';
+    for (let i = 1; i < a.path.length; i++) {
+      const p0 = a.path[i - 1], p1 = a.path[i];
+      const age = now - p1.t;
+      if (age > 9) continue;
+      g.globalAlpha = (1 - age / 9) * (p1.lev === player.lev ? 0.85 : 0.3);
+      g.strokeStyle = '#7fd4ff';
+      g.beginPath();
+      g.moveTo(mmX(p0.x / CELL), mmY(p0.z / CELL));
+      g.lineTo(mmX(p1.x / CELL), mmY(p1.z / CELL));
+      g.stroke();
+    }
+    g.restore();
     const ax = mmX(a.pos.x / CELL), ay = mmY(a.pos.z / CELL);
     const here = a.lev === player.lev;
     const bx = -Math.sin(a.yaw), by = -Math.cos(a.yaw);
@@ -3389,25 +3558,38 @@ const AVERT_COS   = Math.cos(1.05);      // it must be looking ~60 deg away to b
 // a real advantage — spotting a halo three rooms away and lining it up is the
 // one thing you can do that it can never do back.
 const KILL_RANGE  = Infinity;
+// how long its beam has to hold you before it takes you — the window in which
+// you can still turn, find it, and win the exchange
+const CATCH_BEAT  = 0.42;
 
 const trail = [];                        // {t, x, y, z, lev, yaw}
 const trailEvents = [];                  // {t, kind, ref}
 let trailT = 0, trailNext = 0;
 
+const idleFrom = new THREE.Vector3();
+let idleFor = 0;
 function trailMark(dt) {
+  // Standing still is not part of a route. After five seconds the recording
+  // stops advancing altogether, so an Anti-player never replays you doing
+  // nothing — and because playback runs on its own clock while the recording
+  // is paused, every second you spend still is a second it gains on you.
+  if (player.pos.distanceToSquared(idleFrom) > 0.0009) { idleFor = 0; idleFrom.copy(player.pos); }
+  else idleFor += dt;
+  if (idleFor > 5) return;
+
   trailT += dt;
   if (trailT < trailNext) return;
   // step the deadline rather than restarting it from now, so samples land on an
   // even grid instead of drifting out to 1.5x the interval
   trailNext = Math.max(trailT, trailNext + TRAIL_DT);
   trail.push({ t: trailT, x: player.pos.x, y: player.pos.y - EYE, z: player.pos.z,
-               lev: player.lev, yaw: player.yaw });
+               lev: player.lev, yaw: player.yaw, pow: held.length });
 }
 // A warp lands as two adjacent samples metres apart, which is how a playback
 // head knows to cut rather than slide across the intervening walls.
 function trailSnap() {
   trail.push({ t: trailT, x: player.pos.x, y: player.pos.y - EYE, z: player.pos.z,
-               lev: player.lev, yaw: player.yaw });
+               lev: player.lev, yaw: player.yaw, pow: held.length });
   trailNext = trailT + TRAIL_DT;
 }
 // Everything you do to the building, stamped. The ghost repeats the action, not
@@ -3606,7 +3788,8 @@ for (let i = 0; i < MAX_ANTI; i++) {
   light.target = target;
   scene.add(light, target);
 
-  antis.push({ live: false, delay: 0, idx: 0, evIdx: 0, pos: new THREE.Vector3(),
+  antis.push({ live: false, pt: 0, pow: 0, pLock: 0, aLock: 0, path: [],
+               idx: 0, evIdx: 0, pos: new THREE.Vector3(),
                lev: 0, yaw: 0, done: false, tag: 0, carrying: null,
                aimT: 0, grp, lens, halo, tagSprite: tag, twin, markSprite: mark,
                light, target });
@@ -3633,8 +3816,9 @@ function spawnAnti() {
   a.tag = ++antiCount;              // named on arrival, and it keeps the name
   a.tagSprite.material.map = tagTex(a.tag);
   a.tagSprite.material.needsUpdate = true;
-  a.delay = trailT;                 // it begins at the beginning: you, at minute zero
-  a.idx = 0; a.evIdx = 0;
+  a.pt = 0;                         // it begins at the beginning: you, at minute zero
+  a.idx = 0; a.evIdx = 0; a.pow = 0;
+  a.pLock = 0; a.aLock = 0; a.path.length = 0;
   a.pos.set(hubCentre.x, 0, hubCentre.z);
   a.lev = 0; a.yaw = 0;
   a.grp.visible = true;
@@ -3770,8 +3954,11 @@ function sendHome() {
 }
 
 // Walk one playback head to where you were, delay seconds ago.
-function stepAnti(a) {
-  const pt = trailT - a.delay;
+function stepAnti(a, dt) {
+  // its own clock, not a fixed lag behind yours: the recording pauses while
+  // you stand still, and this does not
+  a.pt += dt;
+  const pt = Math.min(a.pt, trailT);
   if (pt <= 0) return;
   while (a.evIdx < trailEvents.length && trailEvents[a.evIdx].t <= pt) {
     const ev = trailEvents[a.evIdx++];
@@ -3786,10 +3973,11 @@ function stepAnti(a) {
   // a portal shows up as a jump between adjacent samples: step it, do not slide
   const leap = (q.x - p.x) ** 2 + (q.z - p.z) ** 2 > (CELL * 3) ** 2 || q.lev !== p.lev;
   if (leap) {
-    a.pos.set(q.x, q.y, q.z); a.lev = q.lev; a.yaw = q.yaw;
+    a.pos.set(q.x, q.y, q.z); a.lev = q.lev; a.yaw = q.yaw; a.pow = q.pow || 0;
   } else {
     a.pos.set(p.x + (q.x - p.x) * k, p.y + (q.y - p.y) * k, p.z + (q.z - p.z) * k);
     a.lev = p.lev;
+    a.pow = p.pow || 0;
     let dy = q.yaw - p.yaw;
     while (dy >  Math.PI) dy -= Math.PI * 2;
     while (dy < -Math.PI) dy += Math.PI * 2;
@@ -3799,46 +3987,83 @@ function stepAnti(a) {
 
 // Your beam kills it only while it is looking somewhere else — and since it
 // cannot turn, whether it is looking away is decided by what you did, then.
-/* Hitting one with the torch was fiddly for three reasons, all fixed here.
+/* The duel is decided by the lamp, not by the angle.
 
-   The test used your head's yaw, but the beam is carried in your hand and lags
-   behind where you look, so what you saw and what the test measured were two
-   different directions. It now aims from the torch, at the torch's actual
-   world-space target, which is the thing you have been aiming all along.
+   You carry every lamp you have found; an Anti-player carries the lamps you
+   were carrying at the moment it is replaying. Since it is always replaying an
+   earlier you, its light is never stronger than yours — so the moment you pick
+   up your first crystal, you outgun every version of yourself that came
+   before, and a head-on exchange is simply won.
 
-   It was flat, and the torch is not: pointing at one on a stair or across an
-   atrium missed because pitch was thrown away. It is a 3D cone now.
+   Equal lamps is the interesting case, and it is settled the honest way: first
+   beam onto the other wins. Not first to fire, first to be *on target*, so
+   turning to face something before it turns to face you is what saves you.
 
-   And a miss was silent. There was no way to tell "not quite on it" from "on it
-   but it is facing you, which can never work" — so you would stand there
-   shining at something that was never going to die. Both states now show a
-   bracket round it: white while it is yours to take, red while it is looking
-   back at you. */
+   The old rule — that it could only be killed while looking away — is gone,
+   and with it the shot that could never land. */
 const aimFrom = new THREE.Vector3(), aimDir = new THREE.Vector3(), toAnti = new THREE.Vector3();
-function torchDuel(dt) {
+function torchDuel(dt, now) {
   const powered = player.battery > 0;
-  torch.getWorldPosition(aimFrom);
-  aimDir.copy(torch.target.position).sub(aimFrom).normalize();
+  /* Aim is taken from where you are looking, not from where the beam has got
+     to. The torch is carried and its aim trails about a third of a second
+     behind the view — which is right for how it looks, and quite wrong for
+     deciding a duel: an Anti-player replays a fixed heading, so its beam is on
+     target the instant it rounds a corner while yours is still swinging. Timed
+     against the lagging beam, "first to shine at the other" could never be won
+     by the player. Timed against the look, turning to face it first is what
+     saves you, which is the rule as stated. */
+  camera.getWorldPosition(aimFrom);
+  camera.getWorldDirection(aimDir);
+  const mine = held.length;
   for (const a of antis) {
-    if (!a.live) { a.markSprite.visible = false; continue; }
+    if (!a.live) { a.markSprite.visible = false; a.pLock = a.aLock = 0; continue; }
+
+    // your beam on it
     toAnti.set(a.pos.x - aimFrom.x, a.pos.y + 1.12 - aimFrom.y, a.pos.z - aimFrom.z);
     const dist = toAnti.length();
-    const lit = powered && dist > 1e-3 && dist <= KILL_RANGE
+    const playerOn = powered && dist > 1e-3 && a.lev === player.lev
       && toAnti.dot(aimDir) / dist > KILL_COS
-      && clearLine(player.pos, a.pos, player.lev)
-      && a.lev === player.lev;
-    if (!lit) { a.markSprite.visible = false; a.aimT = 0; continue; }
-    // is its back to you? the one thing you cannot change by aiming better
-    const dx = a.pos.x - player.pos.x, dz = a.pos.z - player.pos.z;
-    const flat = Math.hypot(dx, dz) || 1;
-    const open = (-Math.sin(a.yaw) * -dx - Math.cos(a.yaw) * -dz) / flat <= AVERT_COS;
-    a.markSprite.visible = true;
-    a.markSprite.material.map = open ? markOpen : markShut;
-    a.markSprite.material.needsUpdate = true;
-    if (!open) { a.aimT = 0; continue; }
-    // a beat of steady aim, so a beam sweeping past does not clip one by luck
-    a.aimT = (a.aimT || 0) + dt;
-    if (a.aimT >= 0.22) killAnti(a);
+      && clearLine(player.pos, a.pos, player.lev);
+
+    // its beam on you
+    const dx = player.pos.x - a.pos.x, dz = player.pos.z - a.pos.z;
+    const flat = Math.hypot(dx, dz) || 1e-6;
+    const itsOn = caughtT <= 0 && cloakT <= 0 && !safeInLight() && a.lev === player.lev
+      && flat < CATCH_RANGE
+      && (-Math.sin(a.yaw) * dx - Math.cos(a.yaw) * dz) / flat > BEAM_COS
+      && clearLine(a.pos, player.pos, a.lev);
+
+    // when each of you came on target
+    a.pLock = playerOn ? (a.pLock || now) : 0;
+    a.aLock = itsOn ? (a.aLock || now) : 0;
+
+    if (!playerOn) { a.markSprite.visible = false; }
+    else {
+      // white while you would win the exchange, red while you would lose it
+      const wins = mine > a.pow || (mine === a.pow && (!itsOn || a.pLock <= a.aLock));
+      a.markSprite.visible = true;
+      a.markSprite.material.map = wins ? markOpen : markShut;
+      a.markSprite.material.needsUpdate = true;
+    }
+
+    /* Its beam does not take you the instant it touches you. There is a beat
+       first — which has to exist, because your torch is carried and its aim
+       trails a third of a second behind where you look. Without the beat you
+       could never win an exchange you turned into, and "the stronger lamp
+       wins" would be unreachable. */
+    const strongerThanIt = mine > a.pow;
+    if (playerOn && strongerThanIt) {
+      killAnti(a);                                   // outgunned: no contest
+    } else if (playerOn && itsOn) {
+      if (a.pow > mine) caughtBy();
+      else if (a.pLock <= a.aLock) killAnti(a);      // equal lamps: first on target
+      else caughtBy();
+    } else if (playerOn) {
+      // a beat of steady aim, so a beam sweeping past does not clip one by luck
+      if (now - a.pLock >= 0.22) killAnti(a);
+    } else if (itsOn && now - a.aLock >= CATCH_BEAT) {
+      caughtBy();
+    }
   }
 }
 
@@ -3870,22 +4095,26 @@ function updateAntis(dt) {
 
   for (const a of antis) {
     if (!a.live) continue;
-    stepAnti(a);
+    stepAnti(a, dt);
     if (a.done) { retireAnti(a); continue; }     // it has caught up with your present
+    // it charts the ground it covers, and leaves a short line behind it
+    const [ar, ac] = cellOf(a.pos);
+    for (let dr = -2; dr <= 2; dr++) for (let dc = -2; dc <= 2; dc++) {
+      chartCell(a.lev, ar + dr, ac + dc);
+    }
+    const tail = a.path[a.path.length - 1];
+    if (!tail || (tail.x - a.pos.x) ** 2 + (tail.z - a.pos.z) ** 2 > 0.5) {
+      a.path.push({ x: a.pos.x, z: a.pos.z, lev: a.lev, t: clock.elapsedTime });
+      if (a.path.length > 90) a.path.shift();
+    }
+
     a.grp.position.set(a.pos.x, a.pos.y + 1.12, a.pos.z);
     a.grp.rotation.y = a.yaw;
     a.light.position.set(a.pos.x, a.pos.y + 1.12, a.pos.z);
     a.target.position.set(a.pos.x - Math.sin(a.yaw) * 6, a.pos.y + 0.7, a.pos.z - Math.cos(a.yaw) * 6);
 
-    if (caughtT <= 0 && cloakT <= 0 && !safeInLight() && a.lev === player.lev) {
-      const dx = player.pos.x - a.pos.x, dz = player.pos.z - a.pos.z;
-      const dist = Math.hypot(dx, dz);
-      if (dist < CATCH_RANGE && dist > 1e-3
-          && (-Math.sin(a.yaw) * dx - Math.cos(a.yaw) * dz) / dist > BEAM_COS
-          && clearLine(a.pos, player.pos, a.lev)) caughtBy();
-    }
   }
-  if (caughtT <= 0) torchDuel(dt);
+  if (caughtT <= 0) torchDuel(dt, clock.elapsedTime);
   else for (const a of antis) a.markSprite.visible = false;
 }
 
@@ -4345,6 +4574,33 @@ function updatePowers(dt) {
    torch can catch: the more squarely your beam is on it, the more its drops
    throw scattered light onto the ceiling and the floor. The sheets turn
    slowly and drift against each other, so the pattern never sits still.     */
+/* They blink independently rather than in step — a string that pulses as one
+   reads as a effect, and a string where each bulb has its own rhythm reads as
+   a string of bulbs. Written straight into the instance colour buffer. */
+function updateXmas(now) {
+  const X = window.__xmas;
+  if (!X) return;
+  const col = X.mesh.instanceColor;
+  if (!col) return;
+  const c = new THREE.Color();
+  let touched = false;
+  for (const st of X.strings) {
+    const on = st.room ? st.room.on : false;
+    for (const em of st.emitters) {
+      em.on = on;
+      em.intensity = on ? 5.5 + Math.sin(now * 2.1 + em.pos.x) * 2.2 : 0;
+    }
+    for (let i = st.from; i < st.to; i++) {
+      const b = X.bulbs[i];
+      const k = on ? (0.22 + 0.78 * (Math.sin(now * 3.1 + b.phase) > -0.1 ? 1 : 0.12)) : 0.06;
+      c.setHex(b.hue).multiplyScalar(k);
+      col.setXYZ(i, c.r, c.g, c.b);
+      touched = true;
+    }
+  }
+  if (touched) col.needsUpdate = true;
+}
+
 function updateChandeliers(dt, now) {
   const chs = window.__chandeliers;
   if (!chs || !chs.length) return;
@@ -4628,6 +4884,7 @@ function frame(dt) {
     for (const f of room.fixtures) setFixture(f, fixtureLevel(f, base - f.delay));
   }
   updateChandeliers(dt, now);
+  updateXmas(now);
 
   texWater.offset.x = now * 0.014;
   texWater.offset.y = now * 0.009;
@@ -4688,7 +4945,7 @@ window.__maze = {
   trailTime: () => trailT,
   setClock(s) { clockT = s; clockShown = -1; },
   // spawn one already `behind` seconds into your recording
-  ghost(behind = 0) { const a = spawnAnti(); if (a) a.delay = behind; return a; },
+  ghost(behind = 0) { const a = spawnAnti(); if (a) a.pt = Math.max(0, trailT - behind); return a; },
   antiOff() { antiOn = false; for (const a of antis) if (a.live) retireAnti(a); },
   // Drives real frames, not updateEnding alone — the platform rise is applied
   // in frame(), so stepping the ending by hand never lifted the camera.

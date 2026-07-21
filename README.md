@@ -268,6 +268,16 @@ code knows what "undo" means, and nothing has to detect proximity to a switch: i
 where you walked, so it arrives at everything you touched, exactly when you touched it
 plus the lag.
 
+**Standing still is not part of a route.** After five seconds the recording stops
+advancing altogether, so an Anti-player never replays you doing nothing — and because
+playback runs on its own clock while the recording is paused, every second you spend
+still is a second it gains on you.
+
+**It charts the building for you.** As one walks it draws the corridors it passes onto
+your map in the same white line as everything else, and leaves a short blue trail behind
+its dot that fades over nine seconds. Watching your past self walk is how you learn where
+you have been.
+
 **It carries a twin.** When it replays the moment you picked a crystal up, it picks up
 the negative of that crystal — same shape, lit from inside rather than glowing out — and
 carries it along your route. When it replays you setting it down, the real crystal goes
@@ -281,9 +291,20 @@ in the hub — which is precisely why its putting them out matters. If a beam do
 you, you are held for 1.9 seconds to see the torch that found you, and then every
 crystal goes home to its vault and so do you.
 
-Your own beam kills one, but only while it is looking somewhere else — and since it
-cannot turn, whether it is looking away was decided by what you did, then. Head-on you
-cannot win. Killing one puts the clock back to 5:00, the only way to buy time.
+**The duel is decided by the lamp, not the angle.** You carry every lamp you have found;
+an Anti-player carries the lamps you were carrying at the moment it is replaying. Since
+it is always replaying an earlier you, its light is never stronger than yours — so the
+moment you pick up your first crystal you outgun every version of yourself that came
+before, and a head-on exchange is simply won. Equal lamps is the interesting case, and it
+goes to whoever came on target first.
+
+Its beam does not take you the instant it touches you; there is a beat of about four
+tenths first. That beat has to exist, because the torch is carried and its aim trails a
+third of a second behind your view — without it you could never win an exchange you
+turned into. For the same reason the duel is timed from where you are *looking* rather
+than from where the beam has got to: an Anti-player replays a fixed heading, so its light
+is on target the instant it rounds a corner while yours is still swinging. Killing one
+puts the clock back to 5:00, the only way to buy time.
 
 **There is no range on that kill.** Line of sight is the only limit: spot a halo three
 rooms down a corridor with its back to you, line it up, and it goes out — verified at
