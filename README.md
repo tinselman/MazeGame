@@ -65,9 +65,45 @@ chairs, living rooms with sofa clusters and shelving, museums with vitrines on p
 galleries with hung panels, warehouses with pallet racking and crates, offices with desk
 grids, colonnaded halls, and cubicle floors where the terminals are still running —
 green text on black behind the partitions. You navigate by "past the banquet hall, left
-at the pallet racks" instead of counting turns. All of it is silhouette-level geometry
-in a handful of instanced meshes with per-instance colour, so 34 furnished rooms cost
-about four draw calls.
+at the pallet racks" instead of counting turns.
+
+**Uniform, but modelled.** A chair has tapered legs, a lipped seat, stretchers and four
+slats; a banquet table has a moulded lip, an apron and legs turned on a lathe; racking
+has diagonal bracing; a monitor has a bezel and a vent. Nineteen kinds, 1,352 pieces,
+244k triangles — and one instanced draw call each, because the same chair stands
+everywhere in the building. That is the trade taken deliberately: triangles are cheap
+and draw calls are not, so heavy geometry repeated buys detail almost for free, where
+distinct models per room would have bought variety at real cost. Three.js ships its
+geometry merger as an addon and this file has none, so there is a small one here that
+bakes each part's transform into the vertices and concatenates.
+
+**Three kinds of balustrade**, chosen by what a run overlooks rather than where it is,
+so the rail tells you what sort of space you are in before you have looked up: turned
+spindles under a moulded handrail bordering restaurants and living rooms, stanchions and
+horizontal tubes on galleries, museums and halls, tensioned wire on anything industrial.
+334 / 572 / 520 across the building.
+
+**Mouldings, not scaled boxes.** Skirting with a bead and a fillet, a cornice stepping
+out through a cove, boxed soffits hanging below the ceiling with a shadow gap behind,
+fluted pilasters down the halls, moulded reveals around every doorway — about 2,900
+pieces. It is what your torch actually rakes across as you walk, because a flat wall
+gives a moving beam nothing to find.
+
+**Two banquet halls are lit by chandelier** rather than by strip light, which makes them
+the only rooms in the building that were ever meant to be beautiful. Cut glass and
+steel, no gilt — nothing here carries colour in its material, so their warmth is in
+their light alone. 164 bicone drops per fitting in their own instanced mesh, so a torch
+sweeping across one lights the drops in turn rather than all at once. No browser is
+going to bounce that light for us; each fitting instead carries two additive caustic
+sheets, ceiling and floor, turning slowly against each other and brightening with how
+squarely your beam is on it. Those rooms skip the fluorescent strike model entirely —
+their tubes stay dark.
+
+**A DETAIL slider sits over the chart.** HIGH is 949k triangles and 1,352 pieces of
+furniture, MEDIUM 706k and 948, LOW 234k and 540. Furniture survives every tier, because
+the rooms are how you navigate and a warehouse with no racking is not a landmark;
+ornament goes first. Hovering a lamp icon names it and says what it does and what it
+costs. Both need the pointer free, so press escape first.
 
 The monitors are the one thing in the building still making light on their own: every
 fourth screen feeds the light pool, so a cubicle floor glows faintly green before you

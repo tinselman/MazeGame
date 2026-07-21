@@ -2192,13 +2192,59 @@ for (let l = 0; l < NLEV; l++) for (let r = 0; r < ROWS; r++) for (let c = 0; c 
 }
 
 /* ---- architectural articulation ----------------------------------------
-   Skirting and a cornice where a room wall meets floor and ceiling, pilasters
-   at intervals down the long halls, and a reveal around every doorway. None of
-   it does anything; all of it stops the building reading as extruded grid.
-   One instanced mesh, so the whole lot is a single draw call.               */
+   Skirting, cornice and a boxed soffit where a room wall meets floor and
+   ceiling; fluted pilasters at intervals down the long halls; a moulded reveal
+   around every doorway. None of it does anything. All of it stops the building
+   reading as an extruded grid — and it is what your torch actually rakes
+   across as you walk, because a flat wall gives a moving beam nothing to find.
+
+   Each profile is a real section rather than a scaled box: a skirting has a
+   bead and a fillet, a cornice steps out through a cove, a soffit hangs below
+   the ceiling with a shadow gap behind it. One instanced mesh per profile.   */
 {
-  const trim = [];
-  const T = (x, y, z, sx, sy, sz) => trim.push({ x, y, z, sx, sy, sz });
+  const skirtingRun = mergeGeos([
+    at3(Box(CELL, 0.20, 0.09), 0, 0.10, 0),
+    at3(Cyl(0.035, 0.035, CELL, 8), 0, 0.215, -0.02, 0, 0, Math.PI / 2),
+    at3(Box(CELL, 0.05, 0.13), 0, 0.245, 0.01),
+  ]);
+  const corniceRun = mergeGeos([
+    at3(Box(CELL, 0.07, 0.10), 0, 0.03, 0),
+    at3(Cyl(0.10, 0.10, CELL, 10), 0, 0.14, 0.06, 0, 0, Math.PI / 2),        // cove
+    at3(Box(CELL, 0.06, 0.22), 0, 0.24, 0.05),
+    at3(Box(CELL, 0.05, 0.28), 0, 0.30, 0.07),
+  ]);
+  // A soffit is the underside of a boxed-out band. It hangs below the ceiling
+  // with a shadow gap behind, so the beam finds an edge rather than a plane.
+  const soffitRun = mergeGeos([
+    at3(Box(CELL, 0.34, 0.40), 0, -0.17, 0.14),
+    at3(Box(CELL, 0.05, 0.46), 0, -0.36, 0.16),
+    at3(Box(CELL, 0.06, 0.30), 0, -0.03, 0.20),
+    at3(Cyl(0.03, 0.03, CELL, 6), 0, -0.33, 0.34, 0, 0, Math.PI / 2),
+  ]);
+  const pilasterRun = mergeGeos([
+    at3(Box(0.80, 0.16, 0.26), 0, 0.08, 0),                                   // plinth
+    at3(Box(0.70, 0.06, 0.22), 0, 0.19, 0),
+    at3(Box(0.62, WALL_H - 0.86, 0.18), 0, (WALL_H - 0.86) / 2 + 0.22, 0),
+    ...[-0.20, 0, 0.20].map((x) =>                                            // flutes
+      at3(Cyl(0.045, 0.045, WALL_H - 1.0, 6), x, (WALL_H - 0.86) / 2 + 0.22, 0.09)),
+    at3(Box(0.70, 0.07, 0.24), 0, WALL_H - 0.60, 0),                          // capital
+    at3(Cyl(0.08, 0.08, 0.70, 8), 0, WALL_H - 0.50, 0.04, 0, 0, Math.PI / 2),
+    at3(Box(0.86, 0.09, 0.32), 0, WALL_H - 0.38, 0.02),
+    at3(Box(0.94, 0.06, 0.36), 0, WALL_H - 0.30, 0.03),
+  ]);
+  const doorHead = mergeGeos([
+    at3(Box(CELL + 0.5, 0.14, 0.34), 0, 0, 0),
+    at3(Box(CELL + 0.68, 0.07, 0.42), 0, 0.10, 0),
+    at3(Cyl(0.055, 0.055, CELL + 0.5, 8), 0, -0.09, 0.10, 0, 0, Math.PI / 2),
+  ]);
+  const doorJamb = mergeGeos([
+    at3(Box(0.26, WALL_H, 0.30), 0, WALL_H / 2, 0),
+    at3(Box(0.13, WALL_H, 0.38), 0.09, WALL_H / 2, 0),
+    at3(Cyl(0.045, 0.045, WALL_H, 8), -0.10, WALL_H / 2, 0.12),
+  ]);
+
+  const runs = { skirting: [], cornice: [], soffit: [], pilaster: [], head: [], jamb: [] };
+  const put = (kind, x, y, z, rot) => runs[kind].push({ x, y, z, rot });
 
   for (let l = 0; l < NLEV; l++) for (let r = 1; r < ROWS - 1; r++) for (let c = 1; c < COLS - 1; c++) {
     const ch = at(l, r, c);
@@ -2208,41 +2254,54 @@ for (let l = 0; l < NLEV; l++) for (let r = 0; r < ROWS; r++) for (let c = 0; c 
     const room = isRoomChar(ch);
     for (const [dr, dc] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
       if (at(l, r + dr, c + dc) !== '#') continue;
-      const ox = dc * (CELL / 2 - 0.09), oz = dr * (CELL / 2 - 0.09);
-      const sx = dc ? 0.18 : CELL, sz = dc ? CELL : 0.18;
+      const inset = CELL / 2 - 0.06;
+      const x = p.x + dc * inset, z = p.z + dr * inset;
+      // a run against an east or west wall lies along Z; the flip turns the
+      // profile to face into the room rather than into the wall
+      const rot = (dc ? Math.PI / 2 : 0) + ((dc > 0 || dr > 0) ? Math.PI : 0);
       if (room) {
-        T(p.x + ox, y0 + 0.13, p.z + oz, sx, 0.26, sz);                    // skirting
-        T(p.x + ox, y0 + WALL_H - 0.16, p.z + oz, sx, 0.32, sz);           // cornice
+        put('skirting', x, y0, z, rot);
+        put('cornice', x, y0 + WALL_H - 0.36, z, rot);
+        if ((r + c) % 2 === 0) put('soffit', x, y0 + WALL_H, z, rot);
       } else if ((r + c) % 4 === 0) {
-        T(p.x + ox, y0 + WALL_H / 2, p.z + oz, dc ? 0.22 : 0.7, WALL_H, dc ? 0.7 : 0.22);  // pilaster
-        T(p.x + ox, y0 + WALL_H - 0.2, p.z + oz, dc ? 0.34 : 0.95, 0.4, dc ? 0.95 : 0.34); // its capital
+        put('pilaster', x, y0, z, rot);
+      } else if ((r + c) % 4 === 2) {
+        put('skirting', x, y0, z, rot);
       }
     }
   }
-  // a reveal standing proud of every doorway
   for (const d of props.doors) {
     const p = cellCentre(d.cell[0], d.cell[1]);
     const y0 = levelY(d.lev);
     const alongZ = at(d.lev, d.cell[0] - 1, d.cell[1]) === '#' && at(d.lev, d.cell[0] + 1, d.cell[1]) === '#';
-    const w = alongZ ? 0.34 : CELL + 0.5, dp = alongZ ? CELL + 0.5 : 0.34;
-    T(p.x, y0 + WALL_H - 0.18, p.z, w, 0.36, dp);
-    for (const s of [-1, 1]) {
-      T(p.x + (alongZ ? 0 : s * (CELL / 2 + 0.1)), y0 + WALL_H / 2, p.z + (alongZ ? s * (CELL / 2 + 0.1) : 0),
-        alongZ ? 0.34 : 0.3, WALL_H, alongZ ? 0.3 : 0.34);
+    const rot = alongZ ? Math.PI / 2 : 0;
+    put('head', p.x, y0 + WALL_H - 0.20, p.z, rot);
+    for (const sgn of [-1, 1]) {
+      put('jamb', p.x + (alongZ ? 0 : sgn * (CELL / 2 + 0.06)), y0,
+                  p.z + (alongZ ? sgn * (CELL / 2 + 0.06) : 0), rot + (sgn > 0 ? Math.PI : 0));
     }
   }
 
-  const matTrim = new THREE.MeshPhongMaterial({ color: 0xa6a09a, specular: 0x2c2c2c, shininess: 22, map: texWall });
-  const mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), matTrim, trim.length);
-  mesh.castShadow = mesh.receiveShadow = true;
-  const m = new THREE.Matrix4(), q = new THREE.Quaternion(), v = new THREE.Vector3();
-  trim.forEach((t, i) => {
-    m.compose(new THREE.Vector3(t.x, t.y, t.z), q, v.set(t.sx, t.sy, t.sz));
-    mesh.setMatrixAt(i, m);
-  });
-  mesh.instanceMatrix.needsUpdate = true;
-  scene.add(mesh);
-  console.info(`trim: ${trim.length} pieces`);
+  const matTrim = new THREE.MeshPhongMaterial({ color: 0xa6a09a, specular: 0x2c2c2c, shininess: 22 });
+  const GEOS = { skirting: skirtingRun, cornice: corniceRun, soffit: soffitRun,
+                 pilaster: pilasterRun, head: doorHead, jamb: doorJamb };
+  const m = new THREE.Matrix4(), q = new THREE.Quaternion();
+  const yA = new THREE.Vector3(0, 1, 0), one = new THREE.Vector3(1, 1, 1);
+  for (const kind of Object.keys(runs)) {
+    const list = runs[kind];
+    if (!list.length) continue;
+    const mesh = new THREE.InstancedMesh(GEOS[kind], matTrim, list.length);
+    mesh.castShadow = mesh.receiveShadow = true;
+    list.forEach((t, i) => {
+      q.setFromAxisAngle(yA, t.rot);
+      m.compose(new THREE.Vector3(t.x, t.y, t.z), q, one);
+      mesh.setMatrixAt(i, m);
+    });
+    mesh.instanceMatrix.needsUpdate = true;
+    mesh.userData.detail = 1;
+    scene.add(mesh);
+  }
+  window.__trim = Object.fromEntries(Object.entries(runs).map(([k, v]) => [k, v.length]));
 }
 
 /* The view through a portal. One render target serves every portal, because
