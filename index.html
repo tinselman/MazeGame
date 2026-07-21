@@ -99,12 +99,31 @@
   }
   #hudclockwrap.on { opacity: .92; }
   #hudclock { width: 118px; height: 32px; display: block; }
+  /* detail, over the chart — the pointer has to be free to reach it, so press
+     escape first. everything here is hidden while the pointer is captured. */
+  #detailbar {
+    position: absolute; right: 24px; top: 14px;
+    display: flex; align-items: center; gap: 9px;
+    font-size: 10px; letter-spacing: .16em; color: rgba(216,224,236,.72);
+    pointer-events: auto;
+  }
+  #detailbar em { font-style: normal; min-width: 46px; color: #fff; }
+  #detail { width: 92px; accent-color: #cfe0ff; cursor: pointer; }
+  #powertip {
+    position: absolute; left: 30px; bottom: 112px; max-width: 260px;
+    background: rgba(6,8,12,.92); border: 1px solid rgba(190,205,230,.35);
+    padding: 8px 11px; font-size: 11px; line-height: 1.5; letter-spacing: .04em;
+    opacity: 0; transition: opacity .16s; pointer-events: none;
+  }
+  #powertip.on { opacity: 1; }
+  #powertip b { display: block; color: #fff; letter-spacing: .14em; margin-bottom: 3px; }
+  #powertip span { color: rgba(206,218,235,.86); }
   /* the lamps you have found, as white line drawings */
   #powers {
     position: absolute; left: 34px; bottom: 74px;
     width: 204px; height: 31px; opacity: 0; transition: opacity .6s;
   }
-  #powers.on { opacity: 1; }
+  #powers.on { opacity: 1; pointer-events: auto; }
   /* thirty seconds where they cannot see you */
   #cloak {
     position: absolute; inset: 0; pointer-events: none; opacity: 0;
@@ -173,6 +192,12 @@
   <div id="hitflash"></div>
   <div id="hudclockwrap"><canvas id="hudclock"></canvas></div>
   <canvas id="powers"></canvas>
+  <div id="powertip"><b></b><span></span></div>
+  <div id="detailbar">
+    <span>DETAIL</span>
+    <input id="detail" type="range" min="0" max="2" step="1" value="2">
+    <em>HIGH</em>
+  </div>
   <div id="cloak"></div>
   <div id="aim">CHOOSE CHARTED GROUND ON THE CHART &nbsp;·&nbsp; ESC TO CANCEL</div>
 
@@ -888,11 +913,373 @@ scene.add(hubFloor);
 const waterMesh = quadMesh(waterQuads, matWaterSurf);
 scene.add(waterMesh);
 
-/* ---- parapets, coping and corbels --------------------------------------
-   Wherever a walkway meets a drop: a parapet to stand behind, a coping course
-   capping it, and corbels bracketing the slab from below at intervals. All
-   three are instanced — as individual meshes the parapets alone were several
-   hundred draw calls.                                                       */
+/* ---- geometry kit -------------------------------------------------------
+   Furniture is modelled properly now rather than blocked out, so each kind is
+   a merged multi-part geometry drawn as one InstancedMesh: a chair is a chair
+   everywhere in the building, but it is a real chair — tapered legs, a lipped
+   seat, a slatted back, stretchers between the legs. Detail costs triangles,
+   which are cheap; variety would cost draw calls, which are not.
+
+   Three.js ships its merge helper as an addon and this file has no addons, so
+   there is a small one here. It bakes each part's transform into the vertices
+   and concatenates, which is all that is needed.                            */
+function mergeGeos(parts) {
+  let vCount = 0, iCount = 0;
+  for (const p of parts) {
+    vCount += p.geo.attributes.position.count;
+    iCount += p.geo.index ? p.geo.index.count : p.geo.attributes.position.count;
+  }
+  const pos = new Float32Array(vCount * 3);
+  const nor = new Float32Array(vCount * 3);
+  const uvs = new Float32Array(vCount * 2);
+  const idx = vCount > 65535 ? new Uint32Array(iCount) : new Uint16Array(iCount);
+  const v = new THREE.Vector3(), nm = new THREE.Matrix3();
+  let vo = 0, io = 0;
+  for (const p of parts) {
+    const g = p.geo, m = p.m;
+    nm.getNormalMatrix(m);
+    const gp = g.attributes.position, gn = g.attributes.normal, gu = g.attributes.uv;
+    for (let i = 0; i < gp.count; i++) {
+      v.fromBufferAttribute(gp, i).applyMatrix4(m);
+      pos[(vo + i) * 3] = v.x; pos[(vo + i) * 3 + 1] = v.y; pos[(vo + i) * 3 + 2] = v.z;
+      if (gn) {
+        v.fromBufferAttribute(gn, i).applyMatrix3(nm).normalize();
+        nor[(vo + i) * 3] = v.x; nor[(vo + i) * 3 + 1] = v.y; nor[(vo + i) * 3 + 2] = v.z;
+      }
+      if (gu) { uvs[(vo + i) * 2] = gu.getX(i); uvs[(vo + i) * 2 + 1] = gu.getY(i); }
+    }
+    if (g.index) for (let i = 0; i < g.index.count; i++) idx[io + i] = g.index.getX(i) + vo;
+    else for (let i = 0; i < gp.count; i++) idx[io + i] = i + vo;
+    vo += gp.count;
+    io += g.index ? g.index.count : gp.count;
+  }
+  const out = new THREE.BufferGeometry();
+  out.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  out.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+  out.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+  out.setIndex(new THREE.BufferAttribute(idx, 1));
+  return out;
+}
+
+// Part placement: geometry, position, optional rotation and scale.
+const _m4 = () => new THREE.Matrix4();
+function at3(geo, x, y, z, rx = 0, ry = 0, rz = 0, sx = 1, sy = 1, sz = 1) {
+  const m = new THREE.Matrix4()
+    .compose(new THREE.Vector3(x, y, z),
+             new THREE.Quaternion().setFromEuler(new THREE.Euler(rx, ry, rz)),
+             new THREE.Vector3(sx, sy, sz));
+  return { geo, m };
+}
+const Box = (w, h, d) => new THREE.BoxGeometry(w, h, d);
+const Cyl = (rt, rb, h, s = 12) => new THREE.CylinderGeometry(rt, rb, h, s);
+const Sph = (r, w = 10, h = 8) => new THREE.SphereGeometry(r, w, h);
+const Tor = (r, t, s = 8, r2 = 16) => new THREE.TorusGeometry(r, t, s, r2);
+// A turned profile — the thing that makes a spindle read as a spindle.
+const Turned = (pts, seg = 10) =>
+  new THREE.LatheGeometry(pts.map(([x, y]) => new THREE.Vector2(x, y)), seg);
+
+/* ---- the models ---------------------------------------------------------
+   Each is built once, at its true size, standing on the floor at the origin
+   and facing -Z. Placement supplies position and a yaw.                      */
+const MODELS = {};
+
+// a leg turned on a lathe, used under tables and chairs
+const turnedLeg = (h, r) => Turned([
+  [r * 0.9, 0], [r * 1.05, h * 0.04], [r * 0.72, h * 0.1], [r * 0.8, h * 0.3],
+  [r * 0.55, h * 0.52], [r * 0.66, h * 0.72], [r * 0.5, h * 0.88], [r * 0.62, h],
+], 10);
+
+MODELS.chair = mergeGeos([
+  // seat: a slab with a chamfered lip
+  at3(Box(0.46, 0.05, 0.44), 0, 0.44, 0),
+  at3(Box(0.50, 0.03, 0.48), 0, 0.415, 0),
+  // tapered legs
+  ...[[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([sx, sz]) =>
+    at3(Cyl(0.022, 0.032, 0.42, 8), sx * 0.2, 0.21, sz * 0.19)),
+  // stretchers between them
+  at3(Box(0.40, 0.022, 0.022), 0, 0.14, -0.19),
+  at3(Box(0.40, 0.022, 0.022), 0, 0.14, 0.19),
+  at3(Box(0.022, 0.022, 0.38), -0.2, 0.18, 0),
+  at3(Box(0.022, 0.022, 0.38), 0.2, 0.18, 0),
+  // back: two uprights and four slats
+  at3(Cyl(0.020, 0.026, 0.52, 8), -0.2, 0.72, -0.19),
+  at3(Cyl(0.020, 0.026, 0.52, 8), 0.2, 0.72, -0.19),
+  at3(Box(0.44, 0.055, 0.028), 0, 0.96, -0.19),
+  ...[0.60, 0.72, 0.84].map((h) => at3(Box(0.40, 0.035, 0.018), 0, h, -0.19)),
+]);
+
+MODELS.banquetTable = mergeGeos([
+  at3(Box(3.4, 0.055, 1.06), 0, 0.755, 0),                   // top
+  at3(Box(3.5, 0.028, 1.14), 0, 0.722, 0),                   // moulded lip
+  at3(Box(3.1, 0.13, 0.86), 0, 0.655, 0),                    // apron
+  ...[[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([sx, sz]) =>
+    at3(turnedLeg(0.6, 0.055), sx * 1.5, 0, sz * 0.42)),
+  at3(Box(2.9, 0.03, 0.03), 0, 0.16, 0),                     // stretcher
+]);
+
+MODELS.lowTable = mergeGeos([
+  at3(Box(1.5, 0.045, 0.82), 0, 0.40, 0),
+  at3(Box(1.58, 0.022, 0.90), 0, 0.375, 0),
+  at3(Box(1.3, 0.09, 0.66), 0, 0.33, 0),
+  ...[[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([sx, sz]) =>
+    at3(turnedLeg(0.33, 0.042), sx * 0.63, 0, sz * 0.32)),
+]);
+
+MODELS.sofa = mergeGeos([
+  at3(Box(2.5, 0.30, 0.92), 0, 0.30, 0),                     // base frame
+  at3(Box(2.34, 0.20, 0.80), 0, 0.53, 0.02),                 // seat cushion
+  at3(Box(0.76, 0.16, 0.76), -0.78, 0.63, 0.02),             // three loose cushions
+  at3(Box(0.76, 0.16, 0.76), 0, 0.63, 0.02),
+  at3(Box(0.76, 0.16, 0.76), 0.78, 0.63, 0.02),
+  at3(Box(2.5, 0.62, 0.24), 0, 0.74, -0.36),                 // back
+  at3(Box(2.34, 0.50, 0.16), 0, 0.78, -0.28),                // back cushion
+  at3(Box(0.24, 0.46, 0.92), -1.13, 0.60, 0),                // arms
+  at3(Box(0.24, 0.46, 0.92), 1.13, 0.60, 0),
+  at3(Cyl(0.05, 0.05, 0.16, 8), -1.13, 0.08, -0.36),         // feet
+  at3(Cyl(0.05, 0.05, 0.16, 8), 1.13, 0.08, -0.36),
+  at3(Cyl(0.05, 0.05, 0.16, 8), -1.13, 0.08, 0.36),
+  at3(Cyl(0.05, 0.05, 0.16, 8), 1.13, 0.08, 0.36),
+]);
+
+MODELS.armchair = mergeGeos([
+  at3(Box(0.94, 0.30, 0.90), 0, 0.30, 0),
+  at3(Box(0.80, 0.20, 0.78), 0, 0.53, 0.02),
+  at3(Box(0.72, 0.16, 0.72), 0, 0.63, 0.02),
+  at3(Box(0.94, 0.62, 0.24), 0, 0.74, -0.35),
+  at3(Box(0.80, 0.50, 0.16), 0, 0.78, -0.27),
+  at3(Box(0.22, 0.46, 0.90), -0.36, 0.60, 0),
+  at3(Box(0.22, 0.46, 0.90), 0.36, 0.60, 0),
+  ...[[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([sx, sz]) =>
+    at3(Cyl(0.05, 0.05, 0.16, 8), sx * 0.36, 0.08, sz * 0.35)),
+]);
+
+MODELS.shelfUnit = mergeGeos([
+  at3(Box(0.06, 2.10, 0.42), -1.22, 1.10, 0),                // uprights
+  at3(Box(0.06, 2.10, 0.42), 1.22, 1.10, 0),
+  at3(Box(2.50, 0.14, 0.46), 0, 0.10, 0),                    // plinth
+  at3(Box(2.50, 0.10, 0.46), 0, 2.18, 0),                    // cornice
+  ...[0.42, 0.86, 1.30, 1.74].map((h) => at3(Box(2.38, 0.035, 0.40), 0, h, 0)),
+  at3(Box(2.38, 2.02, 0.02), 0, 1.12, -0.21),                // back panel
+  // a few books left leaning
+  ...[[-0.9, 0.55], [-0.6, 0.99], [0.5, 0.43], [0.9, 1.87], [0.1, 1.43]].map(([x, h], i) =>
+    at3(Box(0.22, 0.26, 0.18), x, h + 0.13, 0.05, 0, 0, (i % 2 ? 0.18 : -0.12))),
+]);
+
+MODELS.plinth = mergeGeos([
+  at3(Box(0.96, 0.09, 0.96), 0, 0.045, 0),                   // base moulding
+  at3(Box(0.86, 0.05, 0.86), 0, 0.115, 0),
+  at3(Box(0.78, 0.92, 0.78), 0, 0.60, 0),                    // shaft
+  at3(Box(0.88, 0.05, 0.88), 0, 1.085, 0),                   // cap moulding
+  at3(Box(0.98, 0.07, 0.98), 0, 1.145, 0),
+]);
+
+MODELS.vitrine = mergeGeos([
+  at3(Box(1.44, 0.10, 1.44), 0, 0.05, 0),
+  at3(Box(1.32, 0.78, 1.32), 0, 0.49, 0),                    // cabinet base
+  at3(Box(1.46, 0.06, 1.46), 0, 0.91, 0),                    // deck
+  // glazing bars round the case
+  ...[[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([sx, sz]) =>
+    at3(Box(0.05, 1.20, 0.05), sx * 0.66, 1.54, sz * 0.66)),
+  ...[[0, -1], [0, 1]].map(([, sz]) => at3(Box(1.32, 0.05, 0.05), 0, 2.14, sz * 0.66)),
+  ...[[-1, 0], [1, 0]].map(([sx]) => at3(Box(0.05, 0.05, 1.32), sx * 0.66, 2.14, 0)),
+  at3(Box(1.42, 0.06, 1.42), 0, 2.19, 0),                    // lid
+]);
+
+MODELS.vitrineGlass = mergeGeos([
+  at3(Box(1.28, 1.18, 0.015), 0, 1.54, -0.66),
+  at3(Box(1.28, 1.18, 0.015), 0, 1.54, 0.66),
+  at3(Box(0.015, 1.18, 1.28), -0.66, 1.54, 0),
+  at3(Box(0.015, 1.18, 1.28), 0.66, 1.54, 0),
+]);
+
+MODELS.crate = mergeGeos([
+  at3(Box(1.06, 0.86, 1.06), 0, 0.43, 0),                    // body
+  // battens on every face
+  ...[-1, 1].map((sz) => at3(Box(1.10, 0.09, 0.05), 0, 0.10, sz * 0.53)),
+  ...[-1, 1].map((sz) => at3(Box(1.10, 0.09, 0.05), 0, 0.76, sz * 0.53)),
+  ...[-1, 1].map((sx) => at3(Box(0.05, 0.09, 1.10), sx * 0.53, 0.10, 0)),
+  ...[-1, 1].map((sx) => at3(Box(0.05, 0.09, 1.10), sx * 0.53, 0.76, 0)),
+  ...[-1, 1].map((sx) => at3(Box(0.06, 0.80, 0.06), sx * 0.53, 0.43, -0.53)),
+  ...[-1, 1].map((sx) => at3(Box(0.06, 0.80, 0.06), sx * 0.53, 0.43, 0.53)),
+  at3(Box(1.12, 0.06, 1.12), 0, 0.88, 0),                    // lid
+]);
+
+MODELS.pallet = mergeGeos([
+  ...[-1, 0, 1].map((i) => at3(Box(1.10, 0.07, 0.14), 0, 0.14, i * 0.42)),
+  ...[-1, 0, 1].map((i) => at3(Box(0.14, 0.10, 1.00), i * 0.42, 0.05, 0)),
+  ...[-0.45, -0.15, 0.15, 0.45].map((z) => at3(Box(1.10, 0.035, 0.16), 0, 0.20, z)),
+]);
+
+// One bay of pallet racking: uprights with diagonal bracing, two beam levels.
+MODELS.rackBay = mergeGeos([
+  ...[-1, 1].map((sx) => at3(Box(0.11, 3.30, 0.11), sx * 1.35, 1.65, -0.5)),
+  ...[-1, 1].map((sx) => at3(Box(0.11, 3.30, 0.11), sx * 1.35, 1.65, 0.5)),
+  // diagonal bracing on both frames
+  ...[-1, 1].flatMap((sx) => [0.5, 1.6, 2.7].map((h, i) =>
+    at3(Box(0.05, 1.18, 0.05), sx * 1.35, h, 0, Math.PI / 4 * (i % 2 ? 1 : -1), 0, 0))),
+  ...[-1, 1].flatMap((sx) => [1.05, 2.15].map((h) =>
+    at3(Box(0.05, 0.05, 1.06), sx * 1.35, h, 0))),
+  // beams
+  ...[0.95, 2.05, 3.10].flatMap((h) => [-0.5, 0.5].map((sz) =>
+    at3(Box(2.80, 0.13, 0.07), 0, h, sz))),
+  ...[0.95, 2.05, 3.10].flatMap((h) => [-0.5, 0.5].map((sz) =>
+    at3(Box(2.80, 0.05, 0.10), 0, h + 0.08, sz))),
+]);
+
+MODELS.desk = mergeGeos([
+  at3(Box(1.85, 0.045, 0.86), 0, 0.735, 0),                  // top
+  at3(Box(1.90, 0.022, 0.92), 0, 0.708, 0),                  // edge lip
+  at3(Box(1.70, 0.10, 0.06), 0, 0.66, -0.40),                // rail
+  at3(Box(0.56, 0.66, 0.76), -0.60, 0.34, 0),                // pedestal
+  ...[0.16, 0.38, 0.58].map((h) => at3(Box(0.50, 0.16, 0.02), -0.60, h, 0.39)),
+  ...[0.16, 0.38, 0.58].map((h) => at3(Box(0.14, 0.02, 0.02), -0.60, h, 0.41)),
+  at3(Box(0.05, 0.70, 0.05), 0.78, 0.36, -0.36),             // legs on the open side
+  at3(Box(0.05, 0.70, 0.05), 0.78, 0.36, 0.36),
+  at3(Box(0.05, 0.05, 0.78), 0.78, 0.08, 0),
+  at3(Box(1.20, 0.02, 0.60), 0.10, 0.02, 0),                 // modesty panel foot
+]);
+
+MODELS.monitor = mergeGeos([
+  at3(Box(0.34, 0.04, 0.26), 0, 0.02, 0),                    // foot
+  at3(Cyl(0.05, 0.07, 0.10, 10), 0, 0.09, 0),                // neck
+  at3(Box(0.62, 0.46, 0.42), 0, 0.36, -0.06),                // tube body
+  at3(Box(0.58, 0.42, 0.03), 0, 0.36, 0.16),                 // bezel front
+  at3(Box(0.50, 0.35, 0.02), 0, 0.36, 0.18),                 // screen recess
+  at3(Box(0.62, 0.05, 0.06), 0, 0.60, -0.06),                // vent
+]);
+
+MODELS.keyboard = mergeGeos([
+  at3(Box(0.44, 0.022, 0.17), 0, 0.011, 0),
+  at3(Box(0.40, 0.012, 0.13), 0, 0.028, 0.005),
+]);
+
+MODELS.partition = mergeGeos([
+  at3(Box(1.60, 1.34, 0.05), 0, 0.74, 0),                    // panel
+  at3(Box(1.66, 0.07, 0.10), 0, 1.44, 0),                    // top rail
+  at3(Box(0.07, 1.44, 0.10), -0.80, 0.74, 0),                // stiles
+  at3(Box(0.07, 1.44, 0.10), 0.80, 0.74, 0),
+  at3(Box(1.66, 0.06, 0.12), 0, 0.05, 0),                    // kick
+  at3(Box(0.10, 0.03, 0.34), -0.70, 0.015, 0),               // feet
+  at3(Box(0.10, 0.03, 0.34), 0.70, 0.015, 0),
+]);
+
+MODELS.column = mergeGeos([
+  at3(Box(1.10, 0.14, 1.10), 0, 0.07, 0),                    // plinth
+  at3(Box(0.96, 0.08, 0.96), 0, 0.18, 0),
+  at3(Cyl(0.40, 0.44, 0.14, 16), 0, 0.29, 0),                // torus base
+  at3(Cyl(0.34, 0.40, WALL_H - 0.86, 16), 0, (WALL_H - 0.86) / 2 + 0.36, 0),   // shaft
+  // flutes
+  ...Array.from({ length: 12 }, (_, i) => {
+    const a = (i / 12) * Math.PI * 2;
+    return at3(Cyl(0.045, 0.05, WALL_H - 0.96, 6),
+      Math.cos(a) * 0.36, (WALL_H - 0.86) / 2 + 0.36, Math.sin(a) * 0.36);
+  }),
+  at3(Cyl(0.46, 0.36, 0.16, 16), 0, WALL_H - 0.42, 0),       // capital
+  at3(Box(1.06, 0.10, 1.06), 0, WALL_H - 0.29, 0),
+  at3(Box(1.16, 0.08, 1.16), 0, WALL_H - 0.20, 0),
+]);
+
+MODELS.bench = mergeGeos([
+  at3(Box(2.20, 0.07, 0.50), 0, 0.44, 0),
+  at3(Box(2.26, 0.03, 0.56), 0, 0.405, 0),
+  ...[-1, 1].map((sx) => at3(Box(0.10, 0.40, 0.44), sx * 0.90, 0.20, 0)),
+  at3(Box(1.70, 0.06, 0.06), 0, 0.16, 0),
+]);
+
+MODELS.hungPanel = mergeGeos([
+  at3(Box(0.08, 1.42, 1.92), 0, 0, 0),                       // panel
+  at3(Box(0.05, 1.56, 2.06), 0.03, 0, 0),                    // frame
+  at3(Box(0.02, 1.30, 1.80), -0.05, 0, 0),                   // sunk face
+]);
+
+/* ---- three kinds of rail ------------------------------------------------
+   A building this varied should not guard every edge the same way. Which rail
+   a run gets is decided by what it borders, so the balustrade tells you what
+   sort of space you are standing in before you have looked up:
+
+     domestic   turned spindles under a moulded handrail, waist height, on the
+                edges bordering living rooms and restaurants
+     public     stanchions and horizontal tubes, the museum-and-airport rail,
+                on galleries, museums, halls and the hub
+     wire       posts with tensioned cable, on warehouses and anything
+                industrial
+
+   Each is one merged unit spanning a single cell, instanced along its run.   */
+const RAILS = {};
+
+RAILS.domestic = mergeGeos([
+  at3(Box(CELL, 0.06, 0.11), 0, 0.98, 0),                    // moulded handrail
+  at3(Box(CELL, 0.035, 0.15), 0, 0.945, 0),
+  at3(Box(CELL, 0.07, 0.13), 0, 0.13, 0),                    // base rail
+  ...[-0.5, -0.166, 0.166, 0.5].map((f) =>
+    at3(Turned([
+      [0.028, 0], [0.045, 0.03], [0.030, 0.10], [0.052, 0.24],
+      [0.028, 0.38], [0.040, 0.52], [0.026, 0.66], [0.036, 0.80],
+    ], 8), f * CELL * 0.86, 0.17, 0)),
+  // newels at the cell edges, so a run reads as posts and infill
+  ...[-1, 1].map((sx) => at3(Box(0.10, 0.98, 0.10), sx * CELL / 2, 0.49, 0)),
+  ...[-1, 1].map((sx) => at3(Box(0.14, 0.09, 0.14), sx * CELL / 2, 1.02, 0)),
+]);
+
+RAILS.public = mergeGeos([
+  ...[-1, 1].map((sx) => at3(Cyl(0.035, 0.045, 1.02, 10), sx * CELL / 2, 0.51, 0)),
+  ...[-1, 1].map((sx) => at3(Cyl(0.07, 0.09, 0.05, 10), sx * CELL / 2, 0.025, 0)),
+  ...[0.36, 0.66].map((h) => at3(Cyl(0.022, 0.022, CELL, 8), 0, h, 0, 0, 0, Math.PI / 2)),
+  at3(Cyl(0.032, 0.032, CELL + 0.02, 10), 0, 1.00, 0, 0, 0, Math.PI / 2),   // top tube
+  ...[-1, 1].map((sx) => at3(Sph(0.036, 8, 6), sx * (CELL / 2), 1.00, 0)),
+]);
+
+RAILS.wire = mergeGeos([
+  ...[-1, 1].map((sx) => at3(Box(0.06, 1.00, 0.06), sx * CELL / 2, 0.50, 0)),
+  ...[-1, 1].map((sx) => at3(Box(0.14, 0.03, 0.14), sx * CELL / 2, 0.015, 0)),
+  ...[0.24, 0.44, 0.64, 0.84].map((h) =>
+    at3(Cyl(0.008, 0.008, CELL, 5), 0, h, 0, 0, 0, Math.PI / 2)),
+  at3(Box(0.05, 0.05, 0.09), 0, 1.00, 0),
+  at3(Cyl(0.026, 0.026, CELL + 0.02, 8), 0, 1.01, 0, 0, 0, Math.PI / 2),
+]);
+
+/* ---- the chandeliers ----------------------------------------------------
+   Two of the banquet rooms are lit by chandelier rather than by strip light,
+   which makes them the only rooms in the building that were ever meant to be
+   beautiful. Cut glass and steel — no gilt, because nothing here carries
+   colour in its material.
+
+   The drops are their own InstancedMesh so they can be lit individually: a
+   bicone catches a moving beam the way a flat face cannot, and the sparkle is
+   real specular rather than a trick. What is a trick is the light they throw
+   back — see `causticTexture`.                                              */
+const dropGeo = mergeGeos([
+  at3(Cyl(0.0, 0.030, 0.055, 6), 0, 0.0275, 0),
+  at3(Cyl(0.030, 0.0, 0.075, 6), 0, -0.0375, 0),
+]);
+
+function chandelierFrame(tiers) {
+  const parts = [
+    at3(Cyl(0.02, 0.02, 0.9, 6), 0, 0.45, 0),                // stem to the ceiling
+    at3(Cyl(0.10, 0.14, 0.09, 12), 0, 0.02, 0),              // canopy
+    at3(Cyl(0.05, 0.05, 0.62, 10), 0, -0.31, 0),             // central column
+    at3(Sph(0.10, 12, 10), 0, -0.66, 0),                     // finial
+  ];
+  tiers.forEach(({ r, y, arms }) => {
+    parts.push(at3(Tor(r, 0.016, 6, 20), 0, y, 0, Math.PI / 2));
+    for (let i = 0; i < arms; i++) {
+      const a = (i / arms) * Math.PI * 2;
+      const cx = Math.cos(a) * r, cz = Math.sin(a) * r;
+      parts.push(at3(Cyl(0.014, 0.014, r, 6), cx / 2, y + 0.10, cz / 2, 0, -a, Math.PI / 2));
+      parts.push(at3(Cyl(0.03, 0.05, 0.10, 8), cx, y + 0.05, cz));
+      parts.push(at3(Cyl(0.05, 0.03, 0.16, 8), cx, y + 0.17, cz));      // candle cup
+    }
+  });
+  return mergeGeos(parts);
+}
+
+/* ---- balustrades, coping and corbels ------------------------------------
+   Wherever a walkway meets a drop. Which rail a run gets is decided by what it
+   overlooks, so the balustrade tells you what sort of space you are in before
+   you have looked up: turned spindles where it borders a restaurant or a
+   living room, museum stanchions on galleries and halls, tensioned wire on
+   anything industrial. Each kind is one instanced mesh, so three rails cost
+   what one did.                                                             */
 {
   const edges = [];
   for (let l = 1; l < NLEV; l++) for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
@@ -902,6 +1289,23 @@ scene.add(waterMesh);
       edges.push([l, r, c, dc !== 0, sx, sz]);
     }
   }
+  const RAIL_FOR = {
+    living: 'domestic', restaurant: 'domestic',
+    warehouse: 'wire', office: 'wire', cubicles: 'wire',
+    gallery: 'public', museum: 'public', hall: 'public',
+  };
+  // the nearest room on any floor decides it; a balcony over a warehouse gets
+  // wire even though the balcony itself is a corridor
+  const railKind = (r, c) => {
+    let best = null, bestD = 12 * 12;
+    for (const m of ROOM_META) {
+      const dr = Math.max(m.r1 - r, 0, r - m.r2), dc = Math.max(m.c1 - c, 0, c - m.c2);
+      const d = dr * dr + dc * dc;
+      if (d < bestD) { bestD = d; best = m; }
+    }
+    return (best && RAIL_FOR[best.type]) || 'public';
+  };
+
   const m = new THREE.Matrix4(), q = new THREE.Quaternion(), one = new THREE.Vector3(1, 1, 1);
   const yAxis = new THREE.Vector3(0, 1, 0);
   const place = (mesh, i, x, y, z, turned) => {
@@ -910,29 +1314,51 @@ scene.add(waterMesh);
     mesh.setMatrixAt(i, m);
   };
 
-  const parapet = new THREE.InstancedMesh(new THREE.BoxGeometry(CELL, 0.84, 0.14), matRail, edges.length);
-  const coping  = new THREE.InstancedMesh(new THREE.BoxGeometry(CELL, 0.12, 0.30), matFascia, edges.length);
-  parapet.castShadow = parapet.receiveShadow = true;
+  const byKind = { domestic: [], public: [], wire: [] };
+  for (const e of edges) byKind[railKind(e[1], e[2])].push(e);
+  const railMeshes = {};
+  for (const kind of Object.keys(byKind)) {
+    const list = byKind[kind];
+    if (!list.length) continue;
+    const mesh = new THREE.InstancedMesh(RAILS[kind], matRail, list.length);
+    mesh.castShadow = mesh.receiveShadow = true;
+    list.forEach(([l, r, c, turned, sx, sz], i) => {
+      const p = cellCentre(r, c);
+      place(mesh, i, p.x + sx * (CELL / 2 - 0.09), levelY(l), p.z + sz * (CELL / 2 - 0.09), turned);
+    });
+    mesh.instanceMatrix.needsUpdate = true;
+    mesh.userData.detail = 1;
+    scene.add(mesh);
+    railMeshes[kind] = mesh;
+  }
+  window.__rails = { counts: Object.fromEntries(Object.entries(byKind).map(([k, v]) => [k, v.length])), railMeshes };
+
+  // A coping course caps the slab edge below every rail, whatever kind it is.
+  const coping = new THREE.InstancedMesh(new THREE.BoxGeometry(CELL, 0.12, 0.34), matFascia, edges.length);
   coping.castShadow = coping.receiveShadow = true;
   edges.forEach(([l, r, c, turned, sx, sz], i) => {
     const p = cellCentre(r, c);
-    const x = p.x + sx * (CELL / 2 - 0.07), z = p.z + sz * (CELL / 2 - 0.07);
-    place(parapet, i, x, levelY(l) + 0.42, z, turned);
-    place(coping,  i, x, levelY(l) + 0.90, z, turned);
+    place(coping, i, p.x + sx * (CELL / 2 - 0.05), levelY(l) - 0.06, p.z + sz * (CELL / 2 - 0.05), turned);
   });
-  parapet.instanceMatrix.needsUpdate = true;
   coping.instanceMatrix.needsUpdate = true;
-  scene.add(parapet, coping);
+  scene.add(coping);
 
   // Corbels every third cell, so the slab reads as carried rather than floating.
   const brackets = edges.filter(([l, r, c]) => (r + c) % 3 === 0);
-  const corbel = new THREE.InstancedMesh(new THREE.BoxGeometry(0.9, 0.34, 0.44), matFascia, brackets.length);
+  const corbelGeo = mergeGeos([
+    at3(Box(0.86, 0.16, 0.44), 0, 0.30, 0),
+    at3(Box(0.70, 0.14, 0.36), 0, 0.16, -0.03),
+    at3(Box(0.52, 0.14, 0.28), 0, 0.03, -0.06),
+    at3(Cyl(0.13, 0.13, 0.44, 10), 0, 0.30, 0.06, Math.PI / 2, 0, 0),
+  ]);
+  const corbel = new THREE.InstancedMesh(corbelGeo, matFascia, brackets.length);
   corbel.castShadow = corbel.receiveShadow = true;
   brackets.forEach(([l, r, c, turned, sx, sz], i) => {
     const p = cellCentre(r, c);
-    place(corbel, i, p.x + sx * (CELL / 2 - 0.16), levelY(l) - SLAB - 0.14, p.z + sz * (CELL / 2 - 0.16), turned);
+    place(corbel, i, p.x + sx * (CELL / 2 - 0.16), levelY(l) - SLAB - 0.30, p.z + sz * (CELL / 2 - 0.16), turned);
   });
   corbel.instanceMatrix.needsUpdate = true;
+  corbel.userData.detail = 1;
   scene.add(corbel);
 }
 
@@ -1364,33 +1790,30 @@ for (let l = 0; l < NLEV; l++) for (let r = 0; r < ROWS; r++) for (let c = 0; c 
 /* ---- furniture ---------------------------------------------------------
    Landmarks. Every room is a recognisable kind of abandoned space, so you can
    navigate by "past the banquet hall, left at the pallet racks" rather than by
-   counting turns. Silhouette only — boxes and cylinders sized to read at a
-   glance — and it all goes into three instanced meshes with per-instance
-   colour, so 34 furnished rooms cost three draw calls.                     */
-{
-  const boxes = [], cyls = [], glass = [], screens = [];
-  const push = (into, x, y, z, sx, sy, sz, rot, tone) =>
-    into.push({ p: new THREE.Vector3(x, y, z), s: new THREE.Vector3(sx, sy, sz), rot, tone });
+   counting turns.
 
+   One model per kind, modelled properly and repeated: a chair is the same
+   chair everywhere in the building, but it is a real chair. That is the trade
+   deliberately taken — triangles are cheap and draw calls are not, so heavy
+   geometry instanced per kind buys detail almost for free, where distinct
+   models per room would have bought variety at real cost.
+
+   Every tone is a true neutral grey. Nothing in this building carries colour
+   in its material; colour only ever arrives as light.                        */
+{
+  const groups = new Map();      // kind -> [{p, rot, tone, scale}]
+  const screens = [];
+  const place = (kind, x, y, z, rot = 0, tone = 0x8f8f8f, scale = 1) => {
+    if (!groups.has(kind)) groups.set(kind, []);
+    groups.get(kind).push({ p: new THREE.Vector3(x, y, z), rot, tone, scale });
+  };
   // deterministic jitter, so a room looks scattered but identical every play
   const wobble = (r, c, n) => ((Math.sin(r * 12.9898 + c * 78.233 + n * 3.77) * 43758.5453) % 1 + 1) % 1;
+  const greys = [0x7d7d7d, 0x868686, 0x8f8f8f, 0x979797, 0xa0a0a0];
+  const grey = (r, c, n) => greys[Math.floor(wobble(r, c, n) * greys.length) % greys.length];
 
-  // Shared sub-assemblies. Enough articulation that furniture reads as made of
-  // parts rather than carved from one block, without modelling joinery.
-  const legs = (x, y, z, w, d, h, tone) => {
-    for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
-      push(boxes, x + sx * (w / 2 - 0.09), y + h / 2, z + sz * (d / 2 - 0.09), 0.1, h, 0.1, 0, tone);
-    }
-  };
-  const chair = (x, y, z, face, tone) => {
-    legs(x, y, z, 0.5, 0.5, 0.42, tone);
-    push(boxes, x, y + 0.45, z, 0.56, 0.08, 0.56, 0, tone);                       // seat
-    push(boxes, x - face[0] * 0.26, y + 0.75, z - face[1] * 0.26, face[0] ? 0.1 : 0.56, 0.62, face[0] ? 0.56 : 0.1, 0, tone);
-  };
-  const shelfUnit = (x, y, z, w, dp, tone) => {
-    for (const sx of [-1, 1]) push(boxes, x + sx * w / 2, y + 1.0, z, 0.1, 2.0, dp, 0, tone);
-    for (const h of [0.35, 0.9, 1.45, 1.95]) push(boxes, x, y + h, z, w, 0.07, dp, 0, tone);
-  };
+  // the two rooms lit by chandelier rather than by strip light
+  const chandelierRooms = [];
 
   function furnish(rm) {
     const y = levelY(rm.lev);
@@ -1400,6 +1823,7 @@ for (let l = 0; l < NLEV; l++) for (let r = 0; r < ROWS; r++) for (let c = 0; c 
     const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
     const longX = w >= d;
     const t = rm.type;
+    const g = (n) => grey(rm.r1, rm.c1, n);
 
     if (t === 'restaurant') {
       // banquet tables down the long axis, chairs either side
@@ -1407,156 +1831,284 @@ for (let l = 0; l < NLEV; l++) for (let r = 0; r < ROWS; r++) for (let c = 0; c 
       for (let i = 0; i < n; i++) {
         const off = ((i + 0.5) / n - 0.5) * (longX ? d : w) * 0.86;
         const tx = longX ? cx : cx + off, tz = longX ? cz + off : cz;
-        const len = (longX ? w : d) * 0.62;
-        push(boxes, tx, y + 0.76, tz, longX ? len : 1.1, 0.09, longX ? 1.1 : len, 0, 0x9a938a);
-        push(boxes, tx, y + 0.70, tz, longX ? len - 0.3 : 0.9, 0.07, longX ? 0.9 : len - 0.3, 0, 0x837d76);
-        legs(tx, y, tz, longX ? len : 1.1, longX ? 1.1 : len, 0.7, 0x6d6862);
-        const seats = Math.max(3, Math.floor(len / 1.7));
-        for (let k = 0; k < seats; k++) {
-          const so = ((k + 0.5) / seats - 0.5) * len;
-          for (const side of [-1, 1]) {
-            const sx = longX ? tx + so : tx + side * 1.5;
-            const sz = longX ? tz + side * 1.5 : tz + so;
-            chair(sx, y, sz, longX ? [0, side] : [side, 0], 0x7d7972);
+        const span = (longX ? w : d) * 0.62;
+        const runs = Math.max(1, Math.round(span / 3.4));      // tables end to end
+        const rot = longX ? 0 : Math.PI / 2;
+        for (let k = 0; k < runs; k++) {
+          const so = ((k + 0.5) / runs - 0.5) * span;
+          place('banquetTable', longX ? tx + so : tx, y, longX ? tz : tz + so, rot, g(k));
+          for (let c2 = 0; c2 < 3; c2++) {
+            const co = (c2 - 1) * 1.0;
+            for (const side of [-1, 1]) {
+              const jx = (wobble(rm.r1, rm.c1, i * 31 + k * 7 + c2) - 0.5) * 0.22;
+              const chx = longX ? tx + so + co : tx + side * 1.15;
+              const chz = longX ? tz + side * 1.15 : tz + so + co;
+              place('chair', chx, y, chz, Math.atan2(0, 0) + (longX ? (side > 0 ? Math.PI : 0) : (side > 0 ? -Math.PI / 2 : Math.PI / 2)) + jx,
+                    g(c2 + side));
+            }
           }
         }
       }
+      if (chandelierRooms.length < 2) chandelierRooms.push(rm);
+
     } else if (t === 'living') {
-      // seating clusters and a shelf against the long wall
       for (const q of [[-1, -1], [1, 1]]) {
         const gx = cx + q[0] * w * 0.22, gz = cz + q[1] * d * 0.22;
-        push(boxes, gx, y + 0.38, gz - 1.2, 3.0, 0.76, 1.0, 0, 0x8a8279);   // sofa seat
-        push(boxes, gx, y + 0.78, gz - 1.7, 3.0, 0.8, 0.4, 0, 0x7c756d);    // sofa back
-        push(boxes, gx - 2.2, y + 0.4, gz + 0.6, 1.1, 0.8, 1.1, 0, 0x8a8279);
-        push(boxes, gx + 2.2, y + 0.4, gz + 0.6, 1.1, 0.8, 1.1, 0, 0x8a8279);
-        push(boxes, gx, y + 0.42, gz + 0.7, 1.7, 0.09, 0.9, 0, 0x9a938a);   // low table
-        legs(gx, y, gz + 0.7, 1.7, 0.9, 0.38, 0x7a736c);
-        push(boxes, gx, y + 0.86, gz - 1.7, 0.14, 0.5, 0.4, 0, 0x6f6a64);   // sofa arms
-        push(boxes, gx - 1.5, y + 0.6, gz - 1.2, 0.16, 0.5, 1.0, 0, 0x7c756d);
-        push(boxes, gx + 1.5, y + 0.6, gz - 1.2, 0.16, 0.5, 1.0, 0, 0x7c756d);
+        place('sofa', gx, y, gz - 1.2, 0, g(1));
+        place('armchair', gx - 2.1, y, gz + 0.5, -0.9, g(2));
+        place('armchair', gx + 2.1, y, gz + 0.5, 0.9, g(3));
+        place('lowTable', gx, y, gz + 0.7, 0, g(4));
       }
-      shelfUnit(cx, y, z0 + 0.6, w * 0.5, 0.5, 0x6f6a64);
+      place('shelfUnit', cx, y, z0 + 0.5, 0, g(5));
+      place('shelfUnit', cx - 3.2, y, z0 + 0.5, 0, g(6));
+
     } else if (t === 'museum') {
-      // vitrines on plinths, benches down the middle
       const cols = Math.max(2, Math.floor(w / 6)), rows = Math.max(2, Math.floor(d / 6));
       for (let i = 0; i < cols; i++) for (let j = 0; j < rows; j++) {
         const px = x0 + ((i + 0.5) / cols) * w, pz = z0 + ((j + 0.5) / rows) * d;
-        if (Math.abs(px - cx) < 2.2 && Math.abs(pz - cz) < 2.2) continue;
-        push(boxes, px, y + 0.45, pz, 1.5, 0.9, 1.5, 0, 0x7a7570);
-        push(glass, px, y + 1.5, pz, 1.25, 1.2, 1.25, 0, 0xbcd2dd);
+        if (Math.abs(px - cx) < 2.4 && Math.abs(pz - cz) < 2.4) continue;
+        place('vitrine', px, y, pz, wobble(rm.r1, rm.c1, i * 3 + j) * 0.2 - 0.1, g(i + j));
+        place('vitrineGlass', px, y, pz, 0, 0xffffff);
       }
-      push(boxes, cx, y + 0.22, cz, longX ? w * 0.4 : 0.8, 0.44, longX ? 0.8 : d * 0.4, 0, 0x6d6862);
+      place('bench', cx, y, cz, longX ? 0 : Math.PI / 2, g(7));
+      place('bench', cx, y, cz + (longX ? 0 : 3.0), longX ? 0 : Math.PI / 2, g(8));
+
     } else if (t === 'gallery') {
-      // plinths around the room, panels hung on the walls
       const n = Math.max(3, Math.floor((w + d) / 7));
       for (let i = 0; i < n; i++) {
         const a = (i / n) * Math.PI * 2;
-        push(cyls, cx + Math.cos(a) * w * 0.3, y + 0.55, cz + Math.sin(a) * d * 0.3,
-             0.55, 1.1, 0.55, 0, 0x827c76);
+        place('plinth', cx + Math.cos(a) * w * 0.3, y, cz + Math.sin(a) * d * 0.3, a, g(i));
       }
       for (let i = 0; i < 4; i++) {
-        const fx = x0 + 0.35, fz = z0 + ((i + 0.7) / 4.4) * d;
-        push(boxes, fx, y + 1.9, fz, 0.12, 1.5, 2.0, 0, 0xa39b91);
-        push(boxes, x1 - 0.35, y + 1.9, fz, 0.12, 1.5, 2.0, 0, 0xa39b91);
+        const fz = z0 + ((i + 0.7) / 4.4) * d;
+        place('hungPanel', x0 + 0.32, y + 1.9, fz, 0, g(i + 2));
+        place('hungPanel', x1 - 0.32, y + 1.9, fz, Math.PI, g(i + 5));
       }
+      place('bench', cx, y, cz, longX ? 0 : Math.PI / 2, g(9));
+
     } else if (t === 'warehouse') {
-      // pallet racking in aisles, crates stacked against it
       const aisles = Math.max(2, Math.floor((longX ? d : w) / 5));
       for (let i = 0; i < aisles; i++) {
         const off = ((i + 0.5) / aisles - 0.5) * (longX ? d : w) * 0.82;
         const rx = longX ? cx : cx + off, rz = longX ? cz + off : cz;
-        const len = (longX ? w : d) * 0.72;
-        for (const shelf of [0.9, 1.9, 2.8]) {
-          push(boxes, rx, y + shelf, rz, longX ? len : 1.3, 0.12, longX ? 1.3 : len, 0, 0x6a6560);
-        }
-        const posts = Math.max(2, Math.floor(len / 3));
-        for (let k = 0; k <= posts; k++) {
-          const po = (k / posts - 0.5) * len;
-          push(boxes, longX ? rx + po : rx, y + 1.6, longX ? rz : rz + po, 0.18, 3.2, 0.18, 0, 0x5c5854);
+        const span = (longX ? w : d) * 0.72;
+        const bays = Math.max(1, Math.round(span / 2.9));
+        const rot = longX ? 0 : Math.PI / 2;
+        for (let k = 0; k < bays; k++) {
+          const so = ((k + 0.5) / bays - 0.5) * span;
+          place('rackBay', longX ? rx + so : rx, y, longX ? rz : rz + so, rot, g(k));
+          if (wobble(rm.r1, rm.c1, i * 11 + k) > 0.35) {
+            place('pallet', longX ? rx + so : rx, y + 1.02, longX ? rz : rz + so, rot, g(k + 1));
+            place('crate', longX ? rx + so : rx, y + 1.24, longX ? rz : rz + so, rot, g(k + 2));
+          }
+          if (wobble(rm.r1, rm.c1, i * 13 + k) > 0.5) {
+            place('crate', longX ? rx + so : rx, y + 2.12, longX ? rz : rz + so, rot, g(k + 3));
+          }
         }
         for (let k = 0; k < 3; k++) {
-          const po = (wobble(rm.r1, rm.c1, i * 5 + k) - 0.5) * len;
-          const h = 0.6 + wobble(rm.r1, rm.c1, i * 7 + k) * 0.5;
-          push(boxes, longX ? rx + po : rx + 1.9, y + h / 2, longX ? rz + 1.9 : rz + po,
-               1.1, h, 1.1, 0, 0x8b8177);
+          const po = (wobble(rm.r1, rm.c1, i * 5 + k) - 0.5) * span;
+          const stack = 1 + Math.floor(wobble(rm.r1, rm.c1, i * 17 + k) * 2);
+          for (let sIdx = 0; sIdx < stack; sIdx++) {
+            place('crate', longX ? rx + po : rx + 1.9, y + sIdx * 0.9,
+                  longX ? rz + 1.9 : rz + po,
+                  wobble(rm.r1, rm.c1, i * 7 + k + sIdx) * 0.5 - 0.25, g(k + sIdx));
+          }
         }
       }
+
     } else if (t === 'office') {
-      // desk grid with low partitions
       const cols = Math.max(2, Math.floor(w / 5)), rows = Math.max(2, Math.floor(d / 5));
       for (let i = 0; i < cols; i++) for (let j = 0; j < rows; j++) {
         const px = x0 + ((i + 0.5) / cols) * w, pz = z0 + ((j + 0.5) / rows) * d;
-        push(boxes, px, y + 0.7, pz, 2.1, 0.1, 1.1, 0, 0x968e85);
-        push(boxes, px, y + 0.35, pz, 1.9, 0.68, 0.9, 0, 0x6d6862);
-        push(boxes, px, y + 0.45, pz + 0.95, 0.5, 0.9, 0.5, 0, 0x7d7972);
-        push(boxes, px, y + 0.85, pz - 0.85, 2.2, 1.5, 0.1, 0, 0x7f7a74);
+        place('desk', px, y, pz, 0, g(i + j));
+        place('chair', px, y, pz + 0.95, Math.PI, g(i + j + 1));
+        place('partition', px, y, pz - 0.95, 0, g(i + j + 2));
       }
+
     } else if (t === 'cubicles') {
       // A grid of cubicles, open on one side, each with a desk and a terminal
-      // that never got switched off. The screens are the only thing in this
-      // building still producing light on their own.
+      // that never got switched off.
       const cols = Math.max(2, Math.floor(w / 6)), rows = Math.max(2, Math.floor(d / 6));
       for (let i = 0; i < cols; i++) for (let j = 0; j < rows; j++) {
         const px = x0 + ((i + 0.5) / cols) * w, pz = z0 + ((j + 0.5) / rows) * d;
         const cw = (w / cols) * 0.82, cd = (d / rows) * 0.82;
-        // partitions on three sides, chest height
-        push(boxes, px, y + 0.72, pz - cd / 2, cw, 1.44, 0.14, 0, 0x7b7a72);
-        push(boxes, px - cw / 2, y + 0.72, pz, 0.14, 1.44, cd, 0, 0x7b7a72);
-        push(boxes, px + cw / 2, y + 0.72, pz, 0.14, 1.44, cd, 0, 0x7b7a72);
-        // desk against the back partition
-        push(boxes, px, y + 0.74, pz - cd / 4, cw * 0.86, 0.07, 0.95, 0, 0x9a9187);   // desktop
-        legs(px, y, pz - cd / 4, cw * 0.86, 0.95, 0.72, 0x6d6862);
-        push(boxes, px - cw * 0.3, y + 0.36, pz - cd / 4, 0.42, 0.66, 0.72, 0, 0x746e67);  // pedestal drawers
-        chair(px, y, pz + cd / 5, [0, -1], 0x7d7972);
-        // the terminal: tube on a stand, with a glowing face
-        push(boxes, px, y + 0.83, pz - cd / 4, 0.34, 0.12, 0.3, 0, 0x8e8778);
-        push(boxes, px, y + 1.06, pz - cd / 4, 0.72, 0.52, 0.48, 0, 0xa8a08f);
-        push(boxes, px + 0.55, y + 0.79, pz - cd / 4 + 0.1, 0.42, 0.04, 0.18, 0, 0x9c9689);   // keyboard
-        screens.push({ x: px, y: y + 1.08, z: pz - cd / 4 + 0.26, lev: rm.lev });
+        place('partition', px, y, pz - cd / 2, 0, g(i + j), cw / 1.66);
+        place('partition', px - cw / 2, y, pz, Math.PI / 2, g(i + j + 1), cd / 1.66);
+        place('partition', px + cw / 2, y, pz, Math.PI / 2, g(i + j + 2), cd / 1.66);
+        place('desk', px, y, pz - cd / 4, 0, g(i + j + 3));
+        place('chair', px, y, pz + cd / 5, Math.PI, g(i + j + 4));
+        place('monitor', px, y + 0.76, pz - cd / 4 - 0.1, 0, g(i + j + 5));
+        place('keyboard', px + 0.42, y + 0.78, pz - cd / 4 + 0.16, 0.2, g(i + j + 6));
+        screens.push({ x: px, y: y + 1.12, z: pz - cd / 4 + 0.08, lev: rm.lev });
       }
+
     } else if (t === 'hall') {
-      // just columns — the grand connective spaces stay empty
       const cols = Math.max(2, Math.floor(w / 7)), rows = Math.max(2, Math.floor(d / 7));
       for (let i = 0; i < cols; i++) for (let j = 0; j < rows; j++) {
-        push(cyls, x0 + ((i + 0.5) / cols) * w, y + WALL_H / 2, z0 + ((j + 0.5) / rows) * d,
-             0.8, WALL_H, 0.8, 0, 0x9c968f);
-      }
-    } else if (t === 'water') {
-      // a few crates half sunk
-      for (let i = 0; i < 5; i++) {
-        const px = x0 + (0.18 + wobble(rm.r1, rm.c1, i) * 0.64) * w;
-        const pz = z0 + (0.18 + wobble(rm.r1, rm.c1, i + 9) * 0.64) * d;
-        push(boxes, px, y + 0.35, pz, 1.2, 0.9, 1.2, wobble(rm.r1, rm.c1, i + 3) * 1.2, 0x857b72);
+        place('column', x0 + ((i + 0.5) / cols) * w, y, z0 + ((j + 0.5) / rows) * d, 0, g(i + j));
       }
     }
   }
 
   for (const meta of ROOM_META) furnish(meta);
+  // Mark the switch rooms that will be lit by chandelier, so the fluorescent
+  // pass leaves their tubes dark and the strike model skips them entirely.
+  for (const rm of chandelierRooms) {
+    const room = props.switches.find((sw) => !sw.atrium && sw.cells.some(
+      ([r, c]) => r >= rm.r1 && r <= rm.r2 && c >= rm.c1 && c <= rm.c2));
+    if (room) { room.chandelier = true; rm.switchRoom = room; }
+  }
 
-  const matProp = new THREE.MeshPhongMaterial({ color: 0xffffff, specular: 0x1a1a1a, shininess: 12 });
+  const matProp = new THREE.MeshPhongMaterial({ color: 0xffffff, specular: 0x2a2a2a, shininess: 18 });
   const matGlass = new THREE.MeshPhongMaterial({
-    color: 0xffffff, specular: 0xffffff, shininess: 140, transparent: true, opacity: 0.24,
+    color: 0xffffff, specular: 0xffffff, shininess: 140, transparent: true, opacity: 0.20,
   });
-  const build = (list, geo, mat) => {
-    if (!list.length) return null;
-    const mesh = new THREE.InstancedMesh(geo, mat, list.length);
-    mesh.castShadow = mesh.receiveShadow = true;
-    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), yA = new THREE.Vector3(0, 1, 0);
-    const col = new THREE.Color();
+  const propMeshes = [];
+  const m4 = new THREE.Matrix4(), q4 = new THREE.Quaternion(), yA = new THREE.Vector3(0, 1, 0);
+  const col = new THREE.Color(), sc = new THREE.Vector3();
+  for (const [kind, list] of groups) {
+    const geo = MODELS[kind];
+    if (!geo || !list.length) continue;
+    const glassy = kind === 'vitrineGlass';
+    const mesh = new THREE.InstancedMesh(geo, glassy ? matGlass : matProp, list.length);
+    mesh.castShadow = mesh.receiveShadow = !glassy;
     list.forEach((it, i) => {
-      q.setFromAxisAngle(yA, it.rot);
-      m.compose(it.p, q, it.s);
-      mesh.setMatrixAt(i, m);
+      q4.setFromAxisAngle(yA, it.rot);
+      sc.set(it.scale, 1, it.scale);
+      m4.compose(it.p, q4, sc);
+      mesh.setMatrixAt(i, m4);
       mesh.setColorAt(i, col.setHex(it.tone));
     });
     mesh.instanceMatrix.needsUpdate = true;
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    mesh.userData.detail = 2;               // first thing dropped on LOW detail
     scene.add(mesh);
-    return mesh;
-  };
-  build(boxes, new THREE.BoxGeometry(1, 1, 1), matProp);
-  build(cyls, new THREE.CylinderGeometry(0.5, 0.5, 1, 12), matProp);
-  build(glass, new THREE.BoxGeometry(1, 1, 1), matGlass);
+    propMeshes.push(mesh);
+  }
+
+  /* ---- the two chandelier rooms ------------------------------------------
+     Two of the banquet halls are lit by chandelier rather than by strip light,
+     which makes them the only rooms in the building that were ever meant to be
+     beautiful. Cut glass and steel — no gilt, because nothing here carries
+     colour in its material.
+
+     The sparkle is real: several hundred bicone drops per fitting in their own
+     instanced mesh, each catching the specular of whatever light reaches it, so
+     sweeping a torch across one lights the drops in turn rather than all at
+     once. What is not real is the light coming back off them — no browser is
+     going to bounce that for us. Instead each fitting carries two additive
+     caustic sheets, one on the ceiling and one on the floor, which turn slowly
+     and brighten with how squarely your beam is on the fitting. It reads as
+     scattered light because it moves when the source moves.                  */
+  const causticTex = (() => {
+    const cv = document.createElement('canvas');
+    cv.width = cv.height = 256;
+    const g = cv.getContext('2d');
+    g.fillStyle = '#000'; g.fillRect(0, 0, 256, 256);
+    const rnd = (n) => ((Math.sin(n * 91.7) * 43758.5453) % 1 + 1) % 1;
+    g.globalCompositeOperation = 'lighter';
+    for (let i = 0; i < 220; i++) {
+      const a = rnd(i) * Math.PI * 2, rr = 18 + rnd(i + 40) * 108;
+      const x = 128 + Math.cos(a) * rr, y = 128 + Math.sin(a) * rr;
+      const len = 5 + rnd(i + 80) * 22, wid = 1 + rnd(i + 120) * 2.4;
+      const rg = g.createRadialGradient(x, y, 0, x, y, len);
+      rg.addColorStop(0, 'rgba(255,255,255,.95)');
+      rg.addColorStop(1, 'rgba(255,255,255,0)');
+      g.save(); g.translate(x, y); g.rotate(a * 1.7); g.scale(1, wid / len);
+      g.fillStyle = rg; g.beginPath(); g.arc(0, 0, len, 0, Math.PI * 2); g.fill();
+      g.restore();
+    }
+    const t = new THREE.CanvasTexture(cv);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    return t;
+  })();
+
+  const matChand = new THREE.MeshPhongMaterial({ color: 0xdadada, specular: 0xffffff, shininess: 120 });
+  const matDrop = new THREE.MeshPhongMaterial({
+    color: 0xf2f6ff, specular: 0xffffff, shininess: 220,
+    transparent: true, opacity: 0.62,
+  });
+  const chandeliers = [];
+  const TIERS = [{ r: 0.62, y: -0.10, arms: 10 }, { r: 0.42, y: 0.16, arms: 7 }];
+  const frameGeo = chandelierFrame(TIERS);
+
+  for (const rm of chandelierRooms) {
+    const y = levelY(rm.lev);
+    const x0 = rm.c1 * CELL, x1 = (rm.c2 + 1) * CELL;
+    const z0 = rm.r1 * CELL, z1 = (rm.r2 + 1) * CELL;
+    const w = x1 - x0, d = z1 - z0;
+    const longX = w >= d;
+    const n = 3;
+    for (let i = 0; i < n; i++) {
+      const f = (i + 0.5) / n;
+      const cxx = longX ? x0 + f * w : (x0 + x1) / 2;
+      const czz = longX ? (z0 + z1) / 2 : z0 + f * d;
+      const top = y + WALL_H;
+      const grp = new THREE.Group();
+      grp.position.set(cxx, top - 0.05, czz);
+      const frame = new THREE.Mesh(frameGeo, matChand);
+      frame.castShadow = true;
+      grp.add(frame);
+
+      // the drops: strung in swags from each tier, plus a hanging skirt
+      const drops = [];
+      for (const tier of TIERS) {
+        const rings = 4;
+        for (let k = 0; k < rings; k++) {
+          const rr = tier.r * (1 - k * 0.13);
+          const count = Math.max(8, Math.round(rr * 40));
+          for (let j = 0; j < count; j++) {
+            const a = (j / count) * Math.PI * 2 + k * 0.21;
+            drops.push([Math.cos(a) * rr, tier.y - 0.10 - k * 0.115, Math.sin(a) * rr]);
+          }
+        }
+      }
+      for (let k = 0; k < 30; k++) {          // a central cascade
+        const a = k * 2.399, rr = 0.05 + (k / 30) * 0.16;
+        drops.push([Math.cos(a) * rr, -0.30 - (k / 30) * 0.34, Math.sin(a) * rr]);
+      }
+      const dropMesh = new THREE.InstancedMesh(dropGeo, matDrop, drops.length);
+      const dm = new THREE.Matrix4(), dq = new THREE.Quaternion(), ds = new THREE.Vector3(1, 1, 1);
+      drops.forEach((p, j) => {
+        dq.setFromAxisAngle(new THREE.Vector3(0, 1, 0), j * 0.7);
+        dm.compose(new THREE.Vector3(p[0], p[1], p[2]), dq, ds);
+        dropMesh.setMatrixAt(j, dm);
+      });
+      dropMesh.instanceMatrix.needsUpdate = true;
+      dropMesh.userData.detail = 1;
+      grp.add(dropMesh);
+      scene.add(grp);
+
+      // the scattered light: one sheet on the ceiling, one on the floor
+      const mkSheet = (size, yy, flip) => {
+        const mat = new THREE.MeshBasicMaterial({
+          map: causticTex.clone(), transparent: true, opacity: 0,
+          blending: THREE.AdditiveBlending, depthWrite: false, fog: false,
+          side: THREE.DoubleSide,
+        });
+        mat.map.wrapS = mat.map.wrapT = THREE.RepeatWrapping;
+        const sheet = new THREE.Mesh(new THREE.PlaneGeometry(size, size), mat);
+        sheet.rotation.x = flip ? Math.PI / 2 : -Math.PI / 2;
+        sheet.position.set(cxx, yy, czz);
+        sheet.renderOrder = 5;
+        scene.add(sheet);
+        return sheet;
+      };
+      const emitter = {
+        pos: new THREE.Vector3(cxx, top - 0.45, czz),
+        color: new THREE.Color(0xffe9c4), intensity: 0, on: false,
+      };
+      emitters.push(emitter);
+      chandeliers.push({
+        pos: new THREE.Vector3(cxx, top - 0.45, czz), lev: rm.lev, emitter,
+        ceiling: mkSheet(9, top - 0.12, false), floor: mkSheet(11, y + 0.05, true),
+        drops: dropMesh, glow: 0,
+      });
+    }
+  }
+  window.__chandeliers = chandeliers;
+
+  window.__props = { groups, propMeshes, chandelierRooms };
 
   // Screens are their own mesh: emissive, so they read as the source of the
   // light rather than something lit. Every fourth one also feeds the light pool,
@@ -2220,6 +2772,9 @@ const el = {
   cloak: document.getElementById('cloak'),
   aim: document.getElementById('aim'),
   minimap: document.getElementById('minimap'),
+  powertip: document.getElementById('powertip'),
+  detail: document.getElementById('detail'),
+  detailbar: document.getElementById('detailbar'),
   hud: document.getElementById('hud'),
   levelbadge: document.getElementById('levelbadge'),
   endscreen: document.getElementById('endscreen'),
@@ -3408,6 +3963,48 @@ function cancelPortal() {
 
 el.minimap.addEventListener('click', portalPick);
 
+/* ---- detail, and what each lamp does ------------------------------------
+   Geometry is tagged as it is built: 2 for furniture, 1 for ornament — rails,
+   corbels, chandelier drops. The slider drops those tiers rather than swapping
+   models, which is why it costs nothing to maintain. Instanced meshes can be
+   drawn short by lowering `count`, so MEDIUM thins the furniture rather than
+   removing it.                                                              */
+const DETAIL_NAME = ['LOW', 'MEDIUM', 'HIGH'];
+const detailTiers = [];
+scene.traverse((o) => { if (o.isMesh && o.userData.detail) detailTiers.push(o); });
+for (const o of detailTiers) o.userData.fullCount = o.count || 0;
+function setDetail(n) {
+  for (const o of detailTiers) {
+    const tier = o.userData.detail;             // 1 ornament, 2 furniture
+    // Furniture survives every tier — the rooms are how you navigate, and a
+    // warehouse with no pallet racking is not a landmark. Ornament goes first.
+    o.visible = tier === 2 || n >= 1;
+    if (o.isInstancedMesh && o.userData.fullCount) {
+      const frac = n === 2 ? 1 : n === 1 ? 0.7 : 0.4;
+      o.count = Math.max(1, Math.round(o.userData.fullCount * frac));
+    }
+  }
+  if (el.detail.value !== String(n)) el.detail.value = String(n);
+  el.detailbar.querySelector('em').textContent = DETAIL_NAME[n];
+}
+el.detail.addEventListener('input', () => setDetail(+el.detail.value));
+setDetail(2);
+
+// Hovering a lamp says what it does. The pointer is captured while you are
+// playing, so this is for the moment you have let it go — which is also the
+// only moment the detail slider is reachable.
+el.powers.addEventListener('mousemove', (ev) => {
+  const rect = el.powers.getBoundingClientRect();
+  const slot = Math.floor(((ev.clientX - rect.left) / rect.width) * 6);
+  if (slot < 0 || slot >= held.length) { el.powertip.classList.remove('on'); return; }
+  const P = POWERS[held[slot]];
+  el.powertip.querySelector('b').textContent = `${slot + 1}  ${P.name}`;
+  el.powertip.querySelector('span').textContent =
+    P.blurb + (P.cost ? ` \u00b7 costs ${P.cost}% of your light` : ' \u00b7 hold F, drains while held');
+  el.powertip.classList.add('on');
+});
+el.powers.addEventListener('mouseleave', () => el.powertip.classList.remove('on'));
+
 function updatePowers(dt) {
   if (!held.length) return;
   const pi = held[sel];
@@ -3439,6 +4036,47 @@ function updatePowers(dt) {
   for (const [key, until] of holes) if (clock.elapsedTime > until) closeHole(key);
 
   drawPowers();
+}
+
+/* A chandelier does two things at once. It is the room's light, coming up
+   warm and steady rather than striking like a tube. And it is a thing your
+   torch can catch: the more squarely your beam is on it, the more its drops
+   throw scattered light onto the ceiling and the floor. The sheets turn
+   slowly and drift against each other, so the pattern never sits still.     */
+function updateChandeliers(dt, now) {
+  const chs = window.__chandeliers;
+  if (!chs || !chs.length) return;
+  const fwd = new THREE.Vector3(-Math.sin(player.yaw), 0, -Math.cos(player.yaw));
+  const beam = player.battery > 0 && started && !ending;
+  for (const ch of chs) {
+    const room = ch.roomRef || (ch.roomRef = props.switches.find(
+      (sw) => sw.chandelier && Math.hypot(sw.pos.x - ch.pos.x, sw.pos.z - ch.pos.z) < 26));
+    const lit = room ? room.on : false;
+    ch.emitter.on = lit;
+    ch.emitter.intensity += ((lit ? 26 : 0) - ch.emitter.intensity) * (1 - Math.exp(-2.2 * dt));
+
+    // how squarely is the torch on it
+    let hit = 0;
+    if (beam && ch.lev === player.lev) {
+      const dx = ch.pos.x - player.pos.x, dz = ch.pos.z - player.pos.z;
+      const dist = Math.hypot(dx, dz);
+      if (dist < 22 && dist > 0.4) {
+        const aim = (fwd.x * dx + fwd.z * dz) / dist;
+        if (aim > 0.9) hit = ((aim - 0.9) / 0.1) * Math.max(0, 1 - dist / 22);
+      }
+    }
+    ch.glow += (hit - ch.glow) * (1 - Math.exp(-7 * dt));
+    const strength = Math.min(1, ch.glow * 1.5 + (lit ? 0.42 : 0));
+    ch.ceiling.material.opacity = strength * 0.60;
+    ch.floor.material.opacity = strength * 0.34;
+    ch.ceiling.material.map.offset.set(Math.sin(now * 0.07) * 0.08, now * 0.012);
+    ch.floor.material.map.offset.set(now * 0.009, Math.cos(now * 0.06) * 0.08);
+    ch.ceiling.rotation.z = now * 0.03;
+    ch.floor.rotation.z = -now * 0.021;
+    // the drops themselves flare when the beam is on them
+    ch.drops.material.emissive.setScalar(ch.glow * 0.5);
+    ch.drops.material.opacity = 0.62 + ch.glow * 0.3;
+  }
 }
 
 function tick() {
@@ -3683,9 +4321,11 @@ function frame(dt) {
   // Every lit room's tubes, striking and stuttering on their own schedules.
   for (const room of props.switches) {
     if (!room.on) continue;
+    if (room.chandelier) continue;              // no tubes to strike in there
     const base = now - room.litAt;
     for (const f of room.fixtures) setFixture(f, fixtureLevel(f, base - f.delay));
   }
+  updateChandeliers(dt, now);
 
   texWater.offset.x = now * 0.014;
   texWater.offset.y = now * 0.009;
