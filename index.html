@@ -1021,14 +1021,20 @@ function groundUnder(r, c, x, z, lev, ceilY) {
 }
 
 // progress along a stair run, 0 at the bottom, 1 at the top
+// `cells[0]` is the foot of the run — but the foot is not always the smaller
+// world coordinate: a flight that climbs west runs the other way. The old
+// version flipped the direction while still measuring from the run's far edge,
+// so a westward flight read t≈1 along its whole length and became a flat shelf
+// at the upper floor's height. You could walk up it and never come down.
+// Measure along the run's own axis, from the run's own foot.
 function stairProgress(s, x, z) {
-  const first = cellCentre(s.cells[0][0], s.cells[0][1]);
-  const last = cellCentre(s.cells[s.cells.length - 1][0], s.cells[s.cells.length - 1][1]);
   const n = s.cells.length;
-  const t = s.horiz ? (x - (first.x - CELL / 2)) / (n * CELL)
-                    : (z - (first.z - CELL / 2)) / (n * CELL);
-  const flip = s.horiz ? last.x < first.x : last.z < first.z;
-  return Math.max(0, Math.min(1, flip ? 1 - t : t));
+  const first = cellCentre(s.cells[0][0], s.cells[0][1]);
+  const last = cellCentre(s.cells[n - 1][0], s.cells[n - 1][1]);
+  const dir = (s.horiz ? Math.sign(last.x - first.x) : Math.sign(last.z - first.z)) || 1;
+  const here = s.horiz ? x : z;
+  const foot = (s.horiz ? first.x : first.z) - dir * (CELL / 2);
+  return Math.max(0, Math.min(1, ((here - foot) * dir) / (n * CELL)));
 }
 
 /* ============================================================ LIGHT POOL */
@@ -3726,6 +3732,7 @@ window.__maze = {
   face(deg) { player.yaw = deg * Math.PI / 180; },
   tilt(deg) { camTilt = deg * Math.PI / 180; },   // inspection only; not a control
   interact, isSolid, collide, cellCentre, cellOf, rebuildReveal, revealed, at,
+  groundUnder, isWalkableChar, dropOpen, levelY, WALL_H, NLEV, ROWS, COLS, CELL,
   antis, trail, trailEvents, spawnAnti, killAnti, clearLine, safeInLight,
   markOpen, markShut,
   POWERS, held, holes, fireHeld, wallAhead, roomAhead, portalPick,
