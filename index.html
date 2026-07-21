@@ -108,7 +108,17 @@
     pointer-events: auto;
   }
   #detailbar em { font-style: normal; min-width: 46px; color: #fff; }
-  #detail { width: 92px; accent-color: #cfe0ff; cursor: pointer; }
+  #detail {
+    width: 44px; height: 20px; padding: 0; cursor: pointer;
+    background: rgba(24,28,36,.9); border: 1px solid rgba(190,205,230,.5);
+    border-radius: 10px; position: relative; transition: background .18s;
+  }
+  #detail[data-on="1"] { background: rgba(120,150,200,.55); }
+  #detail i {
+    position: absolute; top: 2px; left: 2px; width: 14px; height: 14px;
+    border-radius: 50%; background: #e6eefb; transition: left .18s;
+  }
+  #detail[data-on="1"] i { left: 26px; }
   #powertip {
     position: absolute; left: 30px; bottom: 112px; max-width: 260px;
     background: rgba(6,8,12,.92); border: 1px solid rgba(190,205,230,.35);
@@ -195,7 +205,7 @@
   <div id="powertip"><b></b><span></span></div>
   <div id="detailbar">
     <span>DETAIL</span>
-    <input id="detail" type="range" min="0" max="2" step="1" value="2">
+    <button id="detail" type="button" data-on="1"><i></i></button>
     <em>HIGH</em>
   </div>
   <div id="cloak"></div>
@@ -1143,9 +1153,13 @@ MODELS.monitor = mergeGeos([
   at3(Box(0.34, 0.04, 0.26), 0, 0.02, 0),                    // foot
   at3(Cyl(0.05, 0.07, 0.10, 10), 0, 0.09, 0),                // neck
   at3(Box(0.62, 0.46, 0.42), 0, 0.36, -0.06),                // tube body
-  at3(Box(0.58, 0.42, 0.03), 0, 0.36, 0.16),                 // bezel front
-  at3(Box(0.50, 0.35, 0.02), 0, 0.36, 0.18),                 // screen recess
-  at3(Box(0.62, 0.05, 0.06), 0, 0.60, -0.06),                // vent
+  // The bezel is a frame with a hole in it. It used to be a solid panel across
+  // the front, which sat exactly where the emissive screen goes and hid it.
+  at3(Box(0.62, 0.055, 0.05), 0, 0.585, 0.145),
+  at3(Box(0.62, 0.055, 0.05), 0, 0.135, 0.145),
+  at3(Box(0.055, 0.40, 0.05), -0.283, 0.36, 0.145),
+  at3(Box(0.055, 0.40, 0.05), 0.283, 0.36, 0.145),
+  at3(Box(0.62, 0.05, 0.06), 0, 0.63, -0.06),                // vent
 ]);
 
 MODELS.keyboard = mergeGeos([
@@ -1164,19 +1178,38 @@ MODELS.partition = mergeGeos([
 ]);
 
 MODELS.column = mergeGeos([
-  at3(Box(1.10, 0.14, 1.10), 0, 0.07, 0),                    // plinth
-  at3(Box(0.96, 0.08, 0.96), 0, 0.18, 0),
-  at3(Cyl(0.40, 0.44, 0.14, 16), 0, 0.29, 0),                // torus base
-  at3(Cyl(0.34, 0.40, WALL_H - 0.86, 16), 0, (WALL_H - 0.86) / 2 + 0.36, 0),   // shaft
-  // flutes
-  ...Array.from({ length: 12 }, (_, i) => {
-    const a = (i / 12) * Math.PI * 2;
-    return at3(Cyl(0.045, 0.05, WALL_H - 0.96, 6),
-      Math.cos(a) * 0.36, (WALL_H - 0.86) / 2 + 0.36, Math.sin(a) * 0.36);
-  }),
-  at3(Cyl(0.46, 0.36, 0.16, 16), 0, WALL_H - 0.42, 0),       // capital
-  at3(Box(1.06, 0.10, 1.06), 0, WALL_H - 0.29, 0),
-  at3(Box(1.16, 0.08, 1.16), 0, WALL_H - 0.20, 0),
+  at3(Box(1.14, 0.10, 1.14), 0, 0.05, 0),                    // base plate
+  ...[[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([sx, sz]) =>  // and its bolts
+    at3(Cyl(0.05, 0.05, 0.06, 6), sx * 0.44, 0.13, sz * 0.44)),
+  at3(Box(0.86, 0.14, 0.86), 0, 0.17, 0),
+  at3(Box(0.62, WALL_H - 0.66, 0.62), 0, (WALL_H - 0.66) / 2 + 0.24, 0),   // square shaft
+  // a recessed panel down each face, which is what a plain pier gives a beam
+  ...[[0, 1], [0, -1], [1, 0], [-1, 0]].map(([sx, sz]) =>
+    at3(Box(sx ? 0.06 : 0.40, WALL_H - 1.3, sz ? 0.06 : 0.40),
+        sx * 0.32, (WALL_H - 0.66) / 2 + 0.24, sz * 0.32)),
+  at3(Box(0.86, 0.14, 0.86), 0, WALL_H - 0.34, 0),           // head plate
+  at3(Box(1.14, 0.10, 1.14), 0, WALL_H - 0.22, 0),
+  // welded gussets under the head, the one thing that says steel rather than stone
+  ...[[0, 1], [0, -1], [1, 0], [-1, 0]].map(([sx, sz]) =>
+    at3(Box(sx ? 0.05 : 0.34, 0.34, sz ? 0.05 : 0.34),
+        sx * 0.30, WALL_H - 0.58, sz * 0.30)),
+]);
+
+// No fire in it. A dead hearth in a room nobody sat in for a long time.
+MODELS.fireplace = mergeGeos([
+  at3(Box(2.10, 0.12, 0.92), 0, 0.06, 0.10),                 // hearth slab
+  at3(Box(1.86, 0.10, 0.72), 0, 0.15, 0.14),
+  at3(Box(0.42, 1.24, 0.44), -0.84, 0.74, -0.10),            // jambs
+  at3(Box(0.42, 1.24, 0.44), 0.84, 0.74, -0.10),
+  at3(Box(2.10, 0.26, 0.44), 0, 1.49, -0.10),                // lintel
+  at3(Box(2.34, 0.10, 0.58), 0, 1.67, -0.06),                // mantel shelf
+  at3(Box(2.42, 0.06, 0.64), 0, 1.74, -0.05),
+  at3(Box(1.70, 2.10, 0.34), 0, 2.85, -0.16),                // chimney breast
+  at3(Box(1.86, 0.10, 0.42), 0, 1.84, -0.13),
+  at3(Box(1.26, 1.18, 0.30), 0, 0.71, -0.26),                // the dark opening
+  at3(Box(1.10, 0.08, 0.26), 0, 0.20, -0.24),                // a grate, cold
+  ...[-0.36, -0.12, 0.12, 0.36].map((x) =>
+    at3(Cyl(0.022, 0.022, 0.26, 6), x, 0.26, -0.24, Math.PI / 2, 0, 0)),
 ]);
 
 MODELS.bench = mergeGeos([
@@ -1861,6 +1894,19 @@ for (let l = 0; l < NLEV; l++) for (let r = 0; r < ROWS; r++) for (let c = 0; c 
       }
       place('shelfUnit', cx, y, z0 + 0.5, 0, g(5));
       place('shelfUnit', cx - 3.2, y, z0 + 0.5, 0, g(6));
+      // One or two dead hearths, set against a real wall and facing into the
+      // room. Never a fire — nobody has been here to light one.
+      let hearths = 0;
+      for (const [wr, wc, rot] of [[rm.r1 - 1, Math.round((rm.c1 + rm.c2) / 2), 0],
+                                   [rm.r2 + 1, Math.round((rm.c1 + rm.c2) / 2), Math.PI],
+                                   [Math.round((rm.r1 + rm.r2) / 2), rm.c1 - 1, Math.PI / 2],
+                                   [Math.round((rm.r1 + rm.r2) / 2), rm.c2 + 1, -Math.PI / 2]]) {
+        if (hearths >= 2 || at(rm.lev, wr, wc) !== '#') continue;
+        const wp = cellCentre(wr, wc);
+        place('fireplace', wp.x - Math.sin(rot) * 0, y,
+              wp.z, rot, g(10 + hearths));
+        hearths++;
+      }
 
     } else if (t === 'museum') {
       const cols = Math.max(2, Math.floor(w / 6)), rows = Math.max(2, Math.floor(d / 6));
@@ -1870,8 +1916,14 @@ for (let l = 0; l < NLEV; l++) for (let r = 0; r < ROWS; r++) for (let c = 0; c 
         place('vitrine', px, y, pz, wobble(rm.r1, rm.c1, i * 3 + j) * 0.2 - 0.1, g(i + j));
         place('vitrineGlass', px, y, pz, 0, 0xffffff);
       }
-      place('bench', cx, y, cz, longX ? 0 : Math.PI / 2, g(7));
-      place('bench', cx, y, cz + (longX ? 0 : 3.0), longX ? 0 : Math.PI / 2, g(8));
+      // These two used to land on the same spot in any room longer than it is
+      // deep, which read as one bench lying through another.
+      // a floor of their own, never less than a bench apart
+      const sep = Math.max(1.7, (longX ? w : d) * 0.18);
+      const bo = longX ? [[-sep, 0], [sep, 0]] : [[0, -sep], [0, sep]];
+      for (let bi = 0; bi < 2; bi++) {
+        place('bench', cx + bo[bi][0], y, cz + bo[bi][1], longX ? 0 : Math.PI / 2, g(7 + bi));
+      }
 
     } else if (t === 'gallery') {
       const n = Math.max(3, Math.floor((w + d) / 7));
@@ -1879,10 +1931,20 @@ for (let l = 0; l < NLEV; l++) for (let r = 0; r < ROWS; r++) for (let c = 0; c 
         const a = (i / n) * Math.PI * 2;
         place('plinth', cx + Math.cos(a) * w * 0.3, y, cz + Math.sin(a) * d * 0.3, a, g(i));
       }
+      // Hang panels only where there is actually a wall behind them. A gallery
+      // opens onto halls on at least two sides, so a third of them used to be
+      // left floating in mid-air over the doorway.
       for (let i = 0; i < 4; i++) {
         const fz = z0 + ((i + 0.7) / 4.4) * d;
-        place('hungPanel', x0 + 0.32, y + 1.9, fz, 0, g(i + 2));
-        place('hungPanel', x1 - 0.32, y + 1.9, fz, Math.PI, g(i + 5));
+        const rr = Math.floor(fz / CELL);
+        if (at(rm.lev, rr, rm.c1 - 1) === '#') place('hungPanel', x0 + 0.32, y + 1.9, fz, 0, g(i + 2));
+        if (at(rm.lev, rr, rm.c2 + 1) === '#') place('hungPanel', x1 - 0.32, y + 1.9, fz, Math.PI, g(i + 5));
+      }
+      for (let i = 0; i < 4; i++) {
+        const fx = x0 + ((i + 0.7) / 4.4) * w;
+        const cc = Math.floor(fx / CELL);
+        if (at(rm.lev, rm.r1 - 1, cc) === '#') place('hungPanel', fx, y + 1.9, z0 + 0.32, -Math.PI / 2, g(i + 8));
+        if (at(rm.lev, rm.r2 + 1, cc) === '#') place('hungPanel', fx, y + 1.9, z1 - 0.32, Math.PI / 2, g(i + 11));
       }
       place('bench', cx, y, cz, longX ? 0 : Math.PI / 2, g(9));
 
@@ -1939,7 +2001,7 @@ for (let l = 0; l < NLEV; l++) for (let r = 0; r < ROWS; r++) for (let c = 0; c 
         place('chair', px, y, pz + cd / 5, Math.PI, g(i + j + 4));
         place('monitor', px, y + 0.76, pz - cd / 4 - 0.1, 0, g(i + j + 5));
         place('keyboard', px + 0.42, y + 0.78, pz - cd / 4 + 0.16, 0.2, g(i + j + 6));
-        screens.push({ x: px, y: y + 1.12, z: pz - cd / 4 + 0.08, lev: rm.lev });
+        screens.push({ x: px, y: y + 1.12, z: pz - cd / 4 + 0.03, lev: rm.lev });
       }
 
     } else if (t === 'hall') {
@@ -2207,7 +2269,17 @@ for (let l = 0; l < NLEV; l++) for (let r = 0; r < ROWS; r++) for (let c = 0; c 
     at3(Cyl(0.035, 0.035, CELL, 8), 0, 0.215, -0.02, 0, 0, Math.PI / 2),
     at3(Box(CELL, 0.05, 0.13), 0, 0.245, 0.01),
   ]);
-  const corniceRun = mergeGeos([
+  // The building is industrial, so its default vocabulary is angular: plates,
+  // channels and rivets, no coves and nothing turned. Living rooms and
+  // restaurants are the exception and keep a domestic moulded profile, because
+  // those are the rooms that were somebody's.
+  const corniceInd = mergeGeos([
+    at3(Box(CELL, 0.10, 0.13), 0, 0.05, 0),
+    at3(Box(CELL, 0.05, 0.22), 0, 0.13, 0.05),
+    at3(Box(CELL, 0.05, 0.28), 0, 0.22, 0.08),
+    ...[-1, 0, 1].map((f) => at3(Cyl(0.03, 0.03, 0.05, 6), f * CELL * 0.3, 0.13, 0.17, Math.PI / 2, 0, 0)),
+  ]);
+  const corniceDom = mergeGeos([
     at3(Box(CELL, 0.07, 0.10), 0, 0.03, 0),
     at3(Cyl(0.10, 0.10, CELL, 10), 0, 0.14, 0.06, 0, 0, Math.PI / 2),        // cove
     at3(Box(CELL, 0.06, 0.22), 0, 0.24, 0.05),
@@ -2221,16 +2293,18 @@ for (let l = 0; l < NLEV; l++) for (let r = 0; r < ROWS; r++) for (let c = 0; c 
     at3(Box(CELL, 0.06, 0.30), 0, -0.03, 0.20),
     at3(Cyl(0.03, 0.03, CELL, 6), 0, -0.33, 0.34, 0, 0, Math.PI / 2),
   ]);
+  // A square pier against the wall: base plate, plain shaft with a recessed
+  // channel, head plate, rivets. Nothing fluted and nothing turned.
   const pilasterRun = mergeGeos([
-    at3(Box(0.80, 0.16, 0.26), 0, 0.08, 0),                                   // plinth
-    at3(Box(0.70, 0.06, 0.22), 0, 0.19, 0),
-    at3(Box(0.62, WALL_H - 0.86, 0.18), 0, (WALL_H - 0.86) / 2 + 0.22, 0),
-    ...[-0.20, 0, 0.20].map((x) =>                                            // flutes
-      at3(Cyl(0.045, 0.045, WALL_H - 1.0, 6), x, (WALL_H - 0.86) / 2 + 0.22, 0.09)),
-    at3(Box(0.70, 0.07, 0.24), 0, WALL_H - 0.60, 0),                          // capital
-    at3(Cyl(0.08, 0.08, 0.70, 8), 0, WALL_H - 0.50, 0.04, 0, 0, Math.PI / 2),
-    at3(Box(0.86, 0.09, 0.32), 0, WALL_H - 0.38, 0.02),
-    at3(Box(0.94, 0.06, 0.36), 0, WALL_H - 0.30, 0.03),
+    at3(Box(0.84, 0.11, 0.28), 0, 0.055, 0),                                  // base plate
+    at3(Box(0.70, 0.09, 0.22), 0, 0.155, 0),
+    at3(Box(0.60, WALL_H - 0.68, 0.17), 0, (WALL_H - 0.68) / 2 + 0.20, 0),    // shaft
+    at3(Box(0.30, WALL_H - 0.92, 0.06), 0, (WALL_H - 0.68) / 2 + 0.20, 0.10), // recessed channel
+    ...[0.5, 0.34, 0.18].map((f, i) =>                                        // rivets
+      at3(Cyl(0.035, 0.035, 0.05, 6), (i - 1) * 0.20, WALL_H * f, 0.10, Math.PI / 2, 0, 0)),
+    at3(Box(0.70, 0.09, 0.22), 0, WALL_H - 0.42, 0),                          // head plate
+    at3(Box(0.84, 0.11, 0.28), 0, WALL_H - 0.31, 0),
+    ...[-1, 1].map((sx) => at3(Box(0.07, 0.30, 0.20), sx * 0.28, WALL_H - 0.60, 0.02)),  // gussets
   ]);
   const doorHead = mergeGeos([
     at3(Box(CELL + 0.5, 0.14, 0.34), 0, 0, 0),
@@ -2243,7 +2317,15 @@ for (let l = 0; l < NLEV; l++) for (let r = 0; r < ROWS; r++) for (let c = 0; c 
     at3(Cyl(0.045, 0.045, WALL_H, 8), -0.10, WALL_H / 2, 0.12),
   ]);
 
-  const runs = { skirting: [], cornice: [], soffit: [], pilaster: [], head: [], jamb: [] };
+  // which cells belong to a room somebody lived in
+  const domestic = new Set();
+  for (const meta of ROOM_META) {
+    if (meta.type !== 'living' && meta.type !== 'restaurant') continue;
+    for (let r = meta.r1; r <= meta.r2; r++) for (let c = meta.c1; c <= meta.c2; c++) {
+      domestic.add(`${meta.lev},${r},${c}`);
+    }
+  }
+  const runs = { skirting: [], corniceInd: [], corniceDom: [], soffit: [], pilaster: [], head: [], jamb: [] };
   const put = (kind, x, y, z, rot) => runs[kind].push({ x, y, z, rot });
 
   for (let l = 0; l < NLEV; l++) for (let r = 1; r < ROWS - 1; r++) for (let c = 1; c < COLS - 1; c++) {
@@ -2261,7 +2343,8 @@ for (let l = 0; l < NLEV; l++) for (let r = 0; r < ROWS; r++) for (let c = 0; c 
       const rot = (dc ? Math.PI / 2 : 0) + ((dc > 0 || dr > 0) ? Math.PI : 0);
       if (room) {
         put('skirting', x, y0, z, rot);
-        put('cornice', x, y0 + WALL_H - 0.36, z, rot);
+        put(domestic.has(`${l},${r},${c}`) ? 'corniceDom' : 'corniceInd',
+            x, y0 + WALL_H - 0.36, z, rot);
         if ((r + c) % 2 === 0) put('soffit', x, y0 + WALL_H, z, rot);
       } else if ((r + c) % 4 === 0) {
         put('pilaster', x, y0, z, rot);
@@ -2283,7 +2366,7 @@ for (let l = 0; l < NLEV; l++) for (let r = 0; r < ROWS; r++) for (let c = 0; c 
   }
 
   const matTrim = new THREE.MeshPhongMaterial({ color: 0xa6a09a, specular: 0x2c2c2c, shininess: 22 });
-  const GEOS = { skirting: skirtingRun, cornice: corniceRun, soffit: soffitRun,
+  const GEOS = { skirting: skirtingRun, corniceInd, corniceDom, soffit: soffitRun,
                  pilaster: pilasterRun, head: doorHead, jamb: doorJamb };
   const m = new THREE.Matrix4(), q = new THREE.Quaternion();
   const yA = new THREE.Vector3(0, 1, 0), one = new THREE.Vector3(1, 1, 1);
@@ -2302,6 +2385,63 @@ for (let l = 0; l < NLEV; l++) for (let r = 0; r < ROWS; r++) for (let c = 0; c 
     scene.add(mesh);
   }
   window.__trim = Object.fromEntries(Object.entries(runs).map(([k, v]) => [k, v.length]));
+
+  /* Rails up the stairs. Every flight had open sides — the one place in the
+     building you most want something to hold. Each unit is raked to the pitch
+     of its own run rather than stepped, so a balustrade climbs with the
+     treads. Which kind it is follows the same rule as everywhere else. */
+  const stairRails = { domestic: [], public: [], wire: [] };
+  const RAIL_FOR2 = {
+    living: 'domestic', restaurant: 'domestic',
+    warehouse: 'wire', office: 'wire', cubicles: 'wire',
+    gallery: 'public', museum: 'public', hall: 'public',
+  };
+  const nearestKind = (r, c) => {
+    let best = null, bestD = 14 * 14;
+    for (const meta of ROOM_META) {
+      const dr = Math.max(meta.r1 - r, 0, r - meta.r2), dc = Math.max(meta.c1 - c, 0, c - meta.c2);
+      const dd = dr * dr + dc * dc;
+      if (dd < bestD) { bestD = dd; best = meta; }
+    }
+    return (best && RAIL_FOR2[best.type]) || 'public';
+  };
+  for (const st of stairs) {
+    const n = st.cells.length;
+    const rake = Math.atan2(LEVEL_H, n * CELL);
+    const first = cellCentre(st.cells[0][0], st.cells[0][1]);
+    const last = cellCentre(st.cells[n - 1][0], st.cells[n - 1][1]);
+    const dir = (st.horiz ? Math.sign(last.x - first.x) : Math.sign(last.z - first.z)) || 1;
+    const kind = nearestKind(st.cells[0][0], st.cells[0][1]);
+    st.cells.forEach((cc, i) => {
+      const p = cellCentre(cc[0], cc[1]);
+      const t = (i + 0.5) / n;
+      const yy = levelY(st.lo) + t * LEVEL_H;
+      for (const side of [-1, 1]) {
+        const ox = st.horiz ? 0 : side * (CELL / 2 - 0.09);
+        const oz = st.horiz ? side * (CELL / 2 - 0.09) : 0;
+        stairRails[kind].push({ x: p.x + ox, y: yy, z: p.z + oz,
+                                yaw: st.horiz ? 0 : Math.PI / 2, rake: -rake * dir * (st.horiz ? 1 : 1) });
+      }
+    });
+  }
+  const em = new THREE.Matrix4(), eq = new THREE.Quaternion(), eone = new THREE.Vector3(1, 1, 1);
+  for (const kind of Object.keys(stairRails)) {
+    const list = stairRails[kind];
+    if (!list.length) continue;
+    const mesh = new THREE.InstancedMesh(RAILS[kind], matRail, list.length);
+    mesh.castShadow = mesh.receiveShadow = true;
+    list.forEach((t, i) => {
+      // yaw the unit along the flight, then tip it to the flight's pitch
+      eq.setFromEuler(new THREE.Euler(0, t.yaw, t.rake, 'YZX'));
+      em.compose(new THREE.Vector3(t.x, t.y, t.z), eq, eone);
+      mesh.setMatrixAt(i, em);
+    });
+    mesh.instanceMatrix.needsUpdate = true;
+    mesh.userData.detail = 1;
+    scene.add(mesh);
+  }
+  window.__stairRails = Object.fromEntries(
+    Object.entries(stairRails).map(([k, v]) => [k, v.length]));
 }
 
 /* The view through a portal. One render target serves every portal, because
@@ -3714,7 +3854,7 @@ function updateAntis(dt) {
 
 const POWERS = [
   { key: 'xray',   name: 'X-RAY',            cost: 0,    hold: 26,
-    blurb: 'the next room shows through the wall' },
+    blurb: 'opens a hole through the wall or floor you are facing' },
   { key: 'holy',   name: 'HOLY LIGHT',       cost: 34,
     blurb: 'nothing walking survives the rooms around you' },
   { key: 'through',name: 'WALK THROUGH',     cost: 26,
@@ -3834,52 +3974,110 @@ function roomAhead() {
   return null;
 }
 
-/* ---- the X-ray overlay -------------------------------------------------- */
-// depthTest off, so it draws over the wall in front of it. Only the things that
-// decide whether a room is worth crossing for: the gate, the switch, the way
-// out, and the crystal itself.
-const xrayGrp = new THREE.Group();
-xrayGrp.visible = false;
-scene.add(xrayGrp);
-// Edges, not wireframe: a wireframe box draws its triangulation diagonals too,
-// which reads as noise. The rest of the HUD is clean vector line, so this is.
-const matXray = new THREE.LineBasicMaterial({
-  color: 0x9fd2ff, transparent: true, opacity: 0.8,
-  depthTest: false, depthWrite: false, fog: false,
+/* ---- the X-ray: a hole, not a diagram --------------------------------------
+   It used to draw the next room as a blue line plan floating over the wall,
+   which read as a map rather than as sight. Now it cuts a hole.
+
+   The trick is that the second camera is *your* camera — same position, same
+   orientation, same lens — with its near plane pushed just past the wall you
+   are aiming at. Everything between you and that surface is clipped away, so
+   what it renders is precisely what is on the other side, in exactly the
+   alignment you would see it. The aperture then samples that render by its own
+   screen position rather than by a UV, which is what makes the view through
+   the hole line up with the world around it instead of sliding as you move.
+
+   Aim at a wall and it opens in the wall; aim down and it opens in the floor.  */
+const xrayRT = new THREE.WebGLRenderTarget(1024, 1024, {
+  minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter,
 });
-const xrayEdges = new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1));
-const xrayPool = [];
-for (let i = 0; i < 40; i++) {
-  const m = new THREE.LineSegments(xrayEdges, matXray);
-  m.visible = false;
-  m.renderOrder = 999;
-  xrayGrp.add(m);
-  xrayPool.push(m);
-}
-function paintXray(room) {
-  let n = 0;
-  const put = (x, y, z, sx, sy, sz) => {
-    if (n >= xrayPool.length) return;
-    const m = xrayPool[n++];
-    m.visible = true;
-    m.position.set(x, y, z);
-    m.scale.set(sx, sy, sz);
-  };
-  if (room) {
-    // one plate per cell, drawn as an outline, so the room reads as a plan
-    for (const [r, c] of room.cells) {
-      const p = cellCentre(r, c);
-      put(p.x, levelY(room.lev) + 0.06, p.z, CELL * 0.94, 0.001, CELL * 0.94);
-    }
-    const near = (o) => o.lev === room.lev
-      && room.cells.some(([r, c]) => { const p = cellCentre(r, c);
-        return (p.x - o.pos.x) ** 2 + (p.z - o.pos.z) ** 2 < (CELL * 1.1) ** 2; });
-    for (const cr of props.crystals) if (near(cr)) put(cr.pos.x, cr.pos.y, cr.pos.z, 0.7, 1.4, 0.7);
-    for (const pt of props.portals) if (near(pt)) put(pt.pos.x, pt.pos.y + 1.2, pt.pos.z, 1.5, 2.4, 0.4);
-    put(room.pos.x, room.pos.y + 1.3, room.pos.z, 0.5, 0.7, 0.5);       // its switch
+const xrayCam = new THREE.PerspectiveCamera(74, 1, 0.1, 260);
+const xrayMat = new THREE.ShaderMaterial({
+  uniforms: { tView: { value: xrayRT.texture } },
+  vertexShader: `
+    varying vec4 vClip;
+    void main() {
+      vClip = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      gl_Position = vClip;
+    }`,
+  fragmentShader: `
+    uniform sampler2D tView;
+    varying vec4 vClip;
+    void main() {
+      vec2 uv = (vClip.xy / vClip.w) * 0.5 + 0.5;
+      gl_FragColor = vec4(texture2D(tView, uv).rgb, 1.0);
+    }`,
+  depthWrite: false,
+});
+const xrayHole = new THREE.Mesh(new THREE.CircleGeometry(1.15, 40), xrayMat);
+xrayHole.visible = false;
+xrayHole.renderOrder = 3;
+scene.add(xrayHole);
+// a cut rim, so it reads as an opening rather than a screen hanging on the wall
+const xrayRim = new THREE.Mesh(
+  new THREE.TorusGeometry(1.16, 0.035, 6, 40),
+  new THREE.MeshBasicMaterial({ color: 0xbfe0ff, transparent: true, opacity: 0.75, fog: false }));
+xrayRim.visible = false;
+xrayRim.renderOrder = 4;
+scene.add(xrayRim);
+
+// What surface is the beam on, and how far away is it?
+function xraySurface() {
+  const fx = -Math.sin(player.yaw), fz = -Math.cos(player.yaw);
+  for (let d = 0.5; d < 11; d += 0.25) {
+    const x = player.pos.x + fx * d, z = player.pos.z + fz * d;
+    const r = Math.floor(z / CELL), c = Math.floor(x / CELL);
+    if (at(player.lev, r, c) !== '#') continue;
+    // which face of that cell did we come in through
+    const p = cellCentre(r, c);
+    const px = player.pos.x + fx * (d - 0.25), pz = player.pos.z + fz * (d - 0.25);
+    const alongX = Math.abs(px - p.x) > Math.abs(pz - p.z);
+    const sgn = alongX ? Math.sign(px - p.x) : Math.sign(pz - p.z);
+    return {
+      pos: new THREE.Vector3(alongX ? p.x + sgn * (CELL / 2 + 0.03) : p.x,
+                             player.pos.y - 0.15,
+                             alongX ? p.z : p.z + sgn * (CELL / 2 + 0.03)),
+      yaw: alongX ? sgn * Math.PI / 2 : (sgn > 0 ? 0 : Math.PI),
+      pitch: 0, dist: d,
+    };
   }
-  for (let i = n; i < xrayPool.length; i++) xrayPool[i].visible = false;
-  xrayGrp.visible = n > 0;
+  // nothing ahead: if you are looking down, open it in the floor instead
+  if (player.pitch < -0.55) {
+    const [r, c] = cellOf(player.pos);
+    const below = groundUnder(r, c, player.pos.x, player.pos.z, player.lev, levelY(player.lev) + WALL_H);
+    const fy = below ? below.y : levelY(player.lev);
+    return {
+      pos: new THREE.Vector3(player.pos.x + fx * 1.2, fy + 0.04, player.pos.z + fz * 1.2),
+      yaw: 0, pitch: -Math.PI / 2, dist: player.pos.y - fy,
+    };
+  }
+  return null;
+}
+
+function paintXray(on) {
+  if (!on) { xrayHole.visible = xrayRim.visible = false; return; }
+  const surf = xraySurface();
+  if (!surf) { xrayHole.visible = xrayRim.visible = false; return; }
+
+  xrayHole.position.copy(surf.pos);
+  xrayHole.rotation.set(surf.pitch, surf.yaw, 0);
+  xrayRim.position.copy(surf.pos);
+  xrayRim.rotation.copy(xrayHole.rotation);
+
+  // your own lens, clipped to start on the far side of that surface
+  xrayCam.position.copy(camera.position);
+  xrayCam.rotation.copy(camera.rotation);
+  xrayCam.aspect = camera.aspect;
+  xrayCam.near = Math.max(0.12, surf.dist + 0.32);
+  xrayCam.far = xrayCam.near + 180;
+  xrayCam.updateProjectionMatrix();
+  xrayCam.updateMatrixWorld(true);
+
+  xrayHole.visible = false; xrayRim.visible = false;
+  const prevTarget = renderer.getRenderTarget();
+  renderer.setRenderTarget(xrayRT);
+  renderer.render(scene, xrayCam);
+  renderer.setRenderTarget(prevTarget);
+  xrayHole.visible = true; xrayRim.visible = true;
 }
 
 /* ---- the holes the third light punches ---------------------------------- */
@@ -4028,26 +4226,26 @@ el.minimap.addEventListener('click', portalPick);
    models, which is why it costs nothing to maintain. Instanced meshes can be
    drawn short by lowering `count`, so MEDIUM thins the furniture rather than
    removing it.                                                              */
-const DETAIL_NAME = ['LOW', 'MEDIUM', 'HIGH'];
+const DETAIL_NAME = ['LOW', 'HIGH'];
 const detailTiers = [];
 scene.traverse((o) => { if (o.isMesh && o.userData.detail) detailTiers.push(o); });
 for (const o of detailTiers) o.userData.fullCount = o.count || 0;
 function setDetail(n) {
   for (const o of detailTiers) {
     const tier = o.userData.detail;             // 1 ornament, 2 furniture
-    // Furniture survives every tier — the rooms are how you navigate, and a
+    // Furniture survives both settings — the rooms are how you navigate, and a
     // warehouse with no pallet racking is not a landmark. Ornament goes first.
-    o.visible = tier === 2 || n >= 1;
+    o.visible = tier === 2 || n === 1;
     if (o.isInstancedMesh && o.userData.fullCount) {
-      const frac = n === 2 ? 1 : n === 1 ? 0.7 : 0.4;
-      o.count = Math.max(1, Math.round(o.userData.fullCount * frac));
+      o.count = n === 1 ? o.userData.fullCount
+                        : Math.max(1, Math.round(o.userData.fullCount * 0.45));
     }
   }
-  if (el.detail.value !== String(n)) el.detail.value = String(n);
+  el.detail.dataset.on = String(n);
   el.detailbar.querySelector('em').textContent = DETAIL_NAME[n];
 }
-el.detail.addEventListener('input', () => setDetail(+el.detail.value));
-setDetail(2);
+el.detail.addEventListener('click', () => setDetail(el.detail.dataset.on === '1' ? 0 : 1));
+setDetail(1);
 
 // Hovering a lamp says what it does. The pointer is captured while you are
 // playing, so this is for the moment you have let it go — which is also the
@@ -4069,12 +4267,8 @@ function updatePowers(dt) {
   const pi = held[sel];
 
   xrayOn = pi === 0 && keys.has('KeyF') && player.battery > 0;
-  if (xrayOn) {
-    player.battery = Math.max(0, player.battery - POWERS[0].hold * dt);
-    paintXray(roomAhead());
-  } else if (xrayGrp.visible) {
-    xrayGrp.visible = false;
-  }
+  if (xrayOn) player.battery = Math.max(0, player.battery - POWERS[0].hold * dt);
+  paintXray(xrayOn);
 
   if (cloakT > 0) {
     cloakT -= dt;

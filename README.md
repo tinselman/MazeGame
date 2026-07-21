@@ -99,8 +99,32 @@ sheets, ceiling and floor, turning slowly against each other and brightening wit
 squarely your beam is on it. Those rooms skip the fluorescent strike model entirely —
 their tubes stay dark.
 
-**A DETAIL slider sits over the chart.** HIGH is 949k triangles and 1,352 pieces of
-furniture, MEDIUM 706k and 948, LOW 234k and 540. Furniture survives every tier, because
+**The X-ray is a hole, not a diagram.** It used to draw the next room as a line plan
+floating over the wall, which read as a map rather than as sight. Now the second camera
+is *your* camera — same position, same orientation, same lens — with its near plane
+pushed just past the surface you are aiming at, so everything between you and that wall
+is clipped away and what it renders is exactly what is on the other side. The aperture
+samples that render by its own screen position rather than by a UV, which is what makes
+the view through the hole line up with the world around it instead of sliding as you
+move. Aim at a wall and it opens in the wall; look down and it opens in the floor.
+
+**The building is industrial, and says so.** Piers are square: base plate, plain shaft
+with a recessed channel, head plate, bolts and welded gussets. Pilasters are flat plates
+with rivets, not flutes. Cornices step out through plates rather than a classical cove —
+except in living rooms and restaurants, which keep a domestic moulded profile, because
+those are the rooms that were somebody's. 616 industrial cornices to 156 domestic. The
+arches stay.
+
+**Rails go up the stairs**, which is the one place in the building you most want
+something to hold and the one place that had nothing. 120 units, raked to the pitch of
+their own flight rather than stepped, so a balustrade climbs with the treads. Kind is
+chosen the same way as everywhere else.
+
+**Two dead hearths** in the living rooms — surround, lintel, mantel, chimney breast and a
+cold grate, set against a real wall and facing in. Never a fire; nobody has been here to
+light one.
+
+**A DETAIL switch sits over the chart**, HIGH or LOW. Furniture survives both, because
 the rooms are how you navigate and a warehouse with no racking is not a landmark;
 ornament goes first. Hovering a lamp icon names it and says what it does and what it
 costs. Both need the pointer free, so press escape first.
@@ -297,7 +321,7 @@ vector line, like the rest of the instrument.
 
 | | | |
 |---|---|---|
-| 1 | **X-ray** | Held, not fired. The room ahead draws through the wall as a plan in pale blue line — its floor cells, its switch, and any crystal or portal inside. Drains while held. |
+| 1 | **X-ray** | Held, not fired. Cuts a hole through the wall or floor you are facing and you look through it. Drains while held. |
 | 2 | **Holy Light** | Everything walking within 19m, gone, regardless of which way you face. |
 | 3 | **Walk Through Walls** | The wall you shine on opens for 14 seconds, then closes again. The block is taken out of the instanced mesh and put back. |
 | 4 | **Portal** | Shine at a wall, then click the chart. Restricted to ground you have actually charted, so it can never drop you inside a vault you have not opened. |
