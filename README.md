@@ -362,8 +362,11 @@ through it heavily. The drum is a short low thud dry, and eight seconds of hall 
 and it closes on itself, so the loop runs two minutes and never arrives anywhere.
 
 **On each chord, two voices walk away from each other** — the low one down, the high one
-up, four moves across the chord's thirty seconds, gliding rather than jumping so a step
-is heard as a bend. The pair is different on every one of the eight chords across two
+up, four moves across the chord's thirty seconds. The pitch changes cleanly; nothing
+slides. Each move ducks the level almost to nothing over a twentieth of a second, changes
+pitch down there so the jump is never heard as a click, then swells back over several
+seconds — louder every time. A note arrives quiet and grows, and the tail is reverb and
+echo rather than a long release. The pair is different on every one of the eight chords across two
 loops, so nothing repeats for four minutes, and each move is louder than the last: a
 chord gets wider and more intense the longer it is held, and resets when it turns.
 
@@ -375,10 +378,15 @@ pair stalled instead of opening.
 Underneath: sparse struck metal, rare drips, and a heartbeat. **The drip is almost
 entirely its pitch envelope** — a sine falling through most of an octave in forty
 milliseconds — and then a very long tail of room, which is what makes it read as water in
-a large empty place rather than as a blip. **The heartbeat is one note into a feedback
-delay tuned to its own interval**, so each hit lands on the echo of the last. It comes in
-quietly, builds over ten to eighteen beats, and stops — then nothing for the better part
-of a minute. Starting and stopping is what makes it a pulse rather than a metronome.
+a large empty place rather than as a blip. **The heartbeat is two notes and only ever two** — A and A sharp, a semitone apart,
+alternating, into a feedback delay tuned to its own interval so each hit lands on the
+echo of the last. It does not follow the chord, which is the point: a fixed semitone
+grinding against a drone that keeps moving underneath it is consonant against some chords
+and wrong against others, without the pulse itself ever changing. Percussive and quick —
+the pitch is held, the strike is over in a quarter of a second, and everything after that
+is the room. Each hit is doubled two octaves up so it reads as bass with a top on it
+rather than as a thud. It comes in quietly, builds over ten to eighteen beats, and stops
+— then nothing for most of a minute.
 
 Tension still rides on how close the nearest Anti-player is, measured whether or not you
 have seen it, with a floor between you counting as fourteen metres. It opens the drone's

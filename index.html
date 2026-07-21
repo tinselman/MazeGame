@@ -2903,9 +2903,9 @@ function blip(freq, dur, type = 'square', gain = 0.06, send = 0.55) {
 const music = {
   started: false, tension: 0, target: 0,
   voices: [], slot: 0, nextChord: 0, root: 55,
-  legStep: 0, nextLeg: 0, legLow: null, legHigh: null, legGain: null,
+  legStep: 0, nextLeg: 0, legLow: null, legHigh: null, legLowG: null, legHighG: null,
   nextMetal: 0, nextDrip: 0,
-  beat: { on: false, next: 0, left: 0, gap: 0.82, gain: 0 },
+  beat: { on: false, next: 0, left: 0, gap: 0.82, gain: 0, n: 0 },
 };
 const ROOT = 55;                                    // A1
 
@@ -2974,18 +2974,23 @@ function startMusic() {
 
     // the two voices that walk apart. Legato: they glide, so a step is heard
     // as a bend rather than as a new note.
-    const legGain = a.createGain(); legGain.gain.value = 0;
-    b.out(legGain, 0.9);
+    // a shared echo for the walking voices, long enough to overlap a step
+    const legEcho = a.createDelay(3.0);
+    legEcho.delayTime.value = 1.35;
+    const legFb = a.createGain(); legFb.gain.value = 0.4;
+    legEcho.connect(legFb).connect(legEcho);
+    b.out(legEcho, 0.9);
     const mk = (type) => {
       const o = a.createOscillator(), g = a.createGain();
-      o.type = type; g.gain.value = 0.5;
-      o.connect(g).connect(legGain);
+      o.type = type; g.gain.value = 0.0004;
+      o.connect(g);
+      b.out(g, 0.9);
+      g.connect(legEcho);
       o.start();
-      return o;
+      return [o, g];
     };
-    music.legLow = mk('triangle');
-    music.legHigh = mk('triangle');
-    music.legGain = legGain;
+    [music.legLow, music.legLowG] = mk('triangle');
+    [music.legHigh, music.legHighG] = mk('triangle');
 
     // a slow swell under everything, so the drone is never quite still
     const lfo = a.createOscillator(), lfoAmt = a.createGain();
@@ -3023,18 +3028,31 @@ function retune(rootHz) {
 
 /* One step of the pair walking apart. `k` is 0..LEG_STEPS: at 0 they sit at
    the row's starting interval, and each step after that takes the low voice one
-   scale degree down and the high voice one up — and lifts the level, so a
-   chord gets louder and wider the longer it is held. */
+   scale degree down and the high voice one up.
+
+   The pitch changes cleanly — no slide. (An earlier version glided between
+   them, on my misreading of legato: legato means the notes are connected, not
+   that one bends into the next. That is portamento, and it is not what was
+   asked for.) Instead each move ducks the level almost to nothing over a fifth
+   of a second, changes pitch while it is down there so the jump is never heard
+   as a click, and then swells back up over several seconds — louder every time.
+   So a note arrives quietly and grows, and the chord is wider and stronger at
+   the end of its thirty seconds than at the start. The tail is reverb and
+   echo, not a long release. */
 function legatoStep(k) {
   if (!music.legLow) return;
   const a = actx, t = a.currentTime;
   const [lo0, hi0] = SPREADS[music.slot % SPREADS.length];
   const lo = scaleWalk(lo0, -k);
   const hi = scaleWalk(hi0, k);
-  // glide: long enough to hear it move, short enough to land before the next
-  music.legLow.frequency.setTargetAtTime(semiToHz(music.root * 2, lo), t, 1.6);
-  music.legHigh.frequency.setTargetAtTime(semiToHz(music.root * 2, hi), t, 1.6);
-  music.legGain.gain.setTargetAtTime(0.012 + k * 0.011, t, 1.2);
+  const level = 0.012 + k * 0.011;
+  for (const [osc, gain, semi] of [[music.legLow, music.legLowG, lo],
+                                   [music.legHigh, music.legHighG, hi]]) {
+    gain.gain.cancelScheduledValues(t);
+    gain.gain.setTargetAtTime(0.0004, t, 0.055);            // duck
+    osc.frequency.setValueAtTime(semiToHz(music.root * 2, semi), t + 0.20);
+    gain.gain.setTargetAtTime(level, t + 0.24, 2.4);        // and swell back, stronger
+  }
 }
 
 // Struck metal, far off. Bandpassed noise with a long ring.
@@ -3080,23 +3098,31 @@ function drip() {
   } catch (e) { /* */ }
 }
 
-/* The heartbeat: one note, repeated in time, into a feedback delay tuned to
-   the same interval so each hit lands on the echo of the last. It comes in
-   quietly, builds over ten to eighteen beats, and stops — then nothing for the
-   better part of a minute. Starting and stopping is what makes it read as a
-   pulse rather than as a metronome. */
-function beatHit(level) {
+/* The heartbeat. Two notes and only ever two notes — A and A sharp, a semitone
+   apart, alternating. It does not follow the chord: the whole point is that a
+   fixed semitone grinding against a drone that keeps moving underneath it will
+   be consonant against some chords and wrong against others, without the pulse
+   itself ever changing.
+
+   Percussive and quick. The pitch does not fall — the note is struck and it is
+   over in a quarter of a second, and everything you hear after that is the
+   room and the delay. Each strike is doubled at the octave above so it reads as
+   bass with a top on it rather than as a thud.                               */
+const HEART = [55, 58.2705];                       // A1 and A#1, and nothing else
+function beatHit(level, which) {
   try {
     const a = actx, t = a.currentTime;
-    const o = a.createOscillator(), g = a.createGain();
-    o.type = 'sine';
-    o.frequency.setValueAtTime(music.root * 2, t);
-    o.frequency.exponentialRampToValueAtTime(music.root * 1.88, t + 0.12);
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(0.16 * level, t + 0.008);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.42);
-    o.connect(g).connect(music.beatIn);
-    o.start(t); o.stop(t + 0.5);
+    const f = HEART[which % 2];
+    for (const [mult, lvl] of [[1, 1], [2, 0.55], [4, 0.2]]) {
+      const o = a.createOscillator(), g = a.createGain();
+      o.type = mult === 1 ? 'sine' : 'triangle';
+      o.frequency.setValueAtTime(f * mult, t);     // held: no fall
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.17 * level * lvl, t + 0.006);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.24);   // short. the tail is the room
+      o.connect(g).connect(music.beatIn);
+      o.start(t); o.stop(t + 0.3);
+    }
   } catch (e) { /* */ }
 }
 
@@ -3149,10 +3175,11 @@ function updateMusic(dt, nearest) {
     B.on = true;
     B.left = 10 + Math.floor(Math.random() * 9);
     B.gain = 0.12;
+    B.n = 0;                                       // always begins on A
     B.next = now;
   }
   if (B.on && now >= B.next) {
-    beatHit(B.gain * (0.7 + T * 0.9));
+    beatHit(B.gain * (0.7 + T * 0.9), B.n++);
     B.gain = Math.min(1, B.gain + 0.075);        // builds while it runs
     B.left--;
     B.next = now + B.gap;
