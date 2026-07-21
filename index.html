@@ -2903,7 +2903,7 @@ function blip(freq, dur, type = 'square', gain = 0.06, send = 0.55) {
 const music = {
   started: false, tension: 0, target: 0,
   voices: [], slot: 0, nextChord: 0, root: 55,
-  legStep: 0, nextLeg: 0, legLow: null, legHigh: null, legLowG: null, legHighG: null,
+  legStep: 0, nextLeg: 0, legLow: null, legLowG: null,
   nextMetal: 0, nextDrip: 0,
   beat: { on: false, next: 0, left: 0, gap: 0.82, gain: 0, n: 0 },
 };
@@ -2914,19 +2914,16 @@ const CHORDS = [0, 5, 10, 0];
 const CHORD_SECS = 30;
 const LEG_STEPS = 4;                                // four moves inside each chord
 
-/* The diverging pair, one row per chord across two full loops, so eight
-   distinct openings before anything comes round again. Each row is the pair's
-   starting interval above the root; from there the low voice walks down the
-   scale and the high voice walks up it. */
+/* One voice, walking down. A row per chord across two full loops, so eight
+   distinct descents before anything comes round again: each is the note it
+   starts on relative to the root, and from there it walks down the scale, four
+   steps across the chord's thirty seconds. */
 // Seven degrees, not eight — the octave comes from the division, not from a
 // second entry. Listing 12 as well as 0 gave the scale a repeated note, so
 // stepping down one degree from the root landed back on the root and the pair
 // stalled instead of opening.
 const A_MINOR = [0, 2, 3, 5, 7, 8, 10];
-const SPREADS = [
-  [0, 12], [3, 15], [7, 19], [-2, 14],
-  [-5, 12], [2, 17], [5, 20], [-4, 10],
-];
+const DESCENTS = [0, 3, 7, -2, -5, 2, 5, -4];
 // walk n scale degrees from a semitone offset, up or down, staying in A minor
 function scaleWalk(semi, degrees) {
   const oct = Math.floor(semi / 12), within = ((semi % 12) + 12) % 12;
@@ -2990,7 +2987,6 @@ function startMusic() {
       return [o, g];
     };
     [music.legLow, music.legLowG] = mk('triangle');
-    [music.legHigh, music.legHighG] = mk('triangle');
 
     // a slow swell under everything, so the drone is never quite still
     const lfo = a.createOscillator(), lfoAmt = a.createGain();
@@ -3026,9 +3022,9 @@ function retune(rootHz) {
   if (music.diss) music.diss.frequency.setTargetAtTime(rootHz * 1.4142 * 2, t, 0.7);
 }
 
-/* One step of the pair walking apart. `k` is 0..LEG_STEPS: at 0 they sit at
-   the row's starting interval, and each step after that takes the low voice one
-   scale degree down and the high voice one up.
+/* One step of the voice walking down. `k` is 0..LEG_STEPS: at 0 it sits on the
+   row's starting note, and each step after that takes it one scale degree
+   lower.
 
    The pitch changes cleanly — no slide. (An earlier version glided between
    them, on my misreading of legato: legato means the notes are connected, not
@@ -3036,23 +3032,18 @@ function retune(rootHz) {
    asked for.) Instead each move ducks the level almost to nothing over a fifth
    of a second, changes pitch while it is down there so the jump is never heard
    as a click, and then swells back up over several seconds — louder every time.
-   So a note arrives quietly and grows, and the chord is wider and stronger at
-   the end of its thirty seconds than at the start. The tail is reverb and
-   echo, not a long release. */
+   So a note arrives quietly and grows, and a chord sinks and strengthens across
+   its thirty seconds. The tail is reverb and echo, not a long release. */
 function legatoStep(k) {
   if (!music.legLow) return;
   const a = actx, t = a.currentTime;
-  const [lo0, hi0] = SPREADS[music.slot % SPREADS.length];
-  const lo = scaleWalk(lo0, -k);
-  const hi = scaleWalk(hi0, k);
-  const level = 0.012 + k * 0.011;
-  for (const [osc, gain, semi] of [[music.legLow, music.legLowG, lo],
-                                   [music.legHigh, music.legHighG, hi]]) {
-    gain.gain.cancelScheduledValues(t);
-    gain.gain.setTargetAtTime(0.0004, t, 0.055);            // duck
-    osc.frequency.setValueAtTime(semiToHz(music.root * 2, semi), t + 0.20);
-    gain.gain.setTargetAtTime(level, t + 0.24, 2.4);        // and swell back, stronger
-  }
+  const semi = scaleWalk(DESCENTS[music.slot % DESCENTS.length], -k);
+  const level = 0.014 + k * 0.013;
+  const gain = music.legLowG;
+  gain.gain.cancelScheduledValues(t);
+  gain.gain.setTargetAtTime(0.0004, t, 0.055);              // duck
+  music.legLow.frequency.setValueAtTime(semiToHz(music.root * 2, semi), t + 0.20);
+  gain.gain.setTargetAtTime(level, t + 0.24, 2.4);          // and swell back, stronger
 }
 
 // Struck metal, far off. Bandpassed noise with a long ring.
@@ -5361,7 +5352,7 @@ window.__maze = {
   interact, isSolid, collide, cellCentre, cellOf, rebuildReveal, revealed, at,
   groundUnder, isWalkableChar, dropOpen, levelY, WALL_H, NLEV, ROWS, COLS, CELL,
   antis, trail, trailEvents, spawnAnti, killAnti, clearLine, safeInLight,
-  music, startMusic, metal, drip, retune, legatoStep, CHORDS, SPREADS, scaleWalk,
+  music, startMusic, metal, drip, retune, legatoStep, CHORDS, DESCENTS, scaleWalk,
   getBus: () => bus, CHORD_SECS, LEG_STEPS,
   audioState: () => (actx ? actx.state : 'none'),
   markOpen, markShut,
