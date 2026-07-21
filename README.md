@@ -28,6 +28,7 @@ over HTTP rather than opened as a `file://` URL, because it loads an ES module.
 | `E` or `Space` | press buttons, take crystals, cross from a stand to its vault |
 | `1`–`6` | choose among the lamps you have found |
 | `F` | fire the lamp you hold (hold it for the X-ray) |
+| `M` | sound on / off |
 
 Movement, turning and pitch are all analog. Velocity and both look axes chase
 their target exponentially rather than snapping on and off, and you accelerate
@@ -346,6 +347,10 @@ never added or removed — Three.js bakes light count into its shaders, so a dor
 Anti-player is a live SpotLight at zero intensity.
 
 ## Sound
+
+**There is a SOUND switch over the chart and `M` toggles it**, and the choice is
+remembered between sessions. Muted, the bed is never built at all rather than built and
+silenced, so starting muted costs nothing; unmuting builds it on the spot.
 
 Everything is synthesised — no files, so nothing to load and nothing to go missing. The
 signal path is the whole design: every voice splits into a dry line and a send into a

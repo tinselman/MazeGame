@@ -108,17 +108,17 @@
     pointer-events: auto;
   }
   #detailbar em { font-style: normal; min-width: 46px; color: #fff; }
-  #detail {
+  #detail, #sound {
     width: 44px; height: 20px; padding: 0; cursor: pointer;
     background: rgba(24,28,36,.9); border: 1px solid rgba(190,205,230,.5);
     border-radius: 10px; position: relative; transition: background .18s;
   }
-  #detail[data-on="1"] { background: rgba(120,150,200,.55); }
-  #detail i {
+  #detail[data-on="1"], #sound[data-on="1"] { background: rgba(120,150,200,.55); }
+  #detail i, #sound i {
     position: absolute; top: 2px; left: 2px; width: 14px; height: 14px;
     border-radius: 50%; background: #e6eefb; transition: left .18s;
   }
-  #detail[data-on="1"] i { left: 26px; }
+  #detail[data-on="1"] i, #sound[data-on="1"] i { left: 26px; }
   #powertip {
     position: absolute; left: 30px; bottom: 112px; max-width: 260px;
     background: rgba(6,8,12,.92); border: 1px solid rgba(190,205,230,.35);
@@ -204,7 +204,10 @@
   <canvas id="powers"></canvas>
   <div id="powertip"><b></b><span></span></div>
   <div id="detailbar">
-    <span>DETAIL</span>
+    <span>SOUND</span>
+    <button id="sound" type="button" data-on="1"><i></i></button>
+    <em id="soundlabel">ON</em>
+    <span style="margin-left:12px">DETAIL</span>
     <button id="detail" type="button" data-on="1"><i></i></button>
     <em>HIGH</em>
   </div>
@@ -2809,12 +2812,29 @@ hubFloor.add(hubLamp);         // ditto, so the platform stays lit as it climbs
 let actx = null;
 const audio = () => (actx ||= new (window.AudioContext || window.webkitAudioContext)());
 
+/* Sound off is a real setting, not a browser tab you have to hunt for. It cuts
+   the master gain rather than stopping the voices, so muting and unmuting is
+   instant and the bed does not have to be rebuilt — and it is remembered, so a
+   silent session stays silent next time. */
+let muted = localStorage.getItem('cm-muted') === '1';
+function setMuted(on) {
+  muted = on;
+  localStorage.setItem('cm-muted', on ? '1' : '0');
+  if (bus) bus.master.gain.setTargetAtTime(on ? 0 : 0.9, bus.a.currentTime, 0.05);
+  if (on && actx && actx.state === 'running') actx.suspend();
+  if (!on) {
+    if (actx && actx.state === 'suspended') actx.resume();
+    // if the game started muted the bed was never built, so build it now
+    if (started && !music.started) startMusic();
+  }
+}
+
 let bus = null;              // { master, wet, dry, out(node, send) }
 function initBus() {
   if (bus) return bus;
   const a = audio();
   const master = a.createGain();
-  master.gain.value = 0.9;
+  master.gain.value = muted ? 0 : 0.9;
   master.connect(a.destination);
 
   // a long, dark impulse: noise under an exponential decay, tilted low
@@ -2879,7 +2899,7 @@ const FIFTHS = [0, 5, 10, 3, 8, 1, 6, 11, 4, 9, 2, 7];   // A D G C F Bb Eb Ab D
 const KEY_EVERY = 15;
 
 function startMusic() {
-  if (music.started) return;
+  if (music.started || muted) return;
   try {
     const b = initBus(), a = b.a;
     music.started = true;
@@ -3446,6 +3466,8 @@ const el = {
   minimap: document.getElementById('minimap'),
   powertip: document.getElementById('powertip'),
   detail: document.getElementById('detail'),
+  sound: document.getElementById('sound'),
+  soundlabel: document.getElementById('soundlabel'),
   detailbar: document.getElementById('detailbar'),
   hud: document.getElementById('hud'),
   levelbadge: document.getElementById('levelbadge'),
@@ -4796,6 +4818,16 @@ function setDetail(n) {
 }
 el.detail.addEventListener('click', () => setDetail(el.detail.dataset.on === '1' ? 0 : 1));
 setDetail(1);
+
+function paintSound() {
+  el.sound.dataset.on = muted ? '0' : '1';
+  el.soundlabel.textContent = muted ? 'OFF' : 'ON';
+}
+el.sound.addEventListener('click', () => { setMuted(!muted); paintSound(); });
+addEventListener('keydown', (e) => {
+  if (e.code === 'KeyM') { setMuted(!muted); paintSound(); say(muted ? 'sound off' : 'sound on', 2); }
+});
+paintSound();
 
 // Hovering a lamp says what it does. The pointer is captured while you are
 // playing, so this is for the moment you have let it go — which is also the
