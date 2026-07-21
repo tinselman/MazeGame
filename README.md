@@ -353,8 +353,8 @@ convolver whose impulse is a five-second exponentially decaying noise burst, til
 That is what a large empty concrete building sounds like, and almost everything goes
 through it heavily. The drum is a short low thud dry, and eight seconds of hall behind it.
 
-The bed is a minor triad drone two octaves below middle C, a slow industrial pulse, and
-sparse struck metal. **The drone walks the circle of fifths**, one step every fifteen
+The bed is a minor triad drone two octaves below middle C and sparse struck metal —
+nothing beaten, no pulse. **The drone walks the circle of fifths**, one step every fifteen
 seconds — descending fifths, because that is the direction harmony falls under its own
 weight: A, D, G, C, F, and round. Each root is expressed as semitones above A1 so the
 whole cycle stays inside a single low octave and the bass never lurches an octave down
@@ -362,9 +362,10 @@ when the circle turns.
 
 **A pizzicato marks each arrival.** The same instrument as the crystal runs, stopped
 short: where those ring for two seconds this is plucked and damped in half of one, and
-sits drier in the reverb. It rolls the new minor triad upward two octaves the way a hand
-crosses the strings, so you hear *which* chord you have landed on rather than only that
-something moved. **Tension rides on how close the nearest Anti-player is** — measured
+sits drier in the reverb. Three stacked octaves of the new root, rolled upward the way a
+hand crosses the strings, sounded high — on A1 that is 440, 880 and 1760. Octaves rather
+than a triad, because octaves have no colour of their own and so mark the new root
+without arguing with the chord settling underneath them. **Tension rides on how close the nearest Anti-player is** — measured
 whether or not you have seen it, with a floor between you counting as fourteen metres of
 distance. It moves three things at once: the drone opens up, the pulse comes faster, and
 a tritone above the root fades in, which is the interval that makes a held chord feel
