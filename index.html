@@ -2885,18 +2885,59 @@ function blip(freq, dur, type = 'square', gain = 0.06, send = 0.55) {
 }
 
 /* ---- the bed ------------------------------------------------------------ */
-const music = { started: false, tension: 0, target: 0, nextMetal: 0,
-                voices: [], keyIdx: 0, nextKey: 0, root: 55 };
+/* ---- the bed ------------------------------------------------------------
+
+   Four chords, thirty seconds each: A, D, G, A. In A minor, that is i - iv -
+   VII - i, and it closes on itself, so the loop is two minutes and never
+   arrives anywhere.
+
+   On top of each chord sit two voices that walk away from each other — the low
+   one down, the high one up, four steps across the chord's thirty seconds,
+   gliding rather than jumping. They open like something being prised apart.
+   The pair is different on every one of the eight chords across two loops, so
+   nothing repeats for four minutes, and each step is louder than the last:
+   the intensity rises for the whole of a chord and resets when it turns.
+
+   Underneath: rare drips, sparse struck metal, and a heartbeat that starts,
+   builds, and stops.                                                         */
+const music = {
+  started: false, tension: 0, target: 0,
+  voices: [], slot: 0, nextChord: 0, root: 55,
+  legStep: 0, nextLeg: 0, legLow: null, legHigh: null, legGain: null,
+  nextMetal: 0, nextDrip: 0,
+  beat: { on: false, next: 0, left: 0, gap: 0.82, gain: 0 },
+};
 const ROOT = 55;                                    // A1
 
-/* The drone walks the circle of fifths, one step every thirty seconds.
-   Descending fifths, because that is the direction harmony falls under its own
-   weight — A, D, G, C, F, and round. Each root is expressed as semitones above
-   A1 so the whole cycle stays inside a single low octave and the bass never
-   lurches; the move is a four-second glide, slower than you notice happening
-   and obvious once it has. */
-const FIFTHS = [0, 5, 10, 3, 8, 1, 6, 11, 4, 9, 2, 7];   // A D G C F Bb Eb Ab Db Gb B E
-const KEY_EVERY = 15;
+// A, D, G, A — semitones above A. The turnaround is the same chord it began on.
+const CHORDS = [0, 5, 10, 0];
+const CHORD_SECS = 30;
+const LEG_STEPS = 4;                                // four moves inside each chord
+
+/* The diverging pair, one row per chord across two full loops, so eight
+   distinct openings before anything comes round again. Each row is the pair's
+   starting interval above the root; from there the low voice walks down the
+   scale and the high voice walks up it. */
+// Seven degrees, not eight — the octave comes from the division, not from a
+// second entry. Listing 12 as well as 0 gave the scale a repeated note, so
+// stepping down one degree from the root landed back on the root and the pair
+// stalled instead of opening.
+const A_MINOR = [0, 2, 3, 5, 7, 8, 10];
+const SPREADS = [
+  [0, 12], [3, 15], [7, 19], [-2, 14],
+  [-5, 12], [2, 17], [5, 20], [-4, 10],
+];
+// walk n scale degrees from a semitone offset, up or down, staying in A minor
+function scaleWalk(semi, degrees) {
+  const oct = Math.floor(semi / 12), within = ((semi % 12) + 12) % 12;
+  let idx = A_MINOR.indexOf(within);
+  if (idx < 0) idx = A_MINOR.findIndex((x) => x >= within);
+  const t = idx + degrees;
+  const o = Math.floor(t / A_MINOR.length);
+  const i = ((t % A_MINOR.length) + A_MINOR.length) % A_MINOR.length;
+  return (oct + o) * 12 + A_MINOR[i];
+}
+const semiToHz = (base, semi) => base * Math.pow(2, semi / 12);
 
 function startMusic() {
   if (music.started || muted) return;
@@ -2904,7 +2945,7 @@ function startMusic() {
     const b = initBus(), a = b.a;
     music.started = true;
 
-    // a minor triad, held, two octaves down: root, minor third, fifth
+    // the drone: a minor triad, held, two octaves down
     const filt = a.createBiquadFilter();
     filt.type = 'lowpass'; filt.frequency.value = 260; filt.Q.value = 0.8;
     const droneGain = a.createGain(); droneGain.gain.value = 0.0;
@@ -2920,15 +2961,31 @@ function startMusic() {
       o.start();
       music.voices.push({ o, mult });
     }
+
     // the tritone that arrives with tension, and only then
     const dissOsc = a.createOscillator(), dissGain = a.createGain();
     dissOsc.type = 'sawtooth';
-    dissOsc.frequency.value = ROOT * 1.4142 * 2;    // an octave-and-a-tritone up
+    dissOsc.frequency.value = ROOT * 1.4142 * 2;
     dissGain.gain.value = 0;
     dissOsc.connect(dissGain);
     b.out(dissGain, 0.9);
     dissOsc.start();
     music.diss = dissOsc;
+
+    // the two voices that walk apart. Legato: they glide, so a step is heard
+    // as a bend rather than as a new note.
+    const legGain = a.createGain(); legGain.gain.value = 0;
+    b.out(legGain, 0.9);
+    const mk = (type) => {
+      const o = a.createOscillator(), g = a.createGain();
+      o.type = type; g.gain.value = 0.5;
+      o.connect(g).connect(legGain);
+      o.start();
+      return o;
+    };
+    music.legLow = mk('triangle');
+    music.legHigh = mk('triangle');
+    music.legGain = legGain;
 
     // a slow swell under everything, so the drone is never quite still
     const lfo = a.createOscillator(), lfoAmt = a.createGain();
@@ -2936,9 +2993,22 @@ function startMusic() {
     lfo.connect(lfoAmt).connect(filt.frequency);
     lfo.start();
 
+    // the heartbeat's echo: a feedback delay in time with the pulse
+    const dl = a.createDelay(2.0);
+    dl.delayTime.value = music.beat.gap;
+    const fb = a.createGain(); fb.gain.value = 0.46;
+    const beatIn = a.createGain(); beatIn.gain.value = 1;
+    beatIn.connect(dl);
+    dl.connect(fb).connect(dl);
+    b.out(dl, 0.75);
+    b.out(beatIn, 0.5);
+    music.beatIn = beatIn;
+
     music.filt = filt; music.droneGain = droneGain; music.dissGain = dissGain;
     droneGain.gain.setTargetAtTime(0.5, a.currentTime, 4);   // fade the room in
-    music.nextKey = KEY_EVERY;
+    music.nextChord = 0;                                     // land on A at once
+    music.nextDrip = 12 + Math.random() * 30;
+    music.beat.next = 25 + Math.random() * 25;
   } catch (e) { music.started = false; }
 }
 
@@ -2946,9 +3016,25 @@ function retune(rootHz) {
   const a = actx, t = a.currentTime;
   music.root = rootHz;
   for (const v of music.voices) {
-    v.o.frequency.setTargetAtTime(rootHz * v.mult, t, 0.7);      // settles in about two
+    v.o.frequency.setTargetAtTime(rootHz * v.mult, t, 0.7);
   }
   if (music.diss) music.diss.frequency.setTargetAtTime(rootHz * 1.4142 * 2, t, 0.7);
+}
+
+/* One step of the pair walking apart. `k` is 0..LEG_STEPS: at 0 they sit at
+   the row's starting interval, and each step after that takes the low voice one
+   scale degree down and the high voice one up — and lifts the level, so a
+   chord gets louder and wider the longer it is held. */
+function legatoStep(k) {
+  if (!music.legLow) return;
+  const a = actx, t = a.currentTime;
+  const [lo0, hi0] = SPREADS[music.slot % SPREADS.length];
+  const lo = scaleWalk(lo0, -k);
+  const hi = scaleWalk(hi0, k);
+  // glide: long enough to hear it move, short enough to land before the next
+  music.legLow.frequency.setTargetAtTime(semiToHz(music.root * 2, lo), t, 1.6);
+  music.legHigh.frequency.setTargetAtTime(semiToHz(music.root * 2, hi), t, 1.6);
+  music.legGain.gain.setTargetAtTime(0.012 + k * 0.011, t, 1.2);
 }
 
 // Struck metal, far off. Bandpassed noise with a long ring.
@@ -2973,64 +3059,46 @@ function metal(vel = 1) {
   } catch (e) { /* */ }
 }
 
-/* A harp: a run of plucked strings up a major shape, which lands as relief
-   against a minor drone. This is the only major thing in the game and it plays
-   exactly twice per crystal — once when you lift it, once when it seats. */
-function harp(base, steps, spacing, gain, up = true) {
+/* A drip. The sound is almost entirely the pitch envelope — a sine falling
+   fast through about an octave in forty milliseconds — and then a very long
+   tail of room, which is what makes it read as water in a large empty place
+   rather than as a blip. Rare on purpose. */
+function drip() {
   try {
-    const b = initBus(), a = b.a, t0 = a.currentTime;
-    steps.forEach((semi, i) => {
-      const t = t0 + i * spacing;
-      const f = base * Math.pow(2, (up ? semi : -semi) / 12);
-      const o = a.createOscillator(), g = a.createGain();
-      o.type = 'triangle';
-      o.frequency.value = f;
-      g.gain.setValueAtTime(0.0001, t);
-      g.gain.exponentialRampToValueAtTime(gain, t + 0.006);
-      g.gain.exponentialRampToValueAtTime(0.0001, t + 1.9);
-      o.connect(g); b.out(g, 0.8);
-      o.start(t); o.stop(t + 2.0);
-      // a fifth above, quietly, so each pluck has a body
-      const o2 = a.createOscillator(), g2 = a.createGain();
-      o2.type = 'sine'; o2.frequency.value = f * 1.4983;
-      g2.gain.setValueAtTime(0.0001, t);
-      g2.gain.exponentialRampToValueAtTime(gain * 0.45, t + 0.008);
-      g2.gain.exponentialRampToValueAtTime(0.0001, t + 1.5);
-      o2.connect(g2); b.out(g2, 0.85);
-      o2.start(t); o2.stop(t + 1.6);
-    });
-  } catch (e) { /* */ }
-}
-/* Pizzicato: the same instrument stopped short. Where the harp run rings for
-   two seconds, this is plucked and damped in half of one — enough to mark the
-   chord arriving without singing over the drone it is announcing. It rolls the
-   new triad upward the way a hand crosses the strings, so you hear which chord
-   you have landed on rather than just that something moved. */
-function pizz(root) {
-  try {
-    const b = initBus(), a = b.a, t0 = a.currentTime;
-    // Stacked octaves, not a triad: the same note sounded three octaves at
-    // once, high up where a harp's top strings are. Octaves have no colour of
-    // their own, so it marks the new root without arguing with the chord
-    // settling underneath it.
-    const shape = [1, 2, 4];
-    shape.forEach((mult, i) => {
-      const t = t0 + i * 0.032;
-      const f = root * 8 * mult;
-      const o = a.createOscillator(), g = a.createGain();
-      o.type = 'triangle';
-      o.frequency.value = f;
-      g.gain.setValueAtTime(0.0001, t);
-      g.gain.exponentialRampToValueAtTime(0.075 * (1 - i * 0.26), t + 0.004);   // top octave softest
-      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.52);
-      o.connect(g); b.out(g, 0.6);                      // drier than the runs
-      o.start(t); o.stop(t + 0.6);
-    });
+    const b = initBus(), a = b.a, t = a.currentTime;
+    const o = a.createOscillator(), g = a.createGain();
+    const f0 = 900 + Math.random() * 900;
+    o.type = 'sine';
+    o.frequency.setValueAtTime(f0, t);
+    o.frequency.exponentialRampToValueAtTime(f0 * 0.42, t + 0.045);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.10, t + 0.004);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.30);
+    o.connect(g);
+    b.out(g, 0.98);                       // almost all reverb
+    o.start(t); o.stop(t + 0.35);
   } catch (e) { /* */ }
 }
 
-const MAJ_RUN = [0, 4, 7, 12, 16, 19, 24, 28, 31, 36];
-const MAJ_LONG = [0, 4, 7, 12, 16, 19, 24, 28, 31, 36, 40, 43, 48];
+/* The heartbeat: one note, repeated in time, into a feedback delay tuned to
+   the same interval so each hit lands on the echo of the last. It comes in
+   quietly, builds over ten to eighteen beats, and stops — then nothing for the
+   better part of a minute. Starting and stopping is what makes it read as a
+   pulse rather than as a metronome. */
+function beatHit(level) {
+  try {
+    const a = actx, t = a.currentTime;
+    const o = a.createOscillator(), g = a.createGain();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(music.root * 2, t);
+    o.frequency.exponentialRampToValueAtTime(music.root * 1.88, t + 0.12);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.16 * level, t + 0.008);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.42);
+    o.connect(g).connect(music.beatIn);
+    o.start(t); o.stop(t + 0.5);
+  } catch (e) { /* */ }
+}
 
 /* Tension rides on the nearest walker. It is deliberately not a stinger — it
    is the room getting louder and wronger, so you feel one coming before you
@@ -3038,7 +3106,6 @@ const MAJ_LONG = [0, 4, 7, 12, 16, 19, 24, 28, 31, 36, 40, 43, 48];
 function updateMusic(dt, nearest) {
   if (!music.started) return;
   const a = actx;
-  // 34m out you hear nothing of it; on top of you it is everything
   music.target = nearest == null ? 0 : Math.max(0, Math.min(1, 1 - nearest / 34));
   music.tension += (music.target - music.tension) * (1 - Math.exp(-1.2 * dt));
   const T = music.tension;
@@ -3048,16 +3115,51 @@ function updateMusic(dt, nearest) {
   music.dissGain.gain.setTargetAtTime(T * T * 0.075, a.currentTime, 0.6);
 
   const now = clock.elapsedTime;
-  if (now > music.nextKey) {
-    music.keyIdx = (music.keyIdx + 1) % FIFTHS.length;
-    const root = ROOT * Math.pow(2, FIFTHS[music.keyIdx] / 12);
-    retune(root);
-    pizz(root);                              // a pluck marks the turn
-    music.nextKey = now + KEY_EVERY;
+
+  // the chord turns
+  if (now >= music.nextChord) {
+    retune(ROOT * Math.pow(2, CHORDS[music.slot % CHORDS.length] / 12));
+    music.legStep = 0;
+    legatoStep(0);
+    // divide by steps+1, so the last move lands inside the chord instead of
+    // colliding with the turn and being lost
+    music.nextLeg = now + CHORD_SECS / (LEG_STEPS + 1);
+    music.nextChord = now + CHORD_SECS;
+    music.slot++;
+  }
+  // and the pair walks apart across it
+  if (now >= music.nextLeg && music.legStep < LEG_STEPS) {
+    music.legStep++;
+    legatoStep(music.legStep);
+    music.nextLeg = now + CHORD_SECS / (LEG_STEPS + 1);
+  }
+
+  if (now > music.nextDrip) {
+    drip();
+    music.nextDrip = now + 22 + Math.random() * 55;
   }
   if (now > music.nextMetal) {
     if (Math.random() < 0.55 + T * 0.4) metal(0.5 + T * 0.7);
     music.nextMetal = now + 7 + Math.random() * 13;
+  }
+
+  // the heartbeat, starting and stopping
+  const B = music.beat;
+  if (!B.on && now > B.next) {
+    B.on = true;
+    B.left = 10 + Math.floor(Math.random() * 9);
+    B.gain = 0.12;
+    B.next = now;
+  }
+  if (B.on && now >= B.next) {
+    beatHit(B.gain * (0.7 + T * 0.9));
+    B.gain = Math.min(1, B.gain + 0.075);        // builds while it runs
+    B.left--;
+    B.next = now + B.gap;
+    if (B.left <= 0) {
+      B.on = false;
+      B.next = now + 34 + Math.random() * 40;    // and then a long silence
+    }
   }
 }
 
@@ -3600,7 +3702,6 @@ function interact() {
     el.carried.classList.add('on');
     el.carriedname.textContent = t.obj.name;
     sfx.take();
-    harp(392, MAJ_RUN, 0.055, 0.20);          // G, rising — the first majestic thing
     announce(`Congratulations, you've discovered the ${t.obj.name} CRYSTAL`,
              '#' + t.obj.color.toString(16).padStart(6, '0'));
 
@@ -3636,10 +3737,6 @@ function seatCrystal(crystal, ped) {
   slots[i].style.boxShadow = '0 0 13px #' + crystal.color.toString(16).padStart(6, '0');
   player.placed++;
   sfx.place();
-  // grander on the way in than on the way out: longer run, lower start, and a
-  // held root underneath it
-  harp(262, MAJ_LONG, 0.062, 0.22);
-  blip(131, 3.4, 'triangle', 0.10, 0.95);
   trailEvent('seat', props.pedestals.indexOf(ped));
   if (player.placed === 6) beginEnding();
   else say(`${player.placed} of 6 set — ${6 - player.placed} still out there`, 4);
@@ -5237,7 +5334,8 @@ window.__maze = {
   interact, isSolid, collide, cellCentre, cellOf, rebuildReveal, revealed, at,
   groundUnder, isWalkableChar, dropOpen, levelY, WALL_H, NLEV, ROWS, COLS, CELL,
   antis, trail, trailEvents, spawnAnti, killAnti, clearLine, safeInLight,
-  music, startMusic, harp, pizz, metal, retune, FIFTHS, MAJ_RUN, MAJ_LONG,
+  music, startMusic, metal, drip, retune, legatoStep, CHORDS, SPREADS, scaleWalk,
+  getBus: () => bus, CHORD_SECS, LEG_STEPS,
   audioState: () => (actx ? actx.state : 'none'),
   markOpen, markShut,
   POWERS, held, holes, fireHeld, wallAhead, roomAhead, portalPick,

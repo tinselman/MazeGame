@@ -358,28 +358,31 @@ convolver whose impulse is a five-second exponentially decaying noise burst, til
 That is what a large empty concrete building sounds like, and almost everything goes
 through it heavily. The drum is a short low thud dry, and eight seconds of hall behind it.
 
-The bed is a minor triad drone two octaves below middle C and sparse struck metal —
-nothing beaten, no pulse. **The drone walks the circle of fifths**, one step every fifteen
-seconds — descending fifths, because that is the direction harmony falls under its own
-weight: A, D, G, C, F, and round. Each root is expressed as semitones above A1 so the
-whole cycle stays inside a single low octave and the bass never lurches an octave down
-when the circle turns.
+**Four chords, thirty seconds each: A, D, G, A.** In A minor that is i - iv - VII - i,
+and it closes on itself, so the loop runs two minutes and never arrives anywhere.
 
-**A pizzicato marks each arrival.** The same instrument as the crystal runs, stopped
-short: where those ring for two seconds this is plucked and damped in half of one, and
-sits drier in the reverb. Three stacked octaves of the new root, rolled upward the way a
-hand crosses the strings, sounded high — on A1 that is 440, 880 and 1760. Octaves rather
-than a triad, because octaves have no colour of their own and so mark the new root
-without arguing with the chord settling underneath them. **Tension rides on how close the nearest Anti-player is** — measured
-whether or not you have seen it, with a floor between you counting as fourteen metres of
-distance. It moves three things at once: the drone opens up, the pulse comes faster, and
-a tritone above the root fades in, which is the interval that makes a held chord feel
-wrong. Measured: silent at rest, 0.59 at fifteen metres, 0.93 with one beside you, back
-to 0.007 once it is gone.
+**On each chord, two voices walk away from each other** — the low one down, the high one
+up, four moves across the chord's thirty seconds, gliding rather than jumping so a step
+is heard as a bend. The pair is different on every one of the eight chords across two
+loops, so nothing repeats for four minutes, and each move is louder than the last: a
+chord gets wider and more intense the longer it is held, and resets when it turns.
 
-The harp is the only major thing in the game and it plays exactly twice per crystal —
-a rising run when you lift one, a longer and lower one with a held root under it when it
-seats. Against a minor drone it lands as relief.
+Both voices walk the A minor scale rather than in semitones, which is why the scale is
+listed as seven degrees and not eight. Listing the octave as well as the root gave it a
+repeated note, and stepping down one degree from the root landed back on the root — the
+pair stalled instead of opening.
+
+Underneath: sparse struck metal, rare drips, and a heartbeat. **The drip is almost
+entirely its pitch envelope** — a sine falling through most of an octave in forty
+milliseconds — and then a very long tail of room, which is what makes it read as water in
+a large empty place rather than as a blip. **The heartbeat is one note into a feedback
+delay tuned to its own interval**, so each hit lands on the echo of the last. It comes in
+quietly, builds over ten to eighteen beats, and stops — then nothing for the better part
+of a minute. Starting and stopping is what makes it a pulse rather than a metronome.
+
+Tension still rides on how close the nearest Anti-player is, measured whether or not you
+have seen it, with a floor between you counting as fourteen metres. It opens the drone's
+filter, raises its level, and fades in a tritone above the root.
 
 ## The six lights
 
