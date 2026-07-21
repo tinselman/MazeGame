@@ -25,7 +25,7 @@ over HTTP rather than opened as a `file://` URL, because it loads an ES module.
 | `←` `→` | turn |
 | `↑` `↓` | look up and down |
 | mouse | look, after clicking to capture the pointer |
-| `E` or `Space` | press buttons, take crystals, enter portals |
+| `E` or `Space` | press buttons, take crystals, cross from a stand to its vault |
 | `1`–`6` | choose among the lamps you have found |
 | `F` | fire the lamp you hold (hold it for the X-ray) |
 
