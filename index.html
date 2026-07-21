@@ -1742,7 +1742,7 @@ for (let l = 0; l < NLEV; l++) for (let r = 0; r < ROWS; r++) for (let c = 0; c 
   props.switches.push(room);
 }
 
-const ATRIUM_CENTRES = [];      // where a dry fountain can stand
+const ATRIUM_AREAS = [];        // where a dry fountain might stand
 
 /* ---- atrium lighting ---------------------------------------------------
    One switch lights a whole three-storey volume, and it comes up a storey at a
@@ -1774,7 +1774,7 @@ const ATRIUM_CENTRES = [];      // where a dry fountain can stand
     if (cells.length < 40) continue;
     let sr = 0, sc = 0;
     for (const [cr, cc] of cells) { sr += cr; sc += cc; }
-    ATRIUM_CENTRES.push([Math.round(sr / cells.length), Math.round(sc / cells.length)]);
+    ATRIUM_AREAS.push({ centre: [sr / cells.length, sc / cells.length], cells });
   }
 
   for (const cells of groups.slice(0, 2)) {
@@ -2066,17 +2066,31 @@ const ATRIUM_CENTRES = [];      // where a dry fountain can stand
 
   for (const meta of ROOM_META) furnish(meta);
 
-  // Dry fountains where there is height and floor to spare: the atriums, and
-  // the hub. Formal, and long out of use.
-  for (const [ar, ac] of ATRIUM_CENTRES) {
-    const p = cellCentre(ar, ac);
-    place('fountain', p.x, 0, p.z, 0, 0x8f8f8f);
-  }
-  // hubCentre is declared further down the file, so take the hub's middle from
-  // HUB itself rather than reaching forward into a dead zone
+  /* Dry fountains in the atriums — never in the hub, and never sharing ground
+     with anything else. Placing them at the atrium's centroid put three of
+     seven inside furnished rooms: one standing in the middle of a bay of pallet
+     racking, one inside a column. A fountain needs open floor, so it takes the
+     cell nearest the centre that is plain hall, is not part of any room block,
+     and has nothing else standing within four metres. */
   {
-    const hc = cellCentre((HUB.r1 + HUB.r2) / 2, (HUB.c1 + HUB.c2) / 2);
-    place('fountain', hc.x, 0, hc.z - 9.5, 0, 0x8f8f8f);
+    const standing = [];
+    groups.forEach((list) => list.forEach((it) => standing.push(it.p)));
+    const inAnyRoom = (r, c) => ROOM_META.some(
+      (m) => m.lev === 0 && r >= m.r1 - 1 && r <= m.r2 + 1 && c >= m.c1 - 1 && c <= m.c2 + 1);
+
+    for (const area of ATRIUM_AREAS) {
+      const [ar, ac] = area.centre;
+      const ranked = area.cells
+        .filter(([r, c]) => at(0, r, c) === '.' && !inAnyRoom(r, c) && !inHub(0, r, c))
+        .sort((a, b) => ((a[0] - ar) ** 2 + (a[1] - ac) ** 2) - ((b[0] - ar) ** 2 + (b[1] - ac) ** 2));
+      for (const [r, c] of ranked) {
+        const p = cellCentre(r, c);
+        if (standing.some((q) => Math.abs(q.y) < 1 && (q.x - p.x) ** 2 + (q.z - p.z) ** 2 < 16)) continue;
+        place('fountain', p.x, 0, p.z, 0, 0x8f8f8f);
+        standing.push(new THREE.Vector3(p.x, 0, p.z));
+        break;
+      }
+    }
   }
   // Mark the switch rooms that will be lit by chandelier, so the fluorescent
   // pass leaves their tubes dark and the strike model skips them entirely.
@@ -2774,19 +2788,232 @@ const hubLamp = new THREE.PointLight(0xdfe6f2, 11, 34, 1.1);
 hubLamp.position.set(hubCentre.x, WALL_H - 0.5, hubCentre.z);
 hubFloor.add(hubLamp);         // ditto, so the platform stays lit as it climbs
 
-/* ============================================================ AUDIO */
+/* ============================================================ AUDIO
+
+   Everything is synthesised — no files, so nothing to load and nothing to go
+   missing. The signal path is the whole design:
+
+       source ── dry ──────────────────────┐
+              └─ send ─> convolver ─> wet ─┴─> master ─> out
+
+   The convolver's impulse is a five-second exponentially decaying noise burst
+   with a low tilt, which is what a large empty concrete building sounds like.
+   Almost everything goes through it heavily, because reverb *is* the space:
+   the drum is only a short low thud dry, and eight seconds of hall after it.
+
+   The bed is a minor triad drone two octaves below middle C, a slow industrial
+   pulse, and sparse metal. Tension rides on how close the nearest Anti-player
+   is, and it moves three things at once — the drone opens up, the pulse comes
+   faster, and a tritone above the root fades in, which is the interval that
+   makes a held chord feel wrong.                                             */
 let actx = null;
 const audio = () => (actx ||= new (window.AudioContext || window.webkitAudioContext)());
-function blip(freq, dur, type = 'square', gain = 0.06) {
+
+let bus = null;              // { master, wet, dry, out(node, send) }
+function initBus() {
+  if (bus) return bus;
+  const a = audio();
+  const master = a.createGain();
+  master.gain.value = 0.9;
+  master.connect(a.destination);
+
+  // a long, dark impulse: noise under an exponential decay, tilted low
+  const secs = 5.0, rate = a.sampleRate;
+  const ir = a.createBuffer(2, Math.floor(rate * secs), rate);
+  for (let ch = 0; ch < 2; ch++) {
+    const d = ir.getChannelData(ch);
+    let lp = 0;
+    for (let i = 0; i < d.length; i++) {
+      const t = i / d.length;
+      const noise = Math.random() * 2 - 1;
+      lp += (noise - lp) * 0.16;                   // one-pole tilt, so it is not hissy
+      d[i] = lp * Math.pow(1 - t, 2.6) * (1 - t * 0.35);
+    }
+  }
+  const conv = a.createConvolver();
+  conv.buffer = ir;
+  const wet = a.createGain(); wet.gain.value = 0.95;
+  const dry = a.createGain(); dry.gain.value = 1.0;
+  conv.connect(wet).connect(master);
+  dry.connect(master);
+  bus = {
+    a, master, conv, dry,
+    // send: 0 = bone dry, 1 = drowned
+    out(node, send = 0.7) {
+      const d = a.createGain(), w = a.createGain();
+      d.gain.value = 1 - send * 0.75;
+      w.gain.value = send;
+      node.connect(d).connect(dry);
+      node.connect(w).connect(conv);
+    },
+  };
+  return bus;
+}
+
+// short-lived voices, for the interface sounds that were here before
+function blip(freq, dur, type = 'square', gain = 0.06, send = 0.55) {
   try {
-    const a = audio(), o = a.createOscillator(), g = a.createGain();
+    const b = initBus(), a = b.a;
+    const o = a.createOscillator(), g = a.createGain();
     o.type = type; o.frequency.value = freq;
     g.gain.setValueAtTime(gain, a.currentTime);
     g.gain.exponentialRampToValueAtTime(0.0001, a.currentTime + dur);
-    o.connect(g).connect(a.destination);
+    o.connect(g);
+    b.out(g, send);
     o.start(); o.stop(a.currentTime + dur);
   } catch (e) { /* audio is a nicety, never fatal */ }
 }
+
+/* ---- the bed ------------------------------------------------------------ */
+const music = { started: false, tension: 0, target: 0, nextPulse: 0, nextMetal: 0 };
+const ROOT = 55;                                    // A1
+
+function startMusic() {
+  if (music.started) return;
+  try {
+    const b = initBus(), a = b.a;
+    music.started = true;
+
+    // a minor triad, held, two octaves down: root, minor third, fifth
+    const filt = a.createBiquadFilter();
+    filt.type = 'lowpass'; filt.frequency.value = 260; filt.Q.value = 0.8;
+    const droneGain = a.createGain(); droneGain.gain.value = 0.0;
+    filt.connect(droneGain);
+    b.out(droneGain, 0.85);
+    for (const [mult, det, lvl] of [[1, 0, 1], [1, 7, 0.7], [1.1892, -4, 0.5], [1.4983, 3, 0.55], [2, 0, 0.3]]) {
+      const o = a.createOscillator(), g = a.createGain();
+      o.type = 'sawtooth';
+      o.frequency.value = ROOT * mult;
+      o.detune.value = det;
+      g.gain.value = 0.05 * lvl;
+      o.connect(g).connect(filt);
+      o.start();
+    }
+    // the tritone that arrives with tension, and only then
+    const dissOsc = a.createOscillator(), dissGain = a.createGain();
+    dissOsc.type = 'sawtooth';
+    dissOsc.frequency.value = ROOT * 1.4142 * 2;    // an octave-and-a-tritone up
+    dissGain.gain.value = 0;
+    dissOsc.connect(dissGain);
+    b.out(dissGain, 0.9);
+    dissOsc.start();
+
+    // a slow swell under everything, so the drone is never quite still
+    const lfo = a.createOscillator(), lfoAmt = a.createGain();
+    lfo.frequency.value = 0.045; lfoAmt.gain.value = 70;
+    lfo.connect(lfoAmt).connect(filt.frequency);
+    lfo.start();
+
+    music.filt = filt; music.droneGain = droneGain; music.dissGain = dissGain;
+    droneGain.gain.setTargetAtTime(0.5, a.currentTime, 4);   // fade the room in
+  } catch (e) { music.started = false; }
+}
+
+// A deep drum: a low sine dropping in pitch, a thud of noise on the front, and
+// a very long tail of hall behind it.
+function drum(vel = 1) {
+  try {
+    const b = initBus(), a = b.a, t = a.currentTime;
+    const o = a.createOscillator(), g = a.createGain();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(78, t);
+    o.frequency.exponentialRampToValueAtTime(33, t + 0.55);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.5 * vel, t + 0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 1.5);
+    o.connect(g); b.out(g, 0.8);
+    o.start(t); o.stop(t + 1.6);
+
+    const n = a.createBufferSource(), nb = a.createBuffer(1, 2048, a.sampleRate);
+    const nd = nb.getChannelData(0);
+    for (let i = 0; i < nd.length; i++) nd[i] = (Math.random() * 2 - 1) * (1 - i / nd.length);
+    n.buffer = nb;
+    const nf = a.createBiquadFilter(); nf.type = 'lowpass'; nf.frequency.value = 320;
+    const ng = a.createGain(); ng.gain.value = 0.28 * vel;
+    n.connect(nf).connect(ng); b.out(ng, 0.9);
+    n.start(t);
+  } catch (e) { /* */ }
+}
+
+// Struck metal, far off. Bandpassed noise with a long ring.
+function metal(vel = 1) {
+  try {
+    const b = initBus(), a = b.a, t = a.currentTime;
+    const dur = 2.2;
+    const src = a.createBufferSource();
+    const buf = a.createBuffer(1, Math.floor(a.sampleRate * 0.4), a.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / d.length, 5);
+    src.buffer = buf;
+    const bp = a.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.value = 420 + Math.random() * 900;
+    bp.Q.value = 14;
+    const g = a.createGain();
+    g.gain.setValueAtTime(0.16 * vel, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    src.connect(bp).connect(g); b.out(g, 0.95);
+    src.start(t);
+  } catch (e) { /* */ }
+}
+
+/* A harp: a run of plucked strings up a major shape, which lands as relief
+   against a minor drone. This is the only major thing in the game and it plays
+   exactly twice per crystal — once when you lift it, once when it seats. */
+function harp(base, steps, spacing, gain, up = true) {
+  try {
+    const b = initBus(), a = b.a, t0 = a.currentTime;
+    steps.forEach((semi, i) => {
+      const t = t0 + i * spacing;
+      const f = base * Math.pow(2, (up ? semi : -semi) / 12);
+      const o = a.createOscillator(), g = a.createGain();
+      o.type = 'triangle';
+      o.frequency.value = f;
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(gain, t + 0.006);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 1.9);
+      o.connect(g); b.out(g, 0.8);
+      o.start(t); o.stop(t + 2.0);
+      // a fifth above, quietly, so each pluck has a body
+      const o2 = a.createOscillator(), g2 = a.createGain();
+      o2.type = 'sine'; o2.frequency.value = f * 1.4983;
+      g2.gain.setValueAtTime(0.0001, t);
+      g2.gain.exponentialRampToValueAtTime(gain * 0.45, t + 0.008);
+      g2.gain.exponentialRampToValueAtTime(0.0001, t + 1.5);
+      o2.connect(g2); b.out(g2, 0.85);
+      o2.start(t); o2.stop(t + 1.6);
+    });
+  } catch (e) { /* */ }
+}
+const MAJ_RUN = [0, 4, 7, 12, 16, 19, 24, 28, 31, 36];
+const MAJ_LONG = [0, 4, 7, 12, 16, 19, 24, 28, 31, 36, 40, 43, 48];
+
+/* Tension rides on the nearest walker. It is deliberately not a stinger — it
+   is the room getting louder and wronger, so you feel one coming before you
+   have any reason to know it is there. */
+function updateMusic(dt, nearest) {
+  if (!music.started) return;
+  const a = actx;
+  // 34m out you hear nothing of it; on top of you it is everything
+  music.target = nearest == null ? 0 : Math.max(0, Math.min(1, 1 - nearest / 34));
+  music.tension += (music.target - music.tension) * (1 - Math.exp(-1.2 * dt));
+  const T = music.tension;
+
+  music.filt.frequency.setTargetAtTime(260 + T * 1150, a.currentTime, 0.4);
+  music.droneGain.gain.setTargetAtTime(0.5 + T * 0.55, a.currentTime, 0.5);
+  music.dissGain.gain.setTargetAtTime(T * T * 0.075, a.currentTime, 0.6);
+
+  const now = clock.elapsedTime;
+  if (now > music.nextPulse) {
+    drum(0.55 + T * 0.75);
+    music.nextPulse = now + (5.4 - T * 3.6) * (0.9 + Math.random() * 0.2);
+  }
+  if (now > music.nextMetal) {
+    if (Math.random() < 0.55 + T * 0.4) metal(0.5 + T * 0.7);
+    music.nextMetal = now + 7 + Math.random() * 13;
+  }
+}
+
 const sfx = {
   click: () => blip(880, 0.07, 'square', 0.05),
   hum:   () => { blip(120, 0.55, 'sawtooth', 0.035); setTimeout(() => blip(240, 0.4, 'sine', 0.03), 60); },
@@ -2848,6 +3075,7 @@ addEventListener('keyup', (e) => keys.delete(e.code));
 
 const startScreen = document.getElementById('startscreen');
 startScreen.addEventListener('click', () => {
+  startMusic();
   startScreen.classList.add('hidden');
   started = true;
   audio();
@@ -3323,6 +3551,7 @@ function interact() {
     el.carried.classList.add('on');
     el.carriedname.textContent = t.obj.name;
     sfx.take();
+    harp(392, MAJ_RUN, 0.055, 0.20);          // G, rising — the first majestic thing
     announce(`Congratulations, you've discovered the ${t.obj.name} CRYSTAL`,
              '#' + t.obj.color.toString(16).padStart(6, '0'));
 
@@ -3358,6 +3587,10 @@ function seatCrystal(crystal, ped) {
   slots[i].style.boxShadow = '0 0 13px #' + crystal.color.toString(16).padStart(6, '0');
   player.placed++;
   sfx.place();
+  // grander on the way in than on the way out: longer run, lower start, and a
+  // held root underneath it
+  harp(262, MAJ_LONG, 0.062, 0.22);
+  blip(131, 3.4, 'triangle', 0.10, 0.95);
   trailEvent('seat', props.pedestals.indexOf(ped));
   if (player.placed === 6) beginEnding();
   else say(`${player.placed} of 6 set — ${6 - player.placed} still out there`, 4);
@@ -3783,7 +4016,9 @@ for (let i = 0; i < MAX_ANTI; i++) {
   // Allocated once and never added or removed. Three.js bakes the light count
   // into its shaders; spawning one mid-game would stall on a recompile, so a
   // dormant Anti-player is a live light at zero intensity.
-  const light = new THREE.SpotLight(0xbcd4ff, 0, 30, 0.44, 0.55, 1.3);
+  // A long throw. You should be able to see one sweeping a corridor from the
+  // far end of it, which is the whole point of being able to kill at any range.
+  const light = new THREE.SpotLight(0xbcd4ff, 0, 95, 0.34, 0.42, 1.05);
   const target = new THREE.Object3D();
   light.target = target;
   scene.add(light, target);
@@ -3822,7 +4057,7 @@ function spawnAnti() {
   a.pos.set(hubCentre.x, 0, hubCentre.z);
   a.lev = 0; a.yaw = 0;
   a.grp.visible = true;
-  a.light.intensity = 34;
+  a.light.intensity = 62;
   return a;
 }
 
@@ -4114,6 +4349,16 @@ function updateAntis(dt) {
     a.target.position.set(a.pos.x - Math.sin(a.yaw) * 6, a.pos.y + 0.7, a.pos.z - Math.cos(a.yaw) * 6);
 
   }
+  // the room tightens as one closes on you, whether or not you have seen it
+  let nearest = null;
+  for (const a of antis) {
+    if (!a.live) continue;
+    const d = Math.hypot(a.pos.x - player.pos.x, a.pos.z - player.pos.z)
+            + Math.abs(a.lev - player.lev) * 14;      // a floor between counts for distance
+    if (nearest == null || d < nearest) nearest = d;
+  }
+  updateMusic(dt, nearest);
+
   if (caughtT <= 0) torchDuel(dt, clock.elapsedTime);
   else for (const a of antis) a.markSprite.visible = false;
 }
@@ -4933,6 +5178,8 @@ window.__maze = {
   interact, isSolid, collide, cellCentre, cellOf, rebuildReveal, revealed, at,
   groundUnder, isWalkableChar, dropOpen, levelY, WALL_H, NLEV, ROWS, COLS, CELL,
   antis, trail, trailEvents, spawnAnti, killAnti, clearLine, safeInLight,
+  music, startMusic, harp, drum, metal, MAJ_RUN, MAJ_LONG,
+  audioState: () => (actx ? actx.state : 'none'),
   markOpen, markShut,
   POWERS, held, holes, fireHeld, wallAhead, roomAhead, portalPick,
   pick(n) { if (n < held.length) { sel = n; drawPowers(); } return POWERS[held[n]]?.name; },

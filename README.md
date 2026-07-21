@@ -345,6 +345,26 @@ seconds' lag they string out 22m apart down a corridor. They are allocated at lo
 never added or removed — Three.js bakes light count into its shaders, so a dormant
 Anti-player is a live SpotLight at zero intensity.
 
+## Sound
+
+Everything is synthesised — no files, so nothing to load and nothing to go missing. The
+signal path is the whole design: every voice splits into a dry line and a send into a
+convolver whose impulse is a five-second exponentially decaying noise burst, tilted low.
+That is what a large empty concrete building sounds like, and almost everything goes
+through it heavily. The drum is a short low thud dry, and eight seconds of hall behind it.
+
+The bed is a minor triad drone two octaves below middle C, a slow industrial pulse, and
+sparse struck metal. **Tension rides on how close the nearest Anti-player is** — measured
+whether or not you have seen it, with a floor between you counting as fourteen metres of
+distance. It moves three things at once: the drone opens up, the pulse comes faster, and
+a tritone above the root fades in, which is the interval that makes a held chord feel
+wrong. Measured: silent at rest, 0.59 at fifteen metres, 0.93 with one beside you, back
+to 0.007 once it is gone.
+
+The harp is the only major thing in the game and it plays exactly twice per crystal —
+a rising run when you lift one, a longer and lower one with a held root under it when it
+seats. Against a minor drone it lands as relief.
+
 ## The six lights
 
 Each vault hands over its lamp in the order you open them, so the first vault always
