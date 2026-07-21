@@ -354,18 +354,17 @@ That is what a large empty concrete building sounds like, and almost everything 
 through it heavily. The drum is a short low thud dry, and eight seconds of hall behind it.
 
 The bed is a minor triad drone two octaves below middle C, a slow industrial pulse, and
-sparse struck metal. **The drone walks the circle of fifths**, one step every thirty
+sparse struck metal. **The drone walks the circle of fifths**, one step every fifteen
 seconds — descending fifths, because that is the direction harmony falls under its own
 weight: A, D, G, C, F, and round. Each root is expressed as semitones above A1 so the
-whole cycle stays inside a single low octave and the bass never lurches, and the move is
-a four-second glide, slower than you notice happening and obvious once it has.
+whole cycle stays inside a single low octave and the bass never lurches an octave down
+when the circle turns.
 
-**Timpani in thirds**, every minute or so and a little more often when something is
-close. Two drums tuned a minor third apart and struck together — the interval the drone
-is already built on, so the phrase belongs to whatever key the circle has arrived at
-rather than sitting on top of it. Seven to ten pulses that swell and fall away. A
-timpano is a kick with a much longer body and a real pitch: the head drops only a little
-over the first fifth of a second and the tone rings for four. **Tension rides on how close the nearest Anti-player is** — measured
+**A pizzicato marks each arrival.** The same instrument as the crystal runs, stopped
+short: where those ring for two seconds this is plucked and damped in half of one, and
+sits drier in the reverb. It rolls the new minor triad upward two octaves the way a hand
+crosses the strings, so you hear *which* chord you have landed on rather than only that
+something moved. **Tension rides on how close the nearest Anti-player is** — measured
 whether or not you have seen it, with a floor between you counting as fourteen metres of
 distance. It moves three things at once: the drone opens up, the pulse comes faster, and
 a tritone above the root fades in, which is the interval that makes a held chord feel

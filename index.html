@@ -2866,7 +2866,7 @@ function blip(freq, dur, type = 'square', gain = 0.06, send = 0.55) {
 
 /* ---- the bed ------------------------------------------------------------ */
 const music = { started: false, tension: 0, target: 0, nextPulse: 0, nextMetal: 0,
-                voices: [], keyIdx: 0, nextKey: 0, nextTimp: 40, root: 55 };
+                voices: [], keyIdx: 0, nextKey: 0, root: 55 };
 const ROOT = 55;                                    // A1
 
 /* The drone walks the circle of fifths, one step every thirty seconds.
@@ -2876,7 +2876,7 @@ const ROOT = 55;                                    // A1
    lurches; the move is a four-second glide, slower than you notice happening
    and obvious once it has. */
 const FIFTHS = [0, 5, 10, 3, 8, 1, 6, 11, 4, 9, 2, 7];   // A D G C F Bb Eb Ab Db Gb B E
-const KEY_EVERY = 30;
+const KEY_EVERY = 15;
 
 function startMusic() {
   if (music.started) return;
@@ -2919,7 +2919,6 @@ function startMusic() {
     music.filt = filt; music.droneGain = droneGain; music.dissGain = dissGain;
     droneGain.gain.setTargetAtTime(0.5, a.currentTime, 4);   // fade the room in
     music.nextKey = KEY_EVERY;
-    music.nextTimp = 34 + Math.random() * 30;
   } catch (e) { music.started = false; }
 }
 
@@ -2953,56 +2952,9 @@ function retune(rootHz) {
   const a = actx, t = a.currentTime;
   music.root = rootHz;
   for (const v of music.voices) {
-    v.o.frequency.setTargetAtTime(rootHz * v.mult, t, 1.4);      // a four-second glide
+    v.o.frequency.setTargetAtTime(rootHz * v.mult, t, 0.7);      // settles in about two
   }
-  if (music.diss) music.diss.frequency.setTargetAtTime(rootHz * 1.4142 * 2, t, 1.4);
-}
-
-/* Timpani, in thirds. Two drums tuned a minor third apart and struck together,
-   which is the interval the drone is already built on — so the phrase belongs
-   to whatever key the circle has arrived at rather than sitting on top of it.
-   A timpano is a kick with a much longer body and a real pitch: the head drops
-   only a little, and the tone rings for four seconds. */
-function timpano(freq, vel, when) {
-  const b = initBus(), a = b.a, t = when;
-  const o = a.createOscillator(), g = a.createGain();
-  o.type = 'sine';
-  o.frequency.setValueAtTime(freq * 1.16, t);
-  o.frequency.exponentialRampToValueAtTime(freq, t + 0.18);      // the head settling
-  g.gain.setValueAtTime(0.0001, t);
-  g.gain.exponentialRampToValueAtTime(0.42 * vel, t + 0.015);
-  g.gain.exponentialRampToValueAtTime(0.0001, t + 4.0);
-  o.connect(g); b.out(g, 0.85);
-  o.start(t); o.stop(t + 4.1);
-
-  // the stick on the skin
-  const n = a.createBufferSource(), nb = a.createBuffer(1, 1600, a.sampleRate);
-  const nd = nb.getChannelData(0);
-  for (let i = 0; i < nd.length; i++) nd[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / nd.length, 3);
-  n.buffer = nb;
-  const nf = a.createBiquadFilter(); nf.type = 'bandpass';
-  nf.frequency.value = freq * 5; nf.Q.value = 1.1;
-  const ng = a.createGain(); ng.gain.value = 0.2 * vel;
-  n.connect(nf).connect(ng); b.out(ng, 0.8);
-  n.start(t);
-}
-
-// A phrase rather than a hit: eight or so pulses on the pair, swelling and
-// falling away.
-function timpaniPhrase() {
-  try {
-    const a = actx, t0 = a.currentTime;
-    const root = music.root * 0.5;                 // an octave under the drone
-    const third = root * 1.1892;                   // minor third above
-    const beats = 7 + Math.floor(Math.random() * 4);
-    const gap = 0.44;
-    for (let i = 0; i < beats; i++) {
-      const k = Math.sin(((i + 0.5) / beats) * Math.PI);        // swell and fall
-      const vel = 0.35 + k * 0.75;
-      timpano(root, vel, t0 + i * gap);
-      timpano(third, vel * 0.8, t0 + i * gap + 0.005);
-    }
-  } catch (e) { /* */ }
+  if (music.diss) music.diss.frequency.setTargetAtTime(rootHz * 1.4142 * 2, t, 0.7);
 }
 
 // Struck metal, far off. Bandpassed noise with a long ring.
@@ -3055,6 +3007,30 @@ function harp(base, steps, spacing, gain, up = true) {
     });
   } catch (e) { /* */ }
 }
+/* Pizzicato: the same instrument stopped short. Where the harp run rings for
+   two seconds, this is plucked and damped in half of one — enough to mark the
+   chord arriving without singing over the drone it is announcing. It rolls the
+   new triad upward the way a hand crosses the strings, so you hear which chord
+   you have landed on rather than just that something moved. */
+function pizz(root) {
+  try {
+    const b = initBus(), a = b.a, t0 = a.currentTime;
+    const shape = [1, 1.1892, 1.4983, 2, 2.3784];      // minor triad, up two octaves
+    shape.forEach((mult, i) => {
+      const t = t0 + i * 0.038;
+      const f = root * 4 * mult;                        // up where a harp actually sits
+      const o = a.createOscillator(), g = a.createGain();
+      o.type = 'triangle';
+      o.frequency.value = f;
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.085 * (1 - i * 0.1), t + 0.004);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.52);
+      o.connect(g); b.out(g, 0.6);                      // drier than the runs
+      o.start(t); o.stop(t + 0.6);
+    });
+  } catch (e) { /* */ }
+}
+
 const MAJ_RUN = [0, 4, 7, 12, 16, 19, 24, 28, 31, 36];
 const MAJ_LONG = [0, 4, 7, 12, 16, 19, 24, 28, 31, 36, 40, 43, 48];
 
@@ -3076,13 +3052,10 @@ function updateMusic(dt, nearest) {
   const now = clock.elapsedTime;
   if (now > music.nextKey) {
     music.keyIdx = (music.keyIdx + 1) % FIFTHS.length;
-    retune(ROOT * Math.pow(2, FIFTHS[music.keyIdx] / 12));
+    const root = ROOT * Math.pow(2, FIFTHS[music.keyIdx] / 12);
+    retune(root);
+    pizz(root);                              // a pluck marks the turn
     music.nextKey = now + KEY_EVERY;
-  }
-  // every so often, and a little more often when something is close
-  if (now > music.nextTimp) {
-    timpaniPhrase();
-    music.nextTimp = now + 46 + Math.random() * 44 - T * 18;
   }
   if (now > music.nextPulse) {
     drum(0.55 + T * 0.75);
@@ -5258,7 +5231,7 @@ window.__maze = {
   interact, isSolid, collide, cellCentre, cellOf, rebuildReveal, revealed, at,
   groundUnder, isWalkableChar, dropOpen, levelY, WALL_H, NLEV, ROWS, COLS, CELL,
   antis, trail, trailEvents, spawnAnti, killAnti, clearLine, safeInLight,
-  music, startMusic, harp, drum, metal, timpaniPhrase, retune, FIFTHS, MAJ_RUN, MAJ_LONG,
+  music, startMusic, harp, pizz, drum, metal, retune, FIFTHS, MAJ_RUN, MAJ_LONG,
   audioState: () => (actx ? actx.state : 'none'),
   markOpen, markShut,
   POWERS, held, holes, fireHeld, wallAhead, roomAhead, portalPick,
