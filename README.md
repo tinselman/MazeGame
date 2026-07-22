@@ -242,9 +242,12 @@ the reveal refuses to flood into rooms. The door it answers gets a single colour
 marker at its true position and no floor plan at all, so you learn where the door is
 without being handed the route to it.
 
-What you have charted stays charted. The reveal is rebuilt from current state — which
-rooms are lit, which buttons are pressed — so without an accumulating set an Anti-player
-flicking a switch would erase ground you had already walked.
+**A room's floor plan lasts exactly as long as its lights do.** Only what a walker charted
+as it passed, and what a button revealed, is permanent — a room you lit is on the chart
+while it is lit and off it when it goes out. That is the whole point of them putting the
+lights out: the map is something you can lose. It used to be sticky for the opposite
+reason, so that a walker could not erase ground you had walked; losing it is better,
+because it gives the dark somewhere to spread.
 
 There is deliberately no floor label on either. The level you are on draws bold and the
 others faint, so a marker on a ghosted layer already tells you which storey to go
@@ -276,11 +279,16 @@ The threat is not being hunted. It is that your own past keeps walking, that it 
 arriving at the hub you have to keep returning to, and that it puts out every light you
 lit on the way.
 
-**Replaying a flick is what undoes it.** You left the switch on, so its flick turns it
-off. You pressed the button to open the gate, so its press closes it. Nothing in the
-code knows what "undo" means, and nothing has to detect proximity to a switch: it walks
-where you walked, so it arrives at everything you touched, exactly when you touched it
-plus the lag.
+**Replaying a flick is what undoes it.** You pressed the button to open the gate, so its
+press closes it. Nothing in the code knows what "undo" means, and nothing has to detect
+proximity to a switch: it walks where you walked, so it arrives at everything you
+touched, exactly when you touched it plus the lag.
+
+Lights are the exception, and they go one way only. Replaying your flick used to toggle,
+which meant the second walker to reach a switch turned back on what the first had turned
+off, and a room could flicker between them all game. They prefer the dark: a walker puts
+a light out and leaves it out. You can always go back and put it on again — but so can
+the next one along, which is the point.
 
 **Standing still is not part of a route.** After five seconds the recording stops
 advancing altogether, so an Anti-player never replays you doing nothing — and because

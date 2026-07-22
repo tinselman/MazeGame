@@ -1551,7 +1551,10 @@ for (const s of stairs) {
 function groundUnder(r, c, x, z, lev, ceilY) {
   let best = null;
   for (let l = NLEV - 1; l >= 0; l--) {
-    if (!isWalkableChar(at(l, r, c))) continue;
+    // A wall the third lamp has opened is passable but still reads as '#', so
+    // it was never walkable here and you dropped straight through the floor the
+    // moment you stepped into it. The slab under a wall exists; use it.
+    if (!isWalkableChar(at(l, r, c)) && !holes.has(`${l},${r},${c}`)) continue;
     const s = stairAt.get(`${l},${r},${c}`);
     const t = s ? stairProgress(s, x, z) : 0;
     const y = s ? levelY(s.lo) + t * LEVEL_H : levelY(l);
@@ -3472,7 +3475,11 @@ function rebuildReveal() {
   // none of the floor plan around it, so you still have to find your way over.
   for (const b of props.buttons) if (b.pressed) revealFrom(b.lev, [b.cell], 9, true);
 
-  for (const k of revealed) charted.add(k);
+  /* Only what a walker charted, and what a button revealed, is permanent. A
+     room's own floor plan lasts exactly as long as its lights do — so when they
+     go out, that ground goes off the chart with them. This is the opposite of
+     what it did before, and it is the whole point of them putting the lights
+     out: the map is something you can lose. */
   for (const k of charted) revealed.add(k);
 
   for (let l = 0; l < NLEV; l++) mmSegments[l] = [];
@@ -4494,8 +4501,8 @@ function turnZombie(a) {
   a.tagSprite.material.needsUpdate = true;
   a.path.length = 0;
   sfx.turn();
-  announce(`F${a.tag} HAS RUN OUT OF YOU`, '#' + ZOMBIE_GREEN.toString(16), 5);
-  say('it is not following anything now', 6);
+  announce('DEATH WALKER \u2014 SENTIENT', '#' + ZOMBIE_GREEN.toString(16), 5.5);
+  say('they win by drinking light', 7);
 }
 
 // what it is walking toward: the nearest light still burning, else you
@@ -4649,10 +4656,14 @@ function replayEvent(ev) {
   if (ev.kind === 'switch') {
     const s = props.switches[ev.ref];
     if (!s || s.eaten) return;
-    s.on = !s.on;
-    if (s.on) s.litAt = clock.elapsedTime;
-    else for (const f of s.fixtures) setFixture(f, 0);
-    if (s.mesh.userData.rocker) s.mesh.userData.rocker.position.y = s.on ? -0.12 : 0.12;
+    /* One direction only. Replaying your flick used to toggle, which meant the
+       second walker to reach a switch turned back on what the first had turned
+       off, and a room could flicker between them all game. They prefer the
+       dark: a walker puts a light out and leaves it out. */
+    if (!s.on) return;
+    s.on = false;
+    for (const f of s.fixtures) setFixture(f, 0);
+    if (s.mesh.userData.rocker) s.mesh.userData.rocker.position.y = 0.12;
     rebuildReveal(); sfx.hum();
   } else if (ev.kind === 'take') {
     const c = props.crystals[ev.ref];
