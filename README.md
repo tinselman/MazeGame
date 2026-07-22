@@ -25,8 +25,8 @@ over HTTP rather than opened as a `file://` URL, because it loads an ES module.
 | `←` `→` | turn |
 | `↑` `↓` | look up and down |
 | mouse | look, after clicking to capture the pointer |
-| `E` or `Space` | press buttons, take crystals, cross from a stand to its vault |
-| mouse button | fire the gun you carry |
+| `E` | press buttons, take crystals, cross from a stand to its vault |
+| mouse button or `Space` | fire the gun you carry (hold for machine gun and laser) |
 | `M` | sound on / off |
 
 Movement, turning and pitch are all analog. Velocity and both look axes chase

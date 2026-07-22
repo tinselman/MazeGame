@@ -3364,7 +3364,11 @@ let started = false, ending = 0, endTime = 0, endShown = false;
 addEventListener('keydown', (e) => {
   keys.add(e.code);
   if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault();
-  if (e.code === 'KeyE' || e.code === 'Space') interact();
+  if (e.code === 'KeyE') interact();
+  // Space is the other trigger. It is a held state, not a tap, so the machine
+  // gun and the laser work from the keyboard exactly as they do from the mouse
+  // — and interact moves to E alone, which the prompts already say.
+  if (e.code === 'Space' && started && !ending) gunState.trigger = true;
   if (e.code === 'KeyF') fireHeld();
   if (e.code === 'Escape') cancelPortal();
   if (/^Digit[1-6]$/.test(e.code)) {
@@ -3372,7 +3376,10 @@ addEventListener('keydown', (e) => {
     if (n < held.length) { sel = n; drawPowers(); say(POWERS[held[n]].name.toLowerCase(), 2); }
   }
 });
-addEventListener('keyup', (e) => keys.delete(e.code));
+addEventListener('keyup', (e) => {
+  keys.delete(e.code);
+  if (e.code === 'Space') gunState.trigger = false;
+});
 
 const startScreen = document.getElementById('startscreen');
 startScreen.addEventListener('click', () => {
