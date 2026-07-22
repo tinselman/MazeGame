@@ -92,6 +92,11 @@
     text-shadow: 0 2px 20px rgba(0,0,0,.96);
   }
   #banner.on { opacity: 1; }
+  #gunhud {
+    position: absolute; left: 34px; bottom: 104px;
+    font-size: 13px; letter-spacing: .14em; color: #e8eef8;
+    text-shadow: 0 2px 8px rgba(0,0,0,.95);
+  }
   /* the countdown, where you can see it from anywhere in the building */
   #hudclockwrap {
     position: absolute; left: 50%; bottom: 50px; transform: translateX(-50%);
@@ -201,6 +206,7 @@
   <div id="banner"></div>
   <div id="hitflash"></div>
   <div id="hudclockwrap"><canvas id="hudclock"></canvas></div>
+  <div id="gunhud"></div>
   <canvas id="powers"></canvas>
   <div id="powertip"><b></b><span></span></div>
   <div id="detailbar">
@@ -236,6 +242,7 @@
 { "imports": { "three": "https://unpkg.com/three@0.169.0/build/three.module.js" } }
 </script>
 
+<script>/*__errTrap*/window.addEventListener('error',function(e){window.__err=(e.error&&e.error.stack)||e.message;});</script>
 <script type="module">
 import * as THREE from 'three';
 
@@ -3298,6 +3305,24 @@ const sfx = {
       } catch (e) { /* */ }
     }, 30);
   },
+  shot:  (v = 1) => { try { const b = initBus(), a = b.a, t = a.currentTime;
+      const src = a.createBufferSource();
+      const buf = a.createBuffer(1, 2400, a.sampleRate), d = buf.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / d.length, 3);
+      src.buffer = buf;
+      const bp = a.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1700; bp.Q.value = 0.8;
+      const g = a.createGain(); g.gain.value = 0.16 * v;
+      src.connect(bp).connect(g); b.out(g, 0.85); src.start(t);
+      blip(95, 0.28, 'sine', 0.09 * v, 0.8);
+    } catch (e) { /* */ } },
+  blastShot: () => { blip(60, 1.1, 'sawtooth', 0.11, 0.9);
+      setTimeout(() => blip(42, 1.5, 'square', 0.07, 0.95), 60); },
+  laserHum: () => blip(880 + Math.random() * 60, 0.12, 'sawtooth', 0.035, 0.6),
+  dry:   () => blip(1250, 0.05, 'square', 0.05, 0.3),
+  reloadSfx: () => { blip(420, 0.07, 'square', 0.06, 0.4);
+      setTimeout(() => blip(340, 0.09, 'square', 0.06, 0.4), 110); },
+  gunget: () => { [392, 523, 659, 784, 1046].forEach((f, i) =>
+      setTimeout(() => blip(f, 0.5, 'triangle', 0.07, 0.8), i * 70)); },
   turn:  () => { [220, 175, 138, 110, 87].forEach((f, i) =>
                    setTimeout(() => blip(f, 1.8, 'sawtooth', 0.055, 0.95), i * 150)); },
   eat:   () => { blip(320, 0.5, 'sine', 0.05, 0.9);
@@ -3357,6 +3382,11 @@ startScreen.addEventListener('click', () => {
   audio();
   renderer.domElement.requestPointerLock?.();
 });
+addEventListener('mousedown', (e) => {
+  if (e.button !== 0) return;
+  if (document.pointerLockElement) gunState.trigger = true;
+});
+addEventListener('mouseup', (e) => { if (e.button === 0) gunState.trigger = false; });
 renderer.domElement.addEventListener('click', () => {
   if (portalAiming) return;              // the chart has the pointer for a moment
   if (started && !ending) renderer.domElement.requestPointerLock?.();
@@ -3621,6 +3651,21 @@ function drawMinimap() {
     g.restore();
   }
 
+  // The guns, from the very first moment — you know where they are, not what
+  // is between you and them, and the chart does not say which storey.
+  g.save();
+  g.fillStyle = '#ffffff';
+  g.strokeStyle = 'rgba(255,255,255,.8)';
+  for (const gun of worldGuns) {
+    if (!gun.onFloor) continue;
+    const gx = mmX(gun.pos.x / CELL), gy = mmY(gun.pos.z / CELL);
+    g.beginPath();
+    g.moveTo(gx, gy - 4.4); g.lineTo(gx + 3.4, gy); g.lineTo(gx, gy + 4.4); g.lineTo(gx - 3.4, gy);
+    g.closePath();
+    g.stroke();
+  }
+  g.restore();
+
   // The other lights. You can always see where they are — that is the whole
   // counterplay, and without it being hunted would just be arbitrary.
   for (const a of antis) {
@@ -3655,7 +3700,8 @@ function drawMinimap() {
     g.fill();
     // red while its beam could actually take you: your level, in range, and you
     // are not standing in a lit room
-    const near = here && Math.hypot(a.pos.x - player.pos.x, a.pos.z - player.pos.z) < CATCH_RANGE;
+    // red while it is close enough that knife or gun could take you
+    const near = here && Math.hypot(a.pos.x - player.pos.x, a.pos.z - player.pos.z) < 10;
     g.fillStyle = a.zombie ? '#5bff8f' : (near && !safeInLight() ? '#ff6a4a' : '#a8c8ff');
     g.beginPath(); g.arc(ax, ay, here ? 3.8 : 2.6, 0, Math.PI * 2); g.fill();
     g.font = '9px ui-monospace, monospace';
@@ -3693,6 +3739,7 @@ const el = {
   banner: document.getElementById('banner'),
   hitflash: document.getElementById('hitflash'),
   hudclockwrap: document.getElementById('hudclockwrap'),
+  gunhud: document.getElementById('gunhud'),
   powers: document.getElementById('powers'),
   cloak: document.getElementById('cloak'),
   aim: document.getElementById('aim'),
@@ -3744,7 +3791,6 @@ function warpToChamber(id) {
   player.falling = false;
   player.yaw = Math.PI;
   sfx.warp();
-  trailSnap();                  // a hard cut in the trail: it takes the portal too
   return true;
 }
 
@@ -3797,7 +3843,6 @@ function interact() {
     if (t.obj.mesh.userData.rocker) t.obj.mesh.userData.rocker.position.y = room.on ? -0.12 : 0.12;
     sfx.hum();
     rebuildReveal();
-    trailEvent('switch', props.switches.indexOf(room));
     say(room.on ? 'the lights come up' : 'the lights die');
   }
 
@@ -3814,7 +3859,6 @@ function interact() {
         : door.lev > player.lev ? `${bearing(player.pos, dp)}, and ${door.lev - player.lev} level up`
         : `${bearing(player.pos, dp)}, and ${player.lev - door.lev} level down`;
       say(door.open ? `a gate grinds open — ${where}` : `a gate grinds shut — ${where}`, 4.6);
-      trailEvent('button', props.buttons.indexOf(t.obj));
     }
     if (t.obj.mesh.userData.knob) t.obj.mesh.userData.knob.position.z = 0.03;
     sfx.click();
@@ -3837,8 +3881,7 @@ function interact() {
     announce(`Congratulations, you've discovered the ${t.obj.name} CRYSTAL`,
              '#' + t.obj.color.toString(16).padStart(6, '0'));
 
-    trailEvent('take', props.crystals.indexOf(t.obj));
-    grantPower();                  // the vault's lamp, in the order you opened them
+    // The lamps are set aside while the guns are tried in their place.
   }
 
   else if (t.kind === 'link') {
@@ -3869,7 +3912,6 @@ function seatCrystal(crystal, ped) {
   slots[i].style.boxShadow = '0 0 13px #' + crystal.color.toString(16).padStart(6, '0');
   player.placed++;
   sfx.place();
-  trailEvent('seat', props.pedestals.indexOf(ped));
   if (player.placed === 6) beginEnding();
   else say(`${player.placed} of 6 set — ${6 - player.placed} still out there`, 4);
 }
@@ -4034,80 +4076,25 @@ function assignPool() {
 
 /* ====================================================== THE ANTI-PLAYER
 
-   A clock hangs over the hub. Every time it runs out, a light starts from the
-   hub and walks — and what it walks is you, five minutes ago.
+   A clock hangs over the hub, counting down from 1:00. When it runs out
+   something is loosed into the building, and another every minute after.
 
-   It is not a pursuer. It is a playback head. The trail records where you were
-   and which way you faced every tenth of a second, and every switch you
-   flicked, button you pressed and portal you took as timestamped events. An
-   Anti-player is that recording played at 1x with a fixed delay, so it moves at
-   your speed, hesitates where you hesitated, climbs the stairs you climbed and
-   doubles back where you doubled back. It cannot deviate, cannot turn to look
-   at you, and cannot be steered. It is caught in time.
+   They are not recordings any more. They wander. They are not smart — they are
+   drawn to any gun left lying in the world, wherever it is, and they douse any
+   lit switch they pass, because they prefer the dark and the dark eats your
+   map. Every one of them carries a knife. Some of them, by the time you meet
+   them, carry something you dropped.
 
-   Which means it never chases you down — it only ever arrives where you have
-   already been. The threat is not being hunted, it is that your own past keeps
-   walking, it keeps arriving at the hub you must keep returning to, and it puts
-   out every light you lit on the way.
+   They cannot enter the crystal vaults: a shut gate stops them the same way it
+   stops you. Lit rooms and the hub are still sanctuary.                      */
 
-   Replaying a flick is what undoes it: you left the switch on, so its flick
-   turns it off. You pressed the button to open the gate, so its press closes
-   it. Nothing needs to know what "undo" means.
+const ANTI_PERIOD = 60;                  // 1:00 on the clock
+const MAX_ANTI    = 8;                   // pre-allocated: light count is baked into shaders
+const KNIFE_RANGE = 1.7;                 // every one of them carries one
+const SHOOT_RANGE = 24;                  // an armed one fires inside this, with clear sight
+const SHOOT_AIM   = 0.85;                // how long it holds you in sight before the shot
+const ANTI_WALK   = 3.1;                 // slower than you; the crowd is the threat
 
-   Lit rooms are sanctuary. Its beam cannot take you in a room whose lights are
-   on — which is why it putting them out matters so much. */
-
-const ANTI_PERIOD = 300;                 // 5:00 on the clock
-const MAX_ANTI    = 6;                   // pre-allocated: light count is baked into shaders
-const TRAIL_DT    = 0.1;                 // seconds between samples
-const CATCH_RANGE = 8.5;                 // "relatively close", and its beam on you
-const BEAM_COS    = Math.cos(0.38);      // its cone, for catching you
-const KILL_COS    = Math.cos(0.30);      // your cone, for killing it
-const AVERT_COS   = Math.cos(1.05);
-// how wide its front is. Outside this arc, any hit destroys it.
-const FRONT_COS   = Math.cos(0.87);      // it must be looking ~60 deg away to be vulnerable
-// No range on the kill: if you can see it down a corridor and its back is
-// turned, it goes out. Line of sight is the only limit, and that is meant to be
-// a real advantage — spotting a halo three rooms away and lining it up is the
-// one thing you can do that it can never do back.
-const KILL_RANGE  = Infinity;
-// how long its beam has to hold you before it takes you — the window in which
-// you can still turn, find it, and win the exchange
-const CATCH_BEAT  = 0.42;
-
-const trail = [];                        // {t, x, y, z, lev, yaw}
-const trailEvents = [];                  // {t, kind, ref}
-let trailT = 0, trailNext = 0;
-
-const idleFrom = new THREE.Vector3();
-let idleFor = 0;
-function trailMark(dt) {
-  // Standing still is not part of a route. After five seconds the recording
-  // stops advancing altogether, so an Anti-player never replays you doing
-  // nothing — and because playback runs on its own clock while the recording
-  // is paused, every second you spend still is a second it gains on you.
-  if (player.pos.distanceToSquared(idleFrom) > 0.0009) { idleFor = 0; idleFrom.copy(player.pos); }
-  else idleFor += dt;
-  if (idleFor > 5) return;
-
-  trailT += dt;
-  if (trailT < trailNext) return;
-  // step the deadline rather than restarting it from now, so samples land on an
-  // even grid instead of drifting out to 1.5x the interval
-  trailNext = Math.max(trailT, trailNext + TRAIL_DT);
-  trail.push({ t: trailT, x: player.pos.x, y: player.pos.y - EYE, z: player.pos.z,
-               lev: player.lev, yaw: player.yaw, pow: held.length });
-}
-// A warp lands as two adjacent samples metres apart, which is how a playback
-// head knows to cut rather than slide across the intervening walls.
-function trailSnap() {
-  trail.push({ t: trailT, x: player.pos.x, y: player.pos.y - EYE, z: player.pos.z,
-               lev: player.lev, yaw: player.yaw, pow: held.length });
-  trailNext = trailT + TRAIL_DT;
-}
-// Everything you do to the building, stamped. The ghost repeats the action, not
-// the outcome — which is exactly what makes it an undo.
-const trailEvent = (kind, ref) => trailEvents.push({ t: trailT, kind, ref });
 
 /* ---- the clock ---------------------------------------------------------- */
 const clockCv = document.createElement('canvas');
@@ -4144,7 +4131,7 @@ function drawDigit(g, x, y, w, h, n, col, off) {
     g.fillRect(boxes[i][0], boxes[i][1], boxes[i][2], boxes[i][3]);
   }
 }
-const clockColour = (s) => (s <= 15 ? '#ff4a35' : s <= 60 ? '#ffb03a' : '#e9f1ff');
+const clockColour = (s) => (s <= 10 ? '#ff4a35' : s <= 25 ? '#ffb03a' : '#e9f1ff');
 let clockShown = -1;
 function drawClockFace(secs) {
   const whole = Math.max(0, Math.ceil(secs));
@@ -4358,34 +4345,31 @@ function clearLine(from, to, lev) {
 function spawnAnti() {
   const a = antis.find((x) => !x.live);
   if (!a) return null;
-  a.live = true; a.done = false;
+  a.live = true;
+  a.tag = ++antiCount;
+  a.tagSprite.material.map = tagTex(a.tag, false);
+  a.tagSprite.material.needsUpdate = true;
+  a.pos.set(hubCentre.x, 0, hubCentre.z + 3.2);
+  a.lev = 0; a.yaw = Math.random() * Math.PI * 2;
+  a.goal = null; a.repath = 0; a.stuck = 0;
+  a.gun = null; a.aimT = 0; a.shotCool = 0;
   a.carrying = null; a.twin.visible = false;
-  a.zombie = false; a.eaten = 0; a.feedT = 0; a.goal = null;
+  a.path.length = 0;
+  a.grp.visible = true;
+  a.light.intensity = 62;
   a.light.color.setHex(0xbcd4ff);
-  a.light.distance = 95; a.light.angle = 0.34;
   a.lens.material.color.setHex(0xcfe0ff);
   a.halo.material.color.setHex(0xcfe0ff);
   a.halo.scale.setScalar(1.15);
-  a.tag = ++antiCount;              // named on arrival, and it keeps the name
-  a.tagSprite.material.map = tagTex(a.tag, false);
-  a.tagSprite.material.needsUpdate = true;
-  a.pt = 0;                         // it begins at the beginning: you, at minute zero
-  a.idx = 0; a.evIdx = 0; a.pow = 0;
-  a.pLock = 0; a.aLock = 0; a.path.length = 0; a.warpCool = 0;
-  a.pos.set(hubCentre.x, 0, hubCentre.z);
-  a.lev = 0; a.yaw = 0;
-  a.grp.visible = true;
-  a.light.intensity = 62;
   return a;
 }
 
 function retireAnti(a) {
+  // whatever it was holding falls where it stood
+  if (a.gun) { dropGunAt(a.gun, a.pos.x, a.pos.z, a.lev); a.gun = null; }
   a.live = false;
-  a.carrying = null;
-  a.twin.visible = false;
-  a.markSprite.visible = false;
-  a.aimT = 0;
   a.grp.visible = false;
+  a.markSprite.visible = false;
   a.light.intensity = 0;
 }
 
@@ -4466,178 +4450,6 @@ function updateShards(dt) {
   }
 }
 
-/* ====================================================== ZOMBIES
-
-   A walker that replays your whole route and catches up to where you are now
-   has run out of you. It stops being a recording at that point, and what is
-   left is something with no path to follow and nothing to do but hunt.
-
-   It goes slower than a walker, because it is not going anywhere in
-   particular — it is going towards light. It eats a room's lights and they do
-   not come back on: the switch is dead afterwards. Every room it eats makes
-   its own lamp brighter and its reach longer, so a zombie that has been loose
-   for a while lights a corridor on its own.
-
-   Your torch does not kill it. It eats that too — shining at one makes it
-   brighter, which turns the answer to everything else in the game into the one
-   move you must not make. Holy Light and the Ultra Blast still work.
-
-   And it eats walkers. Anything it catches becomes another one.              */
-const ZOMBIE_SPEED = 2.55;
-const ZOMBIE_GREEN = 0x5bff8f;
-
-function turnZombie(a) {
-  a.zombie = true;
-  a.done = false;
-  a.eaten = 0;
-  a.goal = null;
-  a.repath = 0;
-  a.light.color.setHex(ZOMBIE_GREEN);
-  a.light.distance = 40;
-  a.light.angle = 0.5;
-  a.lens.material.color.setHex(ZOMBIE_GREEN);
-  a.halo.material.color.setHex(ZOMBIE_GREEN);
-  a.tagSprite.material.map = tagTex(a.tag, true);
-  a.tagSprite.material.needsUpdate = true;
-  a.path.length = 0;
-  sfx.turn();
-  announce('DEATH WALKER \u2014 SENTIENT', '#' + ZOMBIE_GREEN.toString(16), 5.5);
-  say('they win by drinking light', 7);
-}
-
-// what it is walking toward: the nearest light still burning, else you
-function zombieGoal(a) {
-  let best = null, bestD = 1e9;
-  for (const room of props.switches) {
-    if (!room.on || room.eaten) continue;
-    const d = (room.pos.x - a.pos.x) ** 2 + (room.pos.z - a.pos.z) ** 2
-            + Math.abs(room.lev - a.lev) * 900;
-    if (d < bestD) { bestD = d; best = room; }
-  }
-  if (best) return { x: best.pos.x, z: best.pos.z, room: best };
-  return { x: player.pos.x, z: player.pos.z, room: null };
-}
-
-function stepZombie(a, dt) {
-  if ((a.repath -= dt) <= 0 || !a.goal) {
-    a.goal = zombieGoal(a);
-    a.repath = 2.5;
-  }
-  // greedy, with a slide along whatever it walks into — the halls are a loop
-  // network, so pressing toward a target gets there without a path-finder
-  const dx = a.goal.x - a.pos.x, dz = a.goal.z - a.pos.z;
-  const d = Math.hypot(dx, dz);
-  if (d > 0.6) {
-    const before = a.pos.x, beforeZ = a.pos.z;
-    a.pos.x += (dx / d) * ZOMBIE_SPEED * dt;
-    a.pos.z += (dz / d) * ZOMBIE_SPEED * dt;
-    collide(a.pos, a.lev);
-    // A walker takes its height from the recording. A zombie is walking under
-    // its own power, so it has to find the floor itself — settleAnti went when
-    // the walkers became pure playback and stopped needing one.
-    {
-      const [zr, zc] = cellOf(a.pos);
-      const g = groundUnder(zr, zc, a.pos.x, a.pos.z, a.lev, levelY(a.lev) + WALL_H);
-      if (g) { a.pos.y = g.y; a.lev = g.lev; }
-    }
-    if (Math.hypot(a.pos.x - before, a.pos.z - beforeZ) < ZOMBIE_SPEED * dt * 0.3) {
-      a.repath = 0;                                  // stuck: pick again
-    }
-    let want = Math.atan2(-dx, -dz), turn = want - a.yaw;
-    while (turn > Math.PI) turn -= Math.PI * 2;
-    while (turn < -Math.PI) turn += Math.PI * 2;
-    a.yaw += turn * Math.min(1, dt * 3.2);
-  }
-
-  // eat the room it is standing in
-  for (const room of props.switches) {
-    if (!room.on || room.eaten || room.lev !== a.lev) continue;
-    if ((room.pos.x - a.pos.x) ** 2 + (room.pos.z - a.pos.z) ** 2 > (CELL * 2.2) ** 2) continue;
-    room.eaten = true;
-    room.on = false;
-    for (const f of room.fixtures) setFixture(f, 0);
-    if (room.mesh.userData.rocker) room.mesh.userData.rocker.position.y = 0.12;
-    rebuildReveal();
-    feedZombie(a, 1);
-    sfx.eat();
-    if (room.lev === player.lev
-        && (room.pos.x - player.pos.x) ** 2 + (room.pos.z - player.pos.z) ** 2 < 1600) {
-      say('the room goes out, and stays out', 4.5);
-    }
-  }
-
-  // eat a walker: it becomes one too
-  for (const b of antis) {
-    if (b === a || !b.live || b.zombie || b.lev !== a.lev) continue;
-    if ((b.pos.x - a.pos.x) ** 2 + (b.pos.z - a.pos.z) ** 2 > 2.6 ** 2) continue;
-    feedZombie(a, 2);
-    turnZombie(b);
-  }
-
-  // and you
-  if (caughtT <= 0 && cloakT <= 0 && a.lev === player.lev
-      && (player.pos.x - a.pos.x) ** 2 + (player.pos.z - a.pos.z) ** 2 < 2.3 ** 2) {
-    caughtBy();
-  }
-}
-
-// every mouthful makes the lamp bigger
-function feedZombie(a, n) {
-  a.eaten += n;
-  a.light.intensity = 62 + a.eaten * 26;
-  a.light.distance = 40 + a.eaten * 12;
-  a.halo.scale.setScalar(1.15 + a.eaten * 0.22);
-}
-
-/* ---- walkers take the portals ------------------------------------------
-   A walker uses the network exactly as you do: walk into a vault portal and it
-   puts you in the hub, stand at a hub pedestal and it puts you in that vault.
-   Zombies cannot. They gave up your route when they turned, and the network
-   went with it — a zombie has to walk everywhere.
-
-   The awkward part is that a walker's position comes out of the recording every
-   frame, so warping it would simply snap back on the next one. Instead, when it
-   arrives it re-enters your history at the moment you were nearest to where it
-   has landed. It is still replaying you the whole time — it has just picked up
-   your route at a different point in it, which is what a portal does to a route
-   anyway.                                                                     */
-function reanchor(a, x, z, lev) {
-  a.pos.set(x, levelY(lev), z);
-  a.lev = lev;
-  a.warpCool = 1.8;
-  let best = -1, bestD = 1e9;
-  for (let i = 0; i < trail.length; i++) {
-    const t = trail[i];
-    if (t.lev !== lev) continue;
-    const d = (t.x - x) ** 2 + (t.z - z) ** 2;
-    if (d < bestD) { bestD = d; best = i; }
-  }
-  if (best >= 0) { a.idx = best; a.pt = trail[best].t; }
-  a.path.length = 0;
-  sfx.warp();
-}
-
-function antiPortals(a, dt) {
-  if (a.zombie) return;
-  a.warpCool = (a.warpCool || 0) - dt;
-  if (a.warpCool > 0) return;
-  for (const p of props.portals) {
-    if (p.lev !== a.lev) continue;
-    if ((p.pos.x - a.pos.x) ** 2 + (p.pos.z - a.pos.z) ** 2 > 1.5 ** 2) continue;
-    const hc = cellCentre((HUB.r1 + HUB.r2) / 2, (HUB.c1 + HUB.c2) / 2);
-    reanchor(a, hc.x, hc.z + 4, 0);
-    return;
-  }
-  if (a.lev !== 0) return;
-  for (const ped of props.pedestals) {
-    if ((ped.pos.x - a.pos.x) ** 2 + (ped.pos.z - a.pos.z) ** 2 > 1.5 ** 2) continue;
-    const c = props.crystals.find((x) => x.id === ped.id);
-    if (!c) continue;
-    reanchor(a, c.pos.x, c.pos.z + CELL * 1.4, c.lev);
-    return;
-  }
-}
-
 function killAnti(a) {
   const had = a.carrying;
   spectrumBurst(a.pos.clone().setY(a.pos.y + 1.12));
@@ -4651,67 +4463,7 @@ function killAnti(a) {
   announce(`F${a.tag} GOES OUT`, '#cfe0ff', 3.4);
 }
 
-// It repeats the action you took, at the moment you took it.
-function replayEvent(ev) {
-  if (ev.kind === 'switch') {
-    const s = props.switches[ev.ref];
-    if (!s || s.eaten) return;
-    /* One direction only. Replaying your flick used to toggle, which meant the
-       second walker to reach a switch turned back on what the first had turned
-       off, and a room could flicker between them all game. They prefer the
-       dark: a walker puts a light out and leaves it out. */
-    if (!s.on) return;
-    s.on = false;
-    for (const f of s.fixtures) setFixture(f, 0);
-    if (s.mesh.userData.rocker) s.mesh.userData.rocker.position.y = 0.12;
-    rebuildReveal(); sfx.hum();
-  } else if (ev.kind === 'take') {
-    const c = props.crystals[ev.ref];
-    if (!c) return;
-    ev.by.carrying = c;
-    ev.by.twin.visible = true;
-    ev.by.twin.material.emissive.setHex(c.color);
-    sfx.take();
-    announce(`F${ev.by.tag} HAS THE ${c.name}`, '#' + c.color.toString(16).padStart(6, '0'), 4.2);
-    say('put it out before it reaches the centre', 5.5);
-  } else if (ev.kind === 'seat') {
-    const a = ev.by;
-    if (!a.carrying) return;
-    const c = a.carrying;
-    a.carrying = null;
-    a.twin.visible = false;
-    // Whatever became of the real one, it goes back to the vault it came from.
-    const ped = props.pedestals.find((p) => p.filled && p.filled.id === c.id);
-    if (ped) unseatCrystal(ped);
-    else if (player.carrying && player.carrying.id === c.id) {
-      player.carrying = null;
-      carriedMesh.visible = false; carriedEmitter.on = false;
-      el.carried.classList.remove('on');
-      c.taken = false; c.mesh.visible = true; c.emitter.on = true;
-    } else if (flight && flight.crystal.id === c.id) {
-      flight = null; flyMesh.visible = false; flyEmitter.on = false;
-      c.taken = false; c.mesh.visible = true; c.emitter.on = true;
-    } else return;                       // it was already home; nothing to undo
-    rebuildReveal();
-    sfx.caught();
-    hitFlash = 0.75;
-    announce(`THE ${c.name} IS BACK IN ITS VAULT`, '#' + c.color.toString(16).padStart(6, '0'), 5.2);
-  } else if (ev.kind === 'button') {
-    const b = props.buttons[ev.ref];
-    const d = b && props.doors.find((x) => x.id === b.id);
-    if (!d) return;
-    // never bring a gate down on your head
-    const dp = cellCentre(d.cell[0], d.cell[1]);
-    if (d.open && d.lev === player.lev
-        && (dp.x - player.pos.x) ** 2 + (dp.z - player.pos.z) ** 2 < (CELL * 1.8) ** 2) return;
-    d.open = !d.open;
-    if (b.mesh.userData.knob) b.mesh.userData.knob.material.emissiveIntensity = d.open ? 1 : 0.25;
-    rebuildReveal(); sfx.door();
-  }
-}
-
-// Its beam cannot take you in a room whose lights are on. That is the whole
-// reason its putting them out matters.
+// Lit rooms and the hub are sanctuary: no knife and no bullet takes you there.
 function safeInLight() {
   const [r, c] = cellOf(player.pos);
   if (inHub(player.lev, r, c)) return true;
@@ -4724,7 +4476,7 @@ function caughtBy() {
   // Nothing leaves. Being caught costs you the crystals and sends you home, but
   // every walker keeps walking — which is the only way a crowd ever builds, and
   // a crowd is what eventually turns into something worse.
-  for (const a of antis) if (a.live) { a.pLock = 0; a.aLock = 0; }
+  for (const a of antis) if (a.live) a.aimT = 0;
 
   if (player.carrying) {
     const c = player.carrying;
@@ -4763,163 +4515,116 @@ function sendHome() {
   say('every crystal is back where it was, and so are you', 6);
 }
 
-// Walk one playback head to where you were, delay seconds ago.
-function stepAnti(a, dt) {
-  // its own clock, not a fixed lag behind yours: the recording pauses while
-  // you stand still, and this does not
-  a.pt += dt;
-  const pt = Math.min(a.pt, trailT);
-  if (pt <= 0) return;
-  while (a.evIdx < trailEvents.length && trailEvents[a.evIdx].t <= pt) {
-    const ev = trailEvents[a.evIdx++];
-    ev.by = a;                            // so a replayed pickup knows whose hands
-    replayEvent(ev);
+/* The wander. Not smart, and not meant to be: pick the nearest gun on the
+   floor anywhere in the building and press toward it; with no guns to want,
+   drift between random waypoints. If the player crosses its sight it follows.
+   Movement is the same greedy press the halls forgive — they are a loop
+   network, so walking at a thing gets there without a path-finder — and a
+   shut vault gate stops it exactly as it stops you. */
+function wanderGoal(a) {
+  let best = null, bestD = 1e9;
+  for (const g of worldGuns) {
+    if (!g.onFloor) continue;
+    const d = (g.pos.x - a.pos.x) ** 2 + (g.pos.z - a.pos.z) ** 2
+            + Math.abs(g.lev - a.lev) * 900;
+    if (d < bestD) { bestD = d; best = { x: g.pos.x, z: g.pos.z, gun: g }; }
   }
-  while (a.idx < trail.length - 1 && trail[a.idx + 1].t <= pt) a.idx++;
-  if (a.idx >= trail.length - 1) { a.done = true; return; }
-  const p = trail[a.idx], q = trail[a.idx + 1];
-  const span = q.t - p.t;
-  const k = span > 1e-6 ? Math.min(1, (pt - p.t) / span) : 0;
-  // a portal shows up as a jump between adjacent samples: step it, do not slide
-  const leap = (q.x - p.x) ** 2 + (q.z - p.z) ** 2 > (CELL * 3) ** 2 || q.lev !== p.lev;
-  if (leap) {
-    a.pos.set(q.x, q.y, q.z); a.lev = q.lev; a.yaw = q.yaw;
-    a.pow = (q.pow || 0) + Math.max(0, a.tag - 1);
-  } else {
-    a.pos.set(p.x + (q.x - p.x) * k, p.y + (q.y - p.y) * k, p.z + (q.z - p.z) * k);
-    a.lev = p.lev;
-    // each one carries what you carried then, plus one for every walker that
-    // came before it
-    a.pow = (p.pow || 0) + Math.max(0, a.tag - 1);
-    let dy = q.yaw - p.yaw;
-    while (dy >  Math.PI) dy -= Math.PI * 2;
-    while (dy < -Math.PI) dy += Math.PI * 2;
-    a.yaw = p.yaw + dy * k;
+  if (best) return best;
+  // the player, if it can see you and you are not in sanctuary
+  if (a.lev === player.lev && !safeInLight()
+      && clearLine(a.pos, player.pos, a.lev)
+      && Math.hypot(player.pos.x - a.pos.x, player.pos.z - a.pos.z) < 30) {
+    return { x: player.pos.x, z: player.pos.z, gun: null, isPlayer: true };
   }
+  // otherwise: somewhere. anywhere.
+  for (let tries = 0; tries < 24; tries++) {
+    const r = 2 + Math.floor(Math.random() * (ROWS - 4));
+    const c = 2 + Math.floor(Math.random() * (COLS - 4));
+    if (at(a.lev, r, c) === '.' ) {
+      const p = cellCentre(r, c);
+      return { x: p.x, z: p.z, gun: null };
+    }
+  }
+  return { x: a.pos.x, z: a.pos.z, gun: null };
 }
 
-// Your beam kills it only while it is looking somewhere else — and since it
-// cannot turn, whether it is looking away is decided by what you did, then.
-/* The duel is decided by the lamp, not by the angle.
-
-   You carry every lamp you have found; an Anti-player carries the lamps you
-   were carrying at the moment it is replaying. Since it is always replaying an
-   earlier you, its light is never stronger than yours — so the moment you pick
-   up your first crystal, you outgun every version of yourself that came
-   before, and a head-on exchange is simply won.
-
-   Equal lamps is the interesting case, and it is settled the honest way: first
-   beam onto the other wins. Not first to fire, first to be *on target*, so
-   turning to face something before it turns to face you is what saves you.
-
-   The old rule — that it could only be killed while looking away — is gone,
-   and with it the shot that could never land. */
-const aimFrom = new THREE.Vector3(), aimDir = new THREE.Vector3(), toAnti = new THREE.Vector3();
-function torchDuel(dt, now) {
-  const powered = player.battery > 0;
-  /* Aim is taken from where you are looking, not from where the beam has got
-     to. The torch is carried and its aim trails about a third of a second
-     behind the view — which is right for how it looks, and quite wrong for
-     deciding a duel: an Anti-player replays a fixed heading, so its beam is on
-     target the instant it rounds a corner while yours is still swinging. Timed
-     against the lagging beam, "first to shine at the other" could never be won
-     by the player. Timed against the look, turning to face it first is what
-     saves you, which is the rule as stated. */
-  /* Taken from the player's own yaw and pitch, not from the camera. The camera's
-     matrix is written at the end of the frame, after this runs, so reading it
-     here is always one frame stale — and one frame is enough that after any
-     turn the walker locks on before you do and wins every equal exchange. */
-  aimFrom.copy(player.pos);
-  const cp = Math.cos(player.pitch);
-  aimDir.set(-Math.sin(player.yaw) * cp, Math.sin(player.pitch), -Math.cos(player.yaw) * cp);
-  const mine = held.length;
-  for (const a of antis) {
-    if (!a.live) { a.markSprite.visible = false; a.pLock = a.aLock = 0; continue; }
-
-    // your beam on it — across floors as well, so a balcony over an atrium is
-    // a firing position
-    toAnti.set(a.pos.x - aimFrom.x, a.pos.y + 1.12 - aimFrom.y, a.pos.z - aimFrom.z);
-    const dist = toAnti.length();
-    const playerOn = powered && dist > 1e-3
-      && toAnti.dot(aimDir) / dist > KILL_COS
-      && clearSight(aimFrom, { x: a.pos.x, y: a.pos.y + 1.12, z: a.pos.z });
-
-    // its beam on you
-    const dx = player.pos.x - a.pos.x, dz = player.pos.z - a.pos.z;
-    const flat = Math.hypot(dx, dz) || 1e-6;
-    const itsOn = caughtT <= 0 && cloakT <= 0 && !safeInLight() && a.lev === player.lev
-      && flat < CATCH_RANGE
-      && (-Math.sin(a.yaw) * dx - Math.cos(a.yaw) * dz) / flat > BEAM_COS
-      && clearLine(a.pos, player.pos, a.lev);
-
-    /* Where the beam lands on it decides the exchange before anything else
-       does. Anything that is not its front — its back, either flank — destroys
-       it outright whatever it is carrying. Only head-on falls through to the
-       lamp comparison, which is what makes circling the answer to a walker you
-       cannot outgun. */
-    // dx,dz already runs from it to you, which is the direction its own beam
-    // test uses. Negating it here made "frontal" true when you were behind it,
-    // so every rule was exactly inverted.
-    const frontal = flat > 1e-3
-      && (-Math.sin(a.yaw) * dx - Math.cos(a.yaw) * dz) / flat > FRONT_COS;
-
-    // when each of you came on target
-    a.pLock = playerOn ? (a.pLock || now) : 0;
-    a.aLock = itsOn ? (a.aLock || now) : 0;
-
-    if (!playerOn) { a.markSprite.visible = false; }
-    else {
-      // white while you would win the exchange, red while you would lose it
-      const wins = !frontal || mine > a.pow || (mine === a.pow && (!itsOn || a.pLock <= a.aLock));
-      a.markSprite.visible = true;
-      a.markSprite.material.map = wins ? markOpen : markShut;
-      a.markSprite.material.needsUpdate = true;
+function stepAnti(a, dt) {
+  if ((a.repath -= dt) <= 0 || !a.goal) { a.goal = wanderGoal(a); a.repath = 2.2; }
+  const dx = a.goal.x - a.pos.x, dz = a.goal.z - a.pos.z;
+  const d = Math.hypot(dx, dz);
+  if (d > 0.7) {
+    const bx = a.pos.x, bz = a.pos.z;
+    a.pos.x += (dx / d) * ANTI_WALK * dt;
+    a.pos.z += (dz / d) * ANTI_WALK * dt;
+    collide(a.pos, a.lev);
+    {
+      const [zr, zc] = cellOf(a.pos);
+      const g = groundUnder(zr, zc, a.pos.x, a.pos.z, a.lev, levelY(a.lev) + WALL_H);
+      if (g) { a.pos.y = g.y; a.lev = g.lev; }
     }
-
-    /* Its beam does not take you the instant it touches you. There is a beat
-       first — which has to exist, because your torch is carried and its aim
-       trails a third of a second behind where you look. Without the beat you
-       could never win an exchange you turned into, and "the stronger lamp
-       wins" would be unreachable. */
-    if (a.zombie) {
-      // It eats your beam. The one move that answers everything else in the
-      // game is the one move that makes this worse.
-      if (playerOn) {
-        a.feedT = (a.feedT || 0) + dt;
-        if (a.feedT > 0.9) { a.feedT = 0; feedZombie(a, 1); say('it is drinking your light', 3); }
-        a.markSprite.visible = true;
-        a.markSprite.material.map = markShut;
-        a.markSprite.material.needsUpdate = true;
-      } else { a.markSprite.visible = false; a.feedT = 0; }
-      continue;
-    }
-    if (playerOn && !frontal) {
-      killAnti(a);                                   // from behind or the side
-      continue;
-    }
-    const strongerThanIt = mine > a.pow;
-    if (playerOn && strongerThanIt) {
-      killAnti(a);                                   // outgunned: no contest
-    } else if (playerOn && itsOn) {
-      /* A walker replays a fixed heading, so it is already pointed the instant
-         it rounds a corner while you still have to turn — comparing who locked
-         on first hands it every equal exchange by construction, on a margin of
-         about a tenth of a second that no reaction can close.
-
-         So the question is not who was first, it is whether you got on target
-         at all before its beat ran out. If you did, and your lamp is not
-         weaker, the exchange is yours. If you never manage it, the branch below
-         catches you when the beat completes. That is what "first to shine"
-         means when one of you was already shining. */
-      if (a.pow > mine) { if (now - a.aLock >= CATCH_BEAT) caughtBy(); }
-      else killAnti(a);
-    } else if (playerOn) {
-      // a beat of steady aim, so a beam sweeping past does not clip one by luck
-      if (now - a.pLock >= 0.22) killAnti(a);
-    } else if (itsOn && now - a.aLock >= CATCH_BEAT) {
-      caughtBy();
-    }
+    if (Math.hypot(a.pos.x - bx, a.pos.z - bz) < ANTI_WALK * dt * 0.3) {
+      a.stuck += dt;
+      if (a.stuck > 0.9) { a.goal = null; a.stuck = 0; }
+    } else a.stuck = 0;
+    let want = Math.atan2(-dx, -dz), turn = want - a.yaw;
+    while (turn > Math.PI) turn -= Math.PI * 2;
+    while (turn < -Math.PI) turn += Math.PI * 2;
+    a.yaw += turn * Math.min(1, dt * 3.4);
+  } else if (a.goal.gun && a.goal.gun.onFloor) {
+    // it found what it was looking for
+    a.gun = a.goal.gun;
+    a.goal.gun.onFloor = false;
+    a.goal.gun.mesh.visible = false;
+    a.goal = null;
+    sfx.click();
+    if (a.lev === player.lev) say('something just picked a gun up', 4.5);
+  } else {
+    a.goal = null;
   }
+
+  // it prefers the dark: any lit switch it passes goes out, and stays out
+  // until you relight it
+  for (const room of props.switches) {
+    if (!room.on || room.lev !== a.lev) continue;
+    if ((room.pos.x - a.pos.x) ** 2 + (room.pos.z - a.pos.z) ** 2 > (CELL * 1.8) ** 2) continue;
+    room.on = false;
+    for (const f of room.fixtures) setFixture(f, 0);
+    if (room.mesh.userData.rocker) room.mesh.userData.rocker.position.y = 0.12;
+    rebuildReveal();
+    sfx.hum();
+  }
+
+  // the knife, up close — and the gun, if it is carrying one you dropped
+  if (caughtT <= 0 && !safeInLight() && a.lev === player.lev) {
+    const pdx = player.pos.x - a.pos.x, pdz = player.pos.z - a.pos.z;
+    const pd = Math.hypot(pdx, pdz);
+    if (pd < KNIFE_RANGE) { caughtBy(); return; }
+    if (a.gun) {
+      a.shotCool -= dt;
+      const sees = pd < SHOOT_RANGE && clearLine(a.pos, player.pos, a.lev);
+      if (sees) {
+        faceToward2(a, pdx, pdz, dt * 6);
+        a.aimT += dt;
+        if (a.aimT >= SHOOT_AIM && a.shotCool <= 0) {
+          // the shot: a crack, a flare, and the same price as the knife
+          a.light.intensity = 300;
+          sfx.shot(0.8);
+          a.shotCool = 1.6;
+          a.aimT = 0;
+          caughtBy();
+          return;
+        }
+      } else { a.aimT = 0; a.light.intensity = 62; }
+    }
+  } else a.aimT = 0;
+  if (a.light.intensity > 62) a.light.intensity = Math.max(62, a.light.intensity - dt * 900);
+}
+
+function faceToward2(a, dx, dz, k) {
+  let d = Math.atan2(-dx, -dz) - a.yaw;
+  while (d >  Math.PI) d -= Math.PI * 2;
+  while (d < -Math.PI) d += Math.PI * 2;
+  a.yaw += d * Math.min(1, k);
 }
 
 function updateAntis(dt) {
@@ -4927,7 +4632,6 @@ function updateAntis(dt) {
   el.hitflash.style.opacity = hitFlash * hitFlash;
   if (caughtT > 0 && (caughtT -= dt) <= 0) sendHome();
 
-  // Once the sixth crystal is seated they are finished with you.
   if (ending) {
     for (const a of antis) if (a.live) retireAnti(a);
     clockBox.visible = false;
@@ -4941,53 +4645,40 @@ function updateAntis(dt) {
     if (clockT <= 0) {
       clockT = ANTI_PERIOD;
       const born = spawnAnti();
-      if (born) { sfx.spawn(); announce(`F${born.tag} IS WALKING`, '#cfe0ff', 4.4); }
+      if (born) { sfx.spawn(); announce(`F${born.tag} IS LOOSE`, '#cfe0ff', 4); }
     }
   }
   drawClockFace(clockT);
-  const urg = clockT <= 15 ? 0.5 + 0.5 * Math.sin(clock.elapsedTime * 9) : 1;
+  const urg = clockT <= 10 ? 0.5 + 0.5 * Math.sin(clock.elapsedTime * 9) : 1;
   clockFace.color.setScalar(urg);
 
   for (const a of antis) {
     if (!a.live) continue;
-    if (a.zombie) stepZombie(a, dt); else { stepAnti(a, dt); antiPortals(a, dt); }
-    if (a.zombie) {
-      const tl = a.path[a.path.length - 1];
-      if (!tl || (tl.x - a.pos.x) ** 2 + (tl.z - a.pos.z) ** 2 > 0.5) {
-        a.path.push({ x: a.pos.x, z: a.pos.z, lev: a.lev, t: clock.elapsedTime });
-        if (a.path.length > 90) a.path.shift();
-      }
+    stepAnti(a, dt);
+    const tl = a.path[a.path.length - 1];
+    if (!tl || (tl.x - a.pos.x) ** 2 + (tl.z - a.pos.z) ** 2 > 0.5) {
+      a.path.push({ x: a.pos.x, z: a.pos.z, lev: a.lev, t: clock.elapsedTime });
+      if (a.path.length > 90) a.path.shift();
     }
-    if (a.done && !a.zombie) turnZombie(a);      // it has run out of you
-    // it charts the ground it covers, and leaves a short line behind it
+    // it charts the ground it covers as it goes
     const [ar, ac] = cellOf(a.pos);
     for (let dr = -2; dr <= 2; dr++) for (let dc = -2; dc <= 2; dc++) {
       chartCell(a.lev, ar + dr, ac + dc);
     }
-    const tail = a.path[a.path.length - 1];
-    if (!tail || (tail.x - a.pos.x) ** 2 + (tail.z - a.pos.z) ** 2 > 0.5) {
-      a.path.push({ x: a.pos.x, z: a.pos.z, lev: a.lev, t: clock.elapsedTime });
-      if (a.path.length > 90) a.path.shift();
-    }
-
     a.grp.position.set(a.pos.x, a.pos.y + 1.12, a.pos.z);
     a.grp.rotation.y = a.yaw;
     a.light.position.set(a.pos.x, a.pos.y + 1.12, a.pos.z);
     a.target.position.set(a.pos.x - Math.sin(a.yaw) * 6, a.pos.y + 0.7, a.pos.z - Math.cos(a.yaw) * 6);
-
   }
-  // the room tightens as one closes on you, whether or not you have seen it
+
   let nearest = null;
   for (const a of antis) {
     if (!a.live) continue;
     const d = Math.hypot(a.pos.x - player.pos.x, a.pos.z - player.pos.z)
-            + Math.abs(a.lev - player.lev) * 14;      // a floor between counts for distance
+            + Math.abs(a.lev - player.lev) * 14;
     if (nearest == null || d < nearest) nearest = d;
   }
   updateMusic(dt, nearest);
-
-  if (caughtT <= 0) torchDuel(dt, clock.elapsedTime);
-  else for (const a of antis) a.markSprite.visible = false;
 }
 
 /* ====================================================== THE SIX LIGHTS
@@ -5521,6 +5212,280 @@ function updateChandeliers(dt, now) {
   }
 }
 
+/* ====================================================== GUNS
+
+   The torch stopped being a weapon. It lights the way, it charges in lit
+   rooms, and it is how you find the guns — a gun in a dark hall is a dark
+   object, and nothing here glows for your convenience.
+
+   Five of them, one tier each. You start with the pistol; the other four hang
+   in the air at random hall cells, turning slowly, and they show on the chart
+   from the first moment — you know where they are, you just do not know what
+   is between you and them. Taking a better one drops the one you carry where
+   you stand, and the wanderers are drawn to anything left on the floor. What
+   they pick up, they use.
+
+   Reloading happens at the hub and nowhere else. Every magazine is a promise
+   about how far from home you can afford to be.                             */
+const GUNS = [
+  { key: 'pistol',  name: 'PISTOL',      tier: 1, mag: 6,   auto: false, rate: 0.30, pellets: 1, spread: 0.012 },
+  { key: 'shotgun', name: 'SHOTGUN',     tier: 2, mag: 1,   auto: false, rate: 1.0,  pellets: 9, spread: 0.13 },
+  { key: 'mg',      name: 'MACHINE GUN', tier: 3, mag: 100, auto: true,  rate: 0.085, pellets: 1, spread: 0.035 },
+  { key: 'blaster', name: 'BLASTER',     tier: 4, mag: 4,   auto: false, rate: 0.8,  blast: true },
+  { key: 'laser',   name: 'LASER',       tier: 5, charge: 10, laser: true },
+];
+const gunState = { tier: 1, ammo: 6, charge: 10, cool: 0, trigger: false, wasDown: false };
+const curGun = () => GUNS[gunState.tier - 1];
+
+/* ---- the gun models: small, dark, and mute without light ---------------- */
+const matGun = new THREE.MeshPhongMaterial({ color: 0x8a8a8a, specular: 0xcfcfcf, shininess: 60 });
+const GUN_GEOS = {
+  pistol: mergeGeos([
+    at3(Box(0.07, 0.09, 0.30), 0, 0.10, 0),                 // slide
+    at3(Box(0.06, 0.16, 0.09), 0, -0.01, 0.09, -0.28),      // grip
+    at3(Box(0.05, 0.05, 0.07), 0, 0.015, 0.01),             // guard
+  ]),
+  shotgun: mergeGeos([
+    at3(Cyl(0.035, 0.035, 0.78, 8), 0, 0.10, 0, Math.PI / 2),
+    at3(Box(0.06, 0.07, 0.26), 0, 0.02, 0.06),              // pump
+    at3(Box(0.07, 0.12, 0.24), 0, 0.02, 0.36, -0.4),        // stock
+  ]),
+  mg: mergeGeos([
+    at3(Box(0.08, 0.10, 0.62), 0, 0.08, 0),
+    at3(Cyl(0.028, 0.028, 0.34, 8), 0, 0.09, -0.42, Math.PI / 2),
+    at3(Box(0.05, 0.20, 0.10), 0, -0.08, 0.05),             // magazine
+    at3(Box(0.07, 0.11, 0.20), 0, 0.03, 0.34, -0.35),
+  ]),
+  blaster: mergeGeos([
+    at3(Cyl(0.09, 0.12, 0.55, 10), 0, 0.08, 0, Math.PI / 2),
+    at3(Cyl(0.14, 0.14, 0.08, 10), 0, 0.08, -0.20, Math.PI / 2),
+    ...[0, 1, 2, 3].map((i) => at3(Box(0.03, 0.16, 0.22),
+        Math.cos(i * Math.PI / 2) * 0.11, 0.08 + Math.sin(i * Math.PI / 2) * 0.11, 0.18)),
+    at3(Box(0.07, 0.16, 0.12), 0, -0.05, 0.20, -0.3),
+  ]),
+  laser: mergeGeos([
+    at3(Cyl(0.045, 0.045, 0.85, 10), 0, 0.09, 0, Math.PI / 2),
+    ...[-0.28, -0.06, 0.16].map((z) => at3(Cyl(0.075, 0.075, 0.05, 10), 0, 0.09, z, Math.PI / 2)),
+    at3(Box(0.06, 0.14, 0.14), 0, -0.02, 0.30, -0.3),
+  ]),
+};
+
+const worldGuns = [];
+{
+  // a random open hall cell, a fresh set every game
+  const spot = () => {
+    for (let tries = 0; tries < 400; tries++) {
+      const l = Math.floor(Math.random() * NLEV);
+      const r = 2 + Math.floor(Math.random() * (ROWS - 4));
+      const c = 2 + Math.floor(Math.random() * (COLS - 4));
+      if (at(l, r, c) !== '.') continue;
+      if (inHub(l, r, c)) continue;
+      const p = cellCentre(r, c);
+      if (worldGuns.some((g) => Math.hypot(g.pos.x - p.x, g.pos.z - p.z) < 18)) continue;
+      return { p, l };
+    }
+    return { p: cellCentre(2, 2), l: 0 };
+  };
+  for (const spec of GUNS) {
+    const mesh = new THREE.Mesh(GUN_GEOS[spec.key], matGun);
+    mesh.castShadow = true;
+    mesh.visible = false;
+    scene.add(mesh);
+    const g = { tier: spec.tier, spec, mesh, pos: new THREE.Vector3(), lev: 0, onFloor: false, bob: Math.random() * 6 };
+    if (spec.tier > 1) {                        // the pistol starts in your hand
+      const { p, l } = spot();
+      g.pos.set(p.x, levelY(l) + 1.15, p.z);
+      g.lev = l; g.onFloor = true;
+      mesh.visible = true;
+    }
+    worldGuns.push(g);
+  }
+}
+
+function dropGunAt(g, x, z, lev) {
+  g.pos.set(x, levelY(lev) + 1.15, z);
+  g.lev = lev;
+  g.onFloor = true;
+  g.mesh.visible = true;
+}
+
+/* ---- firing -------------------------------------------------------------- */
+// bullet holes: a fixed pool of small dark discs, oldest reused first
+const decals = [];
+{
+  const geo = new THREE.CircleGeometry(0.055, 8);
+  const mat = new THREE.MeshBasicMaterial({ color: 0x101010, fog: true });
+  for (let i = 0; i < 60; i++) {
+    const m = new THREE.Mesh(geo, mat);
+    m.visible = false;
+    scene.add(m);
+    decals.push(m);
+  }
+}
+let decalIdx = 0;
+function placeDecal(x, y, z, nx, ny, nz) {
+  const m = decals[decalIdx++ % decals.length];
+  m.position.set(x + nx * 0.012, y + ny * 0.012, z + nz * 0.012);
+  m.lookAt(x + nx, y + ny, z + nz);
+  m.visible = true;
+}
+
+// the laser's visible beam
+const laserBeam = new THREE.Mesh(
+  new THREE.CylinderGeometry(0.035, 0.035, 1, 6),
+  new THREE.MeshBasicMaterial({ color: 0xff5040, transparent: true, opacity: 0.85,
+                                blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
+laserBeam.visible = false;
+scene.add(laserBeam);
+const laserGlow = { pos: new THREE.Vector3(), color: new THREE.Color(0xff5040), intensity: 0, on: false };
+emitters.push(laserGlow);
+
+// One ray of one shot. Returns what it hit; walls stop bullets, not the laser.
+const rayDir = new THREE.Vector3(), rayAt = new THREE.Vector3();
+function gunRay(spread, pierce, maxD) {
+  const cp = Math.cos(player.pitch);
+  rayDir.set(-Math.sin(player.yaw) * cp, Math.sin(player.pitch), -Math.cos(player.yaw) * cp);
+  if (spread) {
+    rayDir.x += (Math.random() - 0.5) * spread * 2;
+    rayDir.y += (Math.random() - 0.5) * spread * 2;
+    rayDir.z += (Math.random() - 0.5) * spread * 2;
+    rayDir.normalize();
+  }
+  const levOf = (y) => Math.max(0, Math.min(NLEV - 1, Math.floor(y / LEVEL_H)));
+  for (let d = 0.6; d < maxD; d += 0.3) {
+    rayAt.set(player.pos.x + rayDir.x * d, player.pos.y + rayDir.y * d, player.pos.z + rayDir.z * d);
+    for (const a of antis) {
+      if (!a.live) continue;
+      const dy = (a.pos.y + 1.0) - rayAt.y;
+      if (dy * dy > 1.6) continue;
+      const dd = (a.pos.x - rayAt.x) ** 2 + (a.pos.z - rayAt.z) ** 2;
+      if (dd < 0.82) return { kind: 'anti', a, x: rayAt.x, y: rayAt.y, z: rayAt.z };
+    }
+    const lv = levOf(rayAt.y);
+    const r = Math.floor(rayAt.z / CELL), c = Math.floor(rayAt.x / CELL);
+    if (!pierce && blocksSight(lv, r, c) && !holes.has(`${lv},${r},${c}`)) {
+      return { kind: 'wall', lev: lv, r, c,
+               x: rayAt.x - rayDir.x * 0.3, y: rayAt.y - rayDir.y * 0.3, z: rayAt.z - rayDir.z * 0.3,
+               nx: -rayDir.x, ny: -rayDir.y, nz: -rayDir.z };
+    }
+  }
+  return null;
+}
+
+function fireOnce() {
+  const spec = curGun();
+  if (spec.laser) return;                        // the laser is held, not clicked
+  if (gunState.ammo <= 0) { sfx.dry(); say('empty — reload at the centre', 3); gunState.cool = 0.4; return; }
+  gunState.ammo--;
+  gunState.cool = spec.rate;
+  if (spec.blast) {
+    sfx.blastShot();
+    const hit = gunRay(0, false, 60) || { x: player.pos.x + rayDir.x * 60, y: player.pos.y, z: player.pos.z + rayDir.z * 60 };
+    if (hit.kind === 'wall' && at(hit.lev, hit.r, hit.c) === '#') {
+      punchHole({ lev: hit.lev, r: hit.r, c: hit.c }, Infinity);   // and it stays open
+    }
+    killFlash.pos.set(hit.x, hit.y, hit.z);
+    killFlash.intensity = 60; killFlash.on = true;
+    let n = 0;
+    for (const a of antis) {
+      if (!a.live) continue;
+      if ((a.pos.x - hit.x) ** 2 + (a.pos.y + 1 - hit.y) ** 2 + (a.pos.z - hit.z) ** 2 < 36) {
+        spectrumBurst(a.pos.clone().setY(a.pos.y + 1.12)); killAnti(a); n++;
+      }
+    }
+    return;
+  }
+  sfx.shot(spec.pellets > 1 ? 1.4 : 0.9);
+  for (let i = 0; i < spec.pellets; i++) {
+    const hit = gunRay(spec.spread, false, 60);
+    if (!hit) continue;
+    if (hit.kind === 'anti') { spectrumBurst(hit.a.pos.clone().setY(hit.a.pos.y + 1.12)); killAnti(hit.a); }
+    else placeDecal(hit.x, hit.y, hit.z, hit.nx, hit.ny, hit.nz);
+  }
+}
+
+function updateGuns(dt) {
+  gunState.cool -= dt;
+  const spec = curGun();
+
+  // the world guns hang and turn; walking into a better one takes it
+  const t = clock.elapsedTime;
+  for (const g of worldGuns) {
+    if (!g.onFloor) continue;
+    g.mesh.position.set(g.pos.x, g.pos.y + Math.sin(t * 1.4 + g.bob) * 0.10, g.pos.z);
+    g.mesh.rotation.y = t * 0.9 + g.bob;
+    if (g.lev === player.lev && g.tier > gunState.tier
+        && (g.pos.x - player.pos.x) ** 2 + (g.pos.z - player.pos.z) ** 2 < 1.7) {
+      const old = worldGuns.find((w) => w.tier === gunState.tier);
+      if (old) dropGunAt(old, player.pos.x, player.pos.z, player.lev);
+      g.onFloor = false; g.mesh.visible = false;
+      gunState.tier = g.tier;
+      gunState.ammo = g.spec.mag || 0;
+      gunState.charge = g.spec.charge || 0;
+      sfx.gunget();
+      announce(g.spec.name, '#ffffff', 3.6);
+      say('what you were carrying is on the floor behind you', 5);
+    }
+  }
+
+  // the hub is the only armoury
+  {
+    const [r, c] = cellOf(player.pos);
+    if (player.lev === 0 && inHub(0, r, c)) {
+      const needed = spec.laser ? gunState.charge < spec.charge : gunState.ammo < spec.mag;
+      if (needed) {
+        gunState.ammo = spec.mag || 0;
+        gunState.charge = spec.charge || 0;
+        sfx.reloadSfx();
+        say('rearmed', 2.2);
+      }
+    }
+  }
+
+  // firing
+  const pressed = gunState.trigger && !gunState.wasDown;
+  if (spec.laser) {
+    const firing = gunState.trigger && gunState.charge > 0 && started && !ending;
+    laserBeam.visible = firing;
+    laserGlow.on = firing;
+    if (firing) {
+      gunState.charge = Math.max(0, gunState.charge - dt);
+      const cp = Math.cos(player.pitch);
+      rayDir.set(-Math.sin(player.yaw) * cp, Math.sin(player.pitch), -Math.cos(player.yaw) * cp);
+      const len = 60;
+      laserBeam.position.set(player.pos.x + rayDir.x * len / 2,
+                             player.pos.y - 0.18 + rayDir.y * len / 2,
+                             player.pos.z + rayDir.z * len / 2);
+      laserBeam.scale.set(1, len, 1);
+      laserBeam.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), rayDir);
+      laserGlow.pos.set(player.pos.x + rayDir.x * 3, player.pos.y, player.pos.z + rayDir.z * 3);
+      laserGlow.intensity = 20;
+      if ((laserGlow.tick = (laserGlow.tick || 0) + dt) > 0.11) { laserGlow.tick = 0; sfx.laserHum(); }
+      // everything in its path, straight through the walls
+      for (const a of antis) {
+        if (!a.live) continue;
+        const px = a.pos.x - player.pos.x, py = a.pos.y + 1 - player.pos.y, pz = a.pos.z - player.pos.z;
+        const along = px * rayDir.x + py * rayDir.y + pz * rayDir.z;
+        if (along < 0 || along > len) continue;
+        const ox = px - rayDir.x * along, oy = py - rayDir.y * along, oz = pz - rayDir.z * along;
+        if (ox * ox + oy * oy + oz * oz < 1.1) {
+          spectrumBurst(a.pos.clone().setY(a.pos.y + 1.12)); killAnti(a);
+        }
+      }
+      if (gunState.charge <= 0) say('the laser is spent — it recharges at the centre', 4);
+    }
+  } else if (started && !ending && gunState.cool <= 0 && (spec.auto ? gunState.trigger : pressed)) {
+    fireOnce();
+  }
+  gunState.wasDown = gunState.trigger;
+
+  // the readout
+  el.gunhud.textContent = spec.laser
+    ? `${spec.name}  ${gunState.charge.toFixed(1)}s`
+    : `${spec.name}  ${gunState.ammo}/${spec.mag}`;
+}
+
+
 function tick() {
   requestAnimationFrame(tick);
   frame(Math.min(0.05, clock.getDelta()));
@@ -5660,8 +5625,7 @@ function frame(dt) {
       player.falling = false;
       warpCool = 1.4;
       sfx.warp();
-      trailSnap();
-      say('back at the centre', 3.4);
+        say('back at the centre', 3.4);
       break;
     }
 
@@ -5791,7 +5755,7 @@ function frame(dt) {
   tmp.set(0, 0, -6).applyQuaternion(camera.quaternion).add(camera.position);
   torch.target.position.lerp(tmp, 1 - Math.exp(-TORCH_LAG * dt));
 
-  if (started) { trailMark(dt); updateAntis(dt); updatePowers(dt); }
+  if (started) { updateAntis(dt); updateGuns(dt); updatePowers(dt); }
   updateShards(dt);
 
   assignPool();
@@ -5817,10 +5781,10 @@ window.__maze = {
   tilt(deg) { camTilt = deg * Math.PI / 180; },   // inspection only; not a control
   interact, isSolid, collide, cellCentre, cellOf, rebuildReveal, revealed, at,
   groundUnder, isWalkableChar, dropOpen, levelY, WALL_H, NLEV, ROWS, COLS, CELL,
-  antis, trail, trailEvents, spawnAnti, killAnti, clearLine, safeInLight,
+  antis, spawnAnti, killAnti, clearLine, safeInLight,
   music, startMusic, metal, drip, retune, legatoStep, CHORDS, DESCENTS, scaleWalk,
-  shards, spectrumBurst, SPECTRUM, turnZombie, stepZombie, clearSight, feedZombie,
-  antiPortals, reanchor,
+  shards, spectrumBurst, SPECTRUM, clearSight,
+  worldGuns, GUNS, gunState, dropGunAt, fireOnce,
   getBus: () => bus, CHORD_SECS, LEG_STEPS,
   audioState: () => (actx ? actx.state : 'none'),
   markOpen, markShut,
@@ -5832,10 +5796,7 @@ window.__maze = {
   setCloak(s) { cloakT = s; if (s <= 0) el.cloak.classList.remove('on'); },
   grantAll() { while (held.length < POWERS.length) grantPower(); },
   clock: () => clockT,
-  trailTime: () => trailT,
   setClock(s) { clockT = s; clockShown = -1; },
-  // spawn one already `behind` seconds into your recording
-  ghost(behind = 0) { const a = spawnAnti(); if (a) a.pt = Math.max(0, trailT - behind); return a; },
   antiOff() { antiOn = false; for (const a of antis) if (a.live) retireAnti(a); },
   // Drives real frames, not updateEnding alone — the platform rise is applied
   // in frame(), so stepping the ending by hand never lifted the camera.

@@ -26,8 +26,7 @@ over HTTP rather than opened as a `file://` URL, because it loads an ES module.
 | `↑` `↓` | look up and down |
 | mouse | look, after clicking to capture the pointer |
 | `E` or `Space` | press buttons, take crystals, cross from a stand to its vault |
-| `1`–`6` | choose among the lamps you have found |
-| `F` | fire the lamp you hold (hold it for the X-ray) |
+| mouse button | fire the gun you carry |
 | `M` | sound on / off |
 
 Movement, turning and pitch are all analog. Velocity and both look axes chase
@@ -261,164 +260,52 @@ which side its crystal sits on, so a gate never opens out into the corridor you 
 standing in. Light switches toggle the same way, and flicking one off forces every
 fixture in the room dark rather than waiting for the flicker model to decide.
 
-**Something else is walking.** A clock hangs over the hub counting down from 5:00, and
-the same countdown draws at the foot of the screen so it reaches you three floors away.
-When it runs out an Anti-player starts from the hub, and another every five minutes
-after — so the hub is the last place you want to be on the marker.
+**Something else is walking.** A clock hangs over the hub counting down from 1:00, and
+the same countdown draws at the foot of the screen. When it runs out an Anti-player is
+loosed from the hub, and another every minute after.
 
-**It is not a pursuer. It is a playback head.** The trail records where you were and
-which way you faced every tenth of a second, plus every switch, button and portal as a
-timestamped event, and an Anti-player is that recording played at 1x with a fixed lag.
-It moves at your speed, hesitates where you hesitated, climbs the stairs you climbed and
-doubles back where you doubled back. It cannot deviate, cannot turn to look at you,
-cannot be steered. It is caught in time. Measured against a reference log of a 26-second
-walk: worst position error 0.000m, worst heading error 0.03 degrees.
+They wander. They are not smart — they are drawn to any gun left lying anywhere in the
+building, they douse any lit switch they pass (and leave it off, because they prefer the
+dark and the dark eats your map), and every one of them carries a knife. Some of them,
+by the time you meet them, carry something you dropped — and you cannot tell which until
+it fires. They cannot enter the crystal vaults: a shut gate stops them exactly as it
+stops you. Lit rooms and the hub are sanctuary from knife and bullet alike.
 
-Which means it never runs you down — it only ever arrives where you have already been.
-The threat is not being hunted. It is that your own past keeps walking, that it keeps
-arriving at the hub you have to keep returning to, and that it puts out every light you
-lit on the way.
+Being caught — knifed up close, or shot by an armed one — sends every crystal home to
+its vault and you back to the hub.
 
-**Replaying a flick is what undoes it.** You pressed the button to open the gate, so its
-press closes it. Nothing in the code knows what "undo" means, and nothing has to detect
-proximity to a switch: it walks where you walked, so it arrives at everything you
-touched, exactly when you touched it plus the lag.
+**Killing one breaks the light apart.** Fifty-six shards along the spectrum, red through
+violet, spinning and fading. They fan by colour — red slowest, violet fastest — so the
+burst separates into bands the way a prism does. Whatever it was carrying falls where it
+stood, and killing one puts the clock back to 1:00.
 
-Lights are the exception, and they go one way only. Replaying your flick used to toggle,
-which meant the second walker to reach a switch turned back on what the first had turned
-off, and a room could flicker between them all game. They prefer the dark: a walker puts
-a light out and leaves it out. You can always go back and put it on again — but so can
-the next one along, which is the point.
+## Guns
 
-**Standing still is not part of a route.** After five seconds the recording stops
-advancing altogether, so an Anti-player never replays you doing nothing — and because
-playback runs on its own clock while the recording is paused, every second you spend
-still is a second it gains on you.
+The torch stopped being a weapon. It lights the way, it charges in lit rooms, and it is
+how you find the guns — a gun in a dark hall is a dark object, and nothing here glows
+for your convenience.
 
-**It charts the building for you.** As one walks it draws the corridors it passes onto
-your map in the same white line as everything else, and leaves a short blue trail behind
-its dot that fades over nine seconds. Watching your past self walk is how you learn where
-you have been.
+You start with the pistol. The other four hang in the air at random hall cells — a fresh
+scatter every game — turning slowly, and they show on the chart from the first moment as
+small diamonds: you know where they are, you just do not know what is between you and
+them, and the chart does not say which storey. Taking a better one drops the one you
+carry where you stand, and the wanderers are drawn to anything left on the floor. What
+they pick up, they use on you.
 
-**It carries a twin.** When it replays the moment you picked a crystal up, it picks up
-the negative of that crystal — same shape, lit from inside rather than glowing out — and
-carries it along your route. When it replays you setting it down, the real crystal goes
-back to the vault it came from, wherever it had got to. So every crystal you bring home
-is followed, minutes later, by the memory of you bringing it home, and you have until it
-arrives to put that memory out. Killing the carrier destroys the twin and the crystal is
-safe. It is the clearest reason the game gives you to hunt one down.
+| | | |
+|---|---|---|
+| 1 | **Pistol** | Six shots. Leaves holes in the wall. |
+| 2 | **Shotgun** | One shell, nine pellets, a wide cone. |
+| 3 | **Machine gun** | Held trigger, a hundred rounds. |
+| 4 | **Blaster** | Four shots. Blows a permanent hole in the wall you can walk through, and kills everything within six metres of the impact. |
+| 5 | **Laser** | Held beam, ten seconds of charge. Kills everything in its path, straight through the walls. |
 
-**Lit rooms are sanctuary.** Its beam cannot take you in a room whose lights are on, or
-in the hub — which is precisely why its putting them out matters. If a beam does land on
-you, you are held for 1.9 seconds to see the torch that found you, and then every
-crystal goes home to its vault and so do you.
+**Reloading happens at the hub and nowhere else.** Every magazine is a promise about how
+far from home you can afford to be. The mouse button is the trigger; walking into a
+higher-tier gun takes it.
 
-**The duel is decided by the lamp, not the angle.** You carry every lamp you have found;
-an Anti-player carries the lamps you were carrying at the moment it is replaying. Since
-it is always replaying an earlier you, its light is never stronger than yours — so the
-moment you pick up your first crystal you outgun every version of yourself that came
-before, and a head-on exchange is simply won. Equal lamps is the interesting case, and it
-goes to whoever came on target first.
-
-Its beam does not take you the instant it touches you; there is a beat of about four
-tenths first. That beat has to exist, because the torch is carried and its aim trails a
-third of a second behind your view — without it you could never win an exchange you
-turned into. For the same reason the duel is timed from where you are *looking* rather
-than from where the beam has got to: an Anti-player replays a fixed heading, so its light
-is on target the instant it rounds a corner while yours is still swinging. Killing one
-puts the clock back to 5:00, the only way to buy time.
-
-**Killing one breaks the light apart.** It is the only moment in the game where white
-light comes into colour without a crystal doing it: you put a white beam on it and it
-shatters into fifty-six shards along the spectrum, red through violet, spinning and
-falling and fading over a second and a quarter. They fan by colour — red leaves slowest
-and violet fastest — so the burst separates into bands the way a prism does rather than
-flying out as one lump. Additive and unlit, so shards pile into brightness where they
-overlap. The pool is fixed and reused; nothing is allocated at the moment of the kill,
-and the flash uses a pooled emitter like every other light in the building.
-
-**Where the beam lands decides it.** Anything that is not its front — its back, either
-flank — destroys it outright whatever it is carrying. Only head-on falls through to the
-lamp comparison, which makes circling the answer to a walker you cannot outgun. And you
-can shoot across floors: sight blocks on walls and shut gates, and when the line crosses
-between storeys it needs the slab to be open there, so a balcony over an atrium is a
-firing position.
-
-**Each walker carries more than the last** — what you were carrying at the moment it
-replays, plus one for every walker that came before it. The fourth outguns you head-on
-until you have found more crystals; its back never does.
-
-**Being caught costs you the crystals, not the floor.** Every walker keeps walking, which
-is the only way a crowd ever builds — and a crowd is what eventually turns into something
-worse.
-
-**Walkers use the network, both ways.** Walk into a vault portal and it puts one in the
-hub; stand it at a hub pedestal and it goes out to that vault — exactly as you travel. A
-walker's position comes out of the recording every frame, so a warp would simply snap
-back on the next one; instead, when it arrives it re-enters your history at the moment
-you were nearest to where it has landed. It is still replaying you the whole time, it has
-just picked up your route at a different point in it, which is what a portal does to a
-route anyway.
-
-## Zombies
-
-A walker that replays your whole route and catches up to where you are now has run out of
-you. It stops being a recording at that point, and what is left has no path to follow and
-nothing to do but hunt.
-
-It cannot use the portals. It gave up your route when it turned and the network went with
-it, so a zombie has to walk everywhere — which is the one limit on something that
-otherwise never stops.
-
-It goes slower than a walker, because it is not going anywhere in particular — it is
-going toward light. It eats a room's lights and they do not come back: the switch is dead
-afterwards, and the room is dark for the rest of the run. Every room it eats makes its
-lamp brighter and its reach longer, so one that has been loose for a while lights a
-corridor on its own. Green, and green on the chart, where it trails behind its own dot.
-
-**Your torch does not kill it. It eats that too** — shining at one makes it brighter,
-which turns the answer to everything else in the game into the one move you must not
-make. Holy Light and the Ultra Blast still work. And it eats walkers: anything it catches
-becomes another one.
-
-**There is no range on that kill.** Line of sight is the only limit: spot a halo three
-rooms down a corridor with its back to you, line it up, and it goes out — verified at
-10, 20, 45 and 75 metres, and blocked by a wall in between. This is deliberately the
-player's advantage, and the one thing you can do that it can never do back.
-
-Landing that shot used to be fiddly for three reasons, all of them fixed. The test used
-your head's yaw, but the beam is carried in your hand and lags behind where you look, so
-what you saw and what the test measured were different directions — it now aims from the
-torch at the torch's own world target. It was flat, so pointing at one on a stair or
-across an atrium threw the pitch away — it is a 3D cone now. And a miss was silent, with
-no way to tell "not quite on it" from "on it, but it is facing you, which can never
-work". Both states now draw a bracket round it: white while it is yours to take, red
-while it is looking back at you. A short dwell finishes the kill, so a beam sweeping past
-cannot clip one by luck.
-
-It also produces the sharpest bit of geometry in the game for free. Doubling back along
-your own route walks you straight into your past selves *face-on*, because they are
-retracing the direction you were going — the one angle you cannot shoot from. To kill
-one you have to leave your own line and take it from the side or behind.
-
-Each is named as it arrives — F1, F2, F3 — and keeps the name until it goes out. The
-name is over the torch in the world, beside the dot on the chart, and in the
-announcements, so with several on the floor you can tell which is which. In the world
-it is drawn with size attenuation off and lifted by the sprite's `center` rather than a
-world offset: both so it stays legible at the range you can now kill from, and because
-a world-space offset shrinks with distance until the label sits inside its own halo.
-
-**No body.** A black casing floating at chest height with its lens at the front, so from
-behind it occludes its own light and you get a cylinder and nothing else, and from the
-front you get the beam. You can always see them: on the chart as a pale dot with the
-wedge its beam covers, red while it could actually take you, and in the world as a halo
-sprite drawn with fog off and depth-tested — a bare lens is two pixels at thirty metres,
-and the one thing that defeats the dark is another flashlight.
-
-Six are pooled, because several playback heads coexist by design; at 4, 9, 14 and 19
-seconds' lag they string out 22m apart down a corridor. They are allocated at load and
-never added or removed — Three.js bakes light count into its shaders, so a dormant
-Anti-player is a live SpotLight at zero intensity.
+The six crystal lamps are set aside while the guns are tried in their place — the code
+remains, dormant, behind `__maze.grantAll()`.
 
 ## Sound
 
@@ -466,43 +353,6 @@ Tension still rides on how close the nearest Anti-player is, measured whether or
 have seen it, with a floor between you counting as fourteen metres. It opens the drone's
 filter, raises its level, and fades in a tritone above the root.
 
-## The six lights
-
-Each vault hands over its lamp in the order you open them, so the first vault always
-yields the X-ray and the last always the Ultra Blast: the route you take decides which
-colour carries which power, never which power comes when. You keep every one you find,
-pick between them with `1`-`6`, and fire with `F`. The row of icons is drawn as white
-vector line, like the rest of the instrument.
-
-| | | |
-|---|---|---|
-| 1 | **X-ray** | Held, not fired. Cuts a hole through the wall or floor you are facing and you look through it. Drains while held. |
-| 2 | **Holy Light** | Everything walking within 19m, gone, regardless of which way you face. |
-| 3 | **Walk Through Walls** | The wall you shine on opens for 14 seconds, then closes again. The block is taken out of the instanced mesh and put back. |
-| 4 | **Portal** | Shine at a wall, then click the chart. Restricted to ground you have actually charted, so it can never drop you inside a vault you have not opened. |
-| 5 | **Cloak** | Thirty seconds where they cannot see you at all — you can still kill them. The last five seconds it visibly flickers, so you are told before it lapses. |
-| 6 | **Ultra Blast** | Everything in a wide cone, through walls, through floors, to the end of the maze. Costs 90% of your light. |
-
-They all run off the same battery as the plain beam, which is what ties them to the rest
-of the game: a power is paid for in light, and light only comes back in a lit room — and
-the Anti-players are busy putting those out.
-
-**Portals remove the retrace.** Beside each crystal is a portal, lit from the start —
-you can see it glowing through the grate before you have opened the gate. You do not
-press it; you walk into it, and it puts you back in the hub. The outbound hunt across a
-maze this size is the game; walking the same route back would only be the tax on it.
-
-**The crystal seats itself.** Carry one into the hub and it leaves your hands on its
-own, arcing up and spinning down onto its stand. And once a vault has been visited, its
-stand in the hub is the way back out to it — occupied or empty, since the crystal itself
-is the ticket. If the gate has since been shut behind you, the portal is still there to
-get you home.
-
-**Lights are pooled.** Three.js compiles the light count into its shaders, so adding
-lights during play would stall on a recompile. Instead a fixed pool of 14 `PointLight`s
-is allocated once and handed each frame to whichever emitters are nearest. There are
-196 fixtures in the maze; only the closest fourteen are ever real lights.
-
 ## Editing the maze
 
 `tools/genmaze.js` is the source of truth. It hand-places all the structure — hub,
@@ -545,13 +395,13 @@ __maze.interact()     // act on whatever is in reach
 __maze.step(2.5)      // advance the world 2.5 seconds by hand
 __maze.finale(17)     // run the ending; camera should land at y 59.6
 __maze.perf()         // frame counter, draw calls, triangles
-__maze.spawnAnti()    // let one out at the hub now, replaying from minute zero
-__maze.ghost(12)      // one that is exactly 12 seconds behind you
+__maze.spawnAnti()    // loose one from the hub now
 __maze.setClock(10)   // seconds until the next one
 __maze.antiOff()      // clear the board and stop spawning
-__maze.grantAll()     // hand over all six lamps
-__maze.pick(3)        // select one; __maze.fireHeld() fires it
-__maze.setCloak(0)    // clear the cloak between experiments
+__maze.fireOnce()     // one shot from the gun you carry
+__maze.gunState       // { tier, ammo, charge } — write to it freely
+__maze.worldGuns      // the five guns, wherever they are now
+__maze.grantAll()     // the dormant lamps, if you want the old experiment back
 ```
 
 `step()` exists because `requestAnimationFrame` is throttled to zero in a preview pane,
@@ -562,9 +412,9 @@ work is in `frame(dt)`, which both paths call.
 
 Constants near the top of the script: `WALK` / `RUN` / `WADE` speeds, `ACCEL` /
 `DECEL`, `TURN_RATE` / `TURN_ACCEL` and `PITCH_RATE` / `PITCH_ACCEL` / `PITCH_MAX`
-for the analog feel, `ANTI_PERIOD` for how long between walkers, `TRAIL_DT` for how finely you are
-recorded, `CATCH_RANGE` / `BEAM_COS` for its reach and `KILL_RANGE` / `KILL_COS` /
-`AVERT_COS` for yours, the `POWERS` table for what each lamp costs,
+for the analog feel, `ANTI_PERIOD` for how long between wanderers, `ANTI_WALK` / `KNIFE_RANGE` /
+`SHOOT_RANGE` / `SHOOT_AIM` for how dangerous they are, the `GUNS` table for
+magazines and fire rates,
 `TORCH_LAG` and `TORCH_SWAY` for how handheld the beam feels,
 `TORCH_HOME` for where it is carried, `SLAB` for floor thickness and therefore how
 heavy the fascia reads, `BAT_DRAIN` / `BAT_CHARGE`, `POOL_SIZE`, and the `FLUOR`
