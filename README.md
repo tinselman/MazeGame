@@ -329,6 +329,38 @@ flying out as one lump. Additive and unlit, so shards pile into brightness where
 overlap. The pool is fixed and reused; nothing is allocated at the moment of the kill,
 and the flash uses a pooled emitter like every other light in the building.
 
+**Where the beam lands decides it.** Anything that is not its front — its back, either
+flank — destroys it outright whatever it is carrying. Only head-on falls through to the
+lamp comparison, which makes circling the answer to a walker you cannot outgun. And you
+can shoot across floors: sight blocks on walls and shut gates, and when the line crosses
+between storeys it needs the slab to be open there, so a balcony over an atrium is a
+firing position.
+
+**Each walker carries more than the last** — what you were carrying at the moment it
+replays, plus one for every walker that came before it. The fourth outguns you head-on
+until you have found more crystals; its back never does.
+
+**Being caught costs you the crystals, not the floor.** Every walker keeps walking, which
+is the only way a crowd ever builds — and a crowd is what eventually turns into something
+worse.
+
+## Zombies
+
+A walker that replays your whole route and catches up to where you are now has run out of
+you. It stops being a recording at that point, and what is left has no path to follow and
+nothing to do but hunt.
+
+It goes slower than a walker, because it is not going anywhere in particular — it is
+going toward light. It eats a room's lights and they do not come back: the switch is dead
+afterwards, and the room is dark for the rest of the run. Every room it eats makes its
+lamp brighter and its reach longer, so one that has been loose for a while lights a
+corridor on its own. Green, and green on the chart, where it trails behind its own dot.
+
+**Your torch does not kill it. It eats that too** — shining at one makes it brighter,
+which turns the answer to everything else in the game into the one move you must not
+make. Holy Light and the Ultra Blast still work. And it eats walkers: anything it catches
+becomes another one.
+
 **There is no range on that kill.** Line of sight is the only limit: spot a halo three
 rooms down a corridor with its back to you, line it up, and it goes out — verified at
 10, 20, 45 and 75 metres, and blocked by a wall in between. This is deliberately the

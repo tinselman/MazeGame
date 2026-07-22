@@ -3295,6 +3295,10 @@ const sfx = {
       } catch (e) { /* */ }
     }, 30);
   },
+  turn:  () => { [220, 175, 138, 110, 87].forEach((f, i) =>
+                   setTimeout(() => blip(f, 1.8, 'sawtooth', 0.055, 0.95), i * 150)); },
+  eat:   () => { blip(320, 0.5, 'sine', 0.05, 0.9);
+                 setTimeout(() => blip(150, 1.4, 'sawtooth', 0.05, 0.95), 70); },
   caught:() => { blip(88, 1.4, 'sawtooth', 0.08); setTimeout(() => blip(62, 1.8, 'square', 0.05), 180); },
   holy:  () => { [784, 1046, 1318].forEach((f, i) => setTimeout(() => blip(f, 0.9, 'sine', 0.06), i * 90)); },
   cloak: () => { [660, 520, 410, 330].forEach((f, i) => setTimeout(() => blip(f, 0.45, 'sine', 0.05), i * 110)); },
@@ -3624,7 +3628,7 @@ function drawMinimap() {
       const age = now - p1.t;
       if (age > 9) continue;
       g.globalAlpha = (1 - age / 9) * (p1.lev === player.lev ? 0.85 : 0.3);
-      g.strokeStyle = '#7fd4ff';
+      g.strokeStyle = a.zombie ? '#5bff8f' : '#7fd4ff';
       g.beginPath();
       g.moveTo(mmX(p0.x / CELL), mmY(p0.z / CELL));
       g.lineTo(mmX(p1.x / CELL), mmY(p1.z / CELL));
@@ -3636,7 +3640,7 @@ function drawMinimap() {
     const bx = -Math.sin(a.yaw), by = -Math.cos(a.yaw);
     g.save();
     g.globalAlpha = here ? 1 : 0.4;
-    g.fillStyle = 'rgba(150,190,255,.30)';                 // the wedge its beam covers
+    g.fillStyle = a.zombie ? 'rgba(110,255,150,.32)' : 'rgba(150,190,255,.30)';
     g.beginPath();
     g.moveTo(ax, ay);
     g.arc(ax, ay, 15, Math.atan2(by, bx) - 0.42, Math.atan2(by, bx) + 0.42);
@@ -3645,11 +3649,11 @@ function drawMinimap() {
     // red while its beam could actually take you: your level, in range, and you
     // are not standing in a lit room
     const near = here && Math.hypot(a.pos.x - player.pos.x, a.pos.z - player.pos.z) < CATCH_RANGE;
-    g.fillStyle = near && !safeInLight() ? '#ff6a4a' : '#a8c8ff';
+    g.fillStyle = a.zombie ? '#5bff8f' : (near && !safeInLight() ? '#ff6a4a' : '#a8c8ff');
     g.beginPath(); g.arc(ax, ay, here ? 3.8 : 2.6, 0, Math.PI * 2); g.fill();
     g.font = '9px ui-monospace, monospace';
     g.textAlign = 'left';
-    g.fillText(a.carrying ? `F${a.tag}*` : `F${a.tag}`, ax + 5.5, ay - 4);
+    g.fillText((a.zombie ? 'Z' : 'F') + a.tag + (a.carrying ? '*' : ''), ax + 5.5, ay - 4);
     if (a.carrying) {                     // ringed while it is carrying a twin
       g.strokeStyle = '#' + a.carrying.color.toString(16).padStart(6, '0');
       g.lineWidth = 1.6;
@@ -3778,6 +3782,7 @@ function interact() {
     // `consider` may have handed us a shallow copy for one of an atrium's
     // spare panels, so act on the real room in the list.
     const room = props.switches.find((s) => s.cell === t.obj.cell) || t.obj;
+    if (room.eaten) { sfx.click(); say('this one will not come back on'); return; }
     room.on = !room.on;                       // a switch is a switch: it goes both ways
     if (room.on) room.litAt = clock.elapsedTime;
     else for (const f of room.fixtures) setFixture(f, 0);
@@ -4051,7 +4056,9 @@ const TRAIL_DT    = 0.1;                 // seconds between samples
 const CATCH_RANGE = 8.5;                 // "relatively close", and its beam on you
 const BEAM_COS    = Math.cos(0.38);      // its cone, for catching you
 const KILL_COS    = Math.cos(0.30);      // your cone, for killing it
-const AVERT_COS   = Math.cos(1.05);      // it must be looking ~60 deg away to be vulnerable
+const AVERT_COS   = Math.cos(1.05);
+// how wide its front is. Outside this arc, any hit destroys it.
+const FRONT_COS   = Math.cos(0.87);      // it must be looking ~60 deg away to be vulnerable
 // No range on the kill: if you can see it down a corridor and its back is
 // turned, it goes out. Line of sight is the only limit, and that is meant to be
 // a real advantage — spotting a halo three rooms away and lining it up is the
@@ -4194,19 +4201,20 @@ const haloTex = (() => {
 // the chart, in the announcements, and over the torch itself.
 const tagTex = (() => {
   const cache = new Map();
-  return (n) => {
-    if (cache.has(n)) return cache.get(n);
+  return (n, zombie) => {
+    const key = (zombie ? 'Z' : 'F') + n;
+    if (cache.has(key)) return cache.get(key);
     const cv = document.createElement('canvas');
     cv.width = 128; cv.height = 64;
     const g = cv.getContext('2d');
     g.font = 'bold 42px ui-monospace, "SF Mono", Menlo, monospace';
     g.textAlign = 'center'; g.textBaseline = 'middle';
     g.lineWidth = 6; g.strokeStyle = 'rgba(0,0,0,.85)';
-    g.strokeText(`F${n}`, 64, 34);
-    g.fillStyle = '#dbe8ff';
-    g.fillText(`F${n}`, 64, 34);
+    g.strokeText(key, 64, 34);
+    g.fillStyle = zombie ? '#8fffb4' : '#dbe8ff';
+    g.fillText(key, 64, 34);
     const t = new THREE.CanvasTexture(cv);
-    cache.set(n, t);
+    cache.set(key, t);
     return t;
   };
 })();
@@ -4299,6 +4307,37 @@ for (let i = 0; i < MAX_ANTI; i++) {
 let clockT = ANTI_PERIOD, antiOn = true, hitFlash = 0, caughtT = 0;
 drawClockFace(ANTI_PERIOD);        // reads 5:00 before you have taken a step
 
+/* Sight, as opposed to walking. `isSolid` treats a void as solid because you
+   cannot walk into one — but you can certainly see across it, which is the
+   whole point of an atrium. This blocks on walls and shut gates only, and when
+   the line crosses between floors it requires the floor at that point to be
+   open: you can shoot down into an atrium, not through a slab. */
+const blocksSight = (l, r, c) => {
+  const ch = at(l, r, c);
+  if (ch === '#') return true;
+  if (DOORCH.includes(ch)) { const d = doorAtCell.get(`${l},${r},${c}`); return d ? !d.open : true; }
+  return false;
+};
+function clearSight(from, to) {
+  const dx = to.x - from.x, dy = to.y - from.y, dz = to.z - from.z;
+  const steps = Math.max(3, Math.ceil(Math.hypot(dx, dz) / (CELL * 0.34)));
+  const levOf = (y) => Math.max(0, Math.min(NLEV - 1, Math.floor(y / LEVEL_H)));
+  let prev = levOf(from.y);
+  for (let i = 1; i <= steps; i++) {
+    const t = i / steps;
+    const x = from.x + dx * t, y = from.y + dy * t, z = from.z + dz * t;
+    const r = Math.floor(z / CELL), c = Math.floor(x / CELL);
+    const lev = levOf(y);
+    if (blocksSight(lev, r, c)) return false;
+    if (lev !== prev) {
+      const floor = Math.max(lev, prev);          // the slab being crossed
+      if (at(floor, r, c) !== VOID) return false;
+      prev = lev;
+    }
+  }
+  return true;
+}
+
 function clearLine(from, to, lev) {
   const dx = to.x - from.x, dz = to.z - from.z;
   const steps = Math.ceil(Math.hypot(dx, dz) / (CELL * 0.4));
@@ -4314,8 +4353,14 @@ function spawnAnti() {
   if (!a) return null;
   a.live = true; a.done = false;
   a.carrying = null; a.twin.visible = false;
+  a.zombie = false; a.eaten = 0; a.feedT = 0; a.goal = null;
+  a.light.color.setHex(0xbcd4ff);
+  a.light.distance = 95; a.light.angle = 0.34;
+  a.lens.material.color.setHex(0xcfe0ff);
+  a.halo.material.color.setHex(0xcfe0ff);
+  a.halo.scale.setScalar(1.15);
   a.tag = ++antiCount;              // named on arrival, and it keeps the name
-  a.tagSprite.material.map = tagTex(a.tag);
+  a.tagSprite.material.map = tagTex(a.tag, false);
   a.tagSprite.material.needsUpdate = true;
   a.pt = 0;                         // it begins at the beginning: you, at minute zero
   a.idx = 0; a.evIdx = 0; a.pow = 0;
@@ -4414,6 +4459,129 @@ function updateShards(dt) {
   }
 }
 
+/* ====================================================== ZOMBIES
+
+   A walker that replays your whole route and catches up to where you are now
+   has run out of you. It stops being a recording at that point, and what is
+   left is something with no path to follow and nothing to do but hunt.
+
+   It goes slower than a walker, because it is not going anywhere in
+   particular — it is going towards light. It eats a room's lights and they do
+   not come back on: the switch is dead afterwards. Every room it eats makes
+   its own lamp brighter and its reach longer, so a zombie that has been loose
+   for a while lights a corridor on its own.
+
+   Your torch does not kill it. It eats that too — shining at one makes it
+   brighter, which turns the answer to everything else in the game into the one
+   move you must not make. Holy Light and the Ultra Blast still work.
+
+   And it eats walkers. Anything it catches becomes another one.              */
+const ZOMBIE_SPEED = 2.55;
+const ZOMBIE_GREEN = 0x5bff8f;
+
+function turnZombie(a) {
+  a.zombie = true;
+  a.done = false;
+  a.eaten = 0;
+  a.goal = null;
+  a.repath = 0;
+  a.light.color.setHex(ZOMBIE_GREEN);
+  a.light.distance = 40;
+  a.light.angle = 0.5;
+  a.lens.material.color.setHex(ZOMBIE_GREEN);
+  a.halo.material.color.setHex(ZOMBIE_GREEN);
+  a.tagSprite.material.map = tagTex(a.tag, true);
+  a.tagSprite.material.needsUpdate = true;
+  a.path.length = 0;
+  sfx.turn();
+  announce(`F${a.tag} HAS RUN OUT OF YOU`, '#' + ZOMBIE_GREEN.toString(16), 5);
+  say('it is not following anything now', 6);
+}
+
+// what it is walking toward: the nearest light still burning, else you
+function zombieGoal(a) {
+  let best = null, bestD = 1e9;
+  for (const room of props.switches) {
+    if (!room.on || room.eaten) continue;
+    const d = (room.pos.x - a.pos.x) ** 2 + (room.pos.z - a.pos.z) ** 2
+            + Math.abs(room.lev - a.lev) * 900;
+    if (d < bestD) { bestD = d; best = room; }
+  }
+  if (best) return { x: best.pos.x, z: best.pos.z, room: best };
+  return { x: player.pos.x, z: player.pos.z, room: null };
+}
+
+function stepZombie(a, dt) {
+  if ((a.repath -= dt) <= 0 || !a.goal) {
+    a.goal = zombieGoal(a);
+    a.repath = 2.5;
+  }
+  // greedy, with a slide along whatever it walks into — the halls are a loop
+  // network, so pressing toward a target gets there without a path-finder
+  const dx = a.goal.x - a.pos.x, dz = a.goal.z - a.pos.z;
+  const d = Math.hypot(dx, dz);
+  if (d > 0.6) {
+    const before = a.pos.x, beforeZ = a.pos.z;
+    a.pos.x += (dx / d) * ZOMBIE_SPEED * dt;
+    a.pos.z += (dz / d) * ZOMBIE_SPEED * dt;
+    collide(a.pos, a.lev);
+    // A walker takes its height from the recording. A zombie is walking under
+    // its own power, so it has to find the floor itself — settleAnti went when
+    // the walkers became pure playback and stopped needing one.
+    {
+      const [zr, zc] = cellOf(a.pos);
+      const g = groundUnder(zr, zc, a.pos.x, a.pos.z, a.lev, levelY(a.lev) + WALL_H);
+      if (g) { a.pos.y = g.y; a.lev = g.lev; }
+    }
+    if (Math.hypot(a.pos.x - before, a.pos.z - beforeZ) < ZOMBIE_SPEED * dt * 0.3) {
+      a.repath = 0;                                  // stuck: pick again
+    }
+    let want = Math.atan2(-dx, -dz), turn = want - a.yaw;
+    while (turn > Math.PI) turn -= Math.PI * 2;
+    while (turn < -Math.PI) turn += Math.PI * 2;
+    a.yaw += turn * Math.min(1, dt * 3.2);
+  }
+
+  // eat the room it is standing in
+  for (const room of props.switches) {
+    if (!room.on || room.eaten || room.lev !== a.lev) continue;
+    if ((room.pos.x - a.pos.x) ** 2 + (room.pos.z - a.pos.z) ** 2 > (CELL * 2.2) ** 2) continue;
+    room.eaten = true;
+    room.on = false;
+    for (const f of room.fixtures) setFixture(f, 0);
+    if (room.mesh.userData.rocker) room.mesh.userData.rocker.position.y = 0.12;
+    rebuildReveal();
+    feedZombie(a, 1);
+    sfx.eat();
+    if (room.lev === player.lev
+        && (room.pos.x - player.pos.x) ** 2 + (room.pos.z - player.pos.z) ** 2 < 1600) {
+      say('the room goes out, and stays out', 4.5);
+    }
+  }
+
+  // eat a walker: it becomes one too
+  for (const b of antis) {
+    if (b === a || !b.live || b.zombie || b.lev !== a.lev) continue;
+    if ((b.pos.x - a.pos.x) ** 2 + (b.pos.z - a.pos.z) ** 2 > 2.6 ** 2) continue;
+    feedZombie(a, 2);
+    turnZombie(b);
+  }
+
+  // and you
+  if (caughtT <= 0 && cloakT <= 0 && a.lev === player.lev
+      && (player.pos.x - a.pos.x) ** 2 + (player.pos.z - a.pos.z) ** 2 < 2.3 ** 2) {
+    caughtBy();
+  }
+}
+
+// every mouthful makes the lamp bigger
+function feedZombie(a, n) {
+  a.eaten += n;
+  a.light.intensity = 62 + a.eaten * 26;
+  a.light.distance = 40 + a.eaten * 12;
+  a.halo.scale.setScalar(1.15 + a.eaten * 0.22);
+}
+
 function killAnti(a) {
   const had = a.carrying;
   spectrumBurst(a.pos.clone().setY(a.pos.y + 1.12));
@@ -4431,7 +4599,7 @@ function killAnti(a) {
 function replayEvent(ev) {
   if (ev.kind === 'switch') {
     const s = props.switches[ev.ref];
-    if (!s) return;
+    if (!s || s.eaten) return;
     s.on = !s.on;
     if (s.on) s.litAt = clock.elapsedTime;
     else for (const f of s.fixtures) setFixture(f, 0);
@@ -4493,7 +4661,10 @@ function safeInLight() {
 function caughtBy() {
   hitFlash = 1;
   caughtT = 1.9;                    // a beat to see what took you before it moves you
-  for (const a of antis) if (a.live) retireAnti(a);
+  // Nothing leaves. Being caught costs you the crystals and sends you home, but
+  // every walker keeps walking — which is the only way a crowd ever builds, and
+  // a crowd is what eventually turns into something worse.
+  for (const a of antis) if (a.live) { a.pLock = 0; a.aLock = 0; }
 
   if (player.carrying) {
     const c = player.carrying;
@@ -4552,11 +4723,14 @@ function stepAnti(a, dt) {
   // a portal shows up as a jump between adjacent samples: step it, do not slide
   const leap = (q.x - p.x) ** 2 + (q.z - p.z) ** 2 > (CELL * 3) ** 2 || q.lev !== p.lev;
   if (leap) {
-    a.pos.set(q.x, q.y, q.z); a.lev = q.lev; a.yaw = q.yaw; a.pow = q.pow || 0;
+    a.pos.set(q.x, q.y, q.z); a.lev = q.lev; a.yaw = q.yaw;
+    a.pow = (q.pow || 0) + Math.max(0, a.tag - 1);
   } else {
     a.pos.set(p.x + (q.x - p.x) * k, p.y + (q.y - p.y) * k, p.z + (q.z - p.z) * k);
     a.lev = p.lev;
-    a.pow = p.pow || 0;
+    // each one carries what you carried then, plus one for every walker that
+    // came before it
+    a.pow = (p.pow || 0) + Math.max(0, a.tag - 1);
     let dy = q.yaw - p.yaw;
     while (dy >  Math.PI) dy -= Math.PI * 2;
     while (dy < -Math.PI) dy += Math.PI * 2;
@@ -4591,18 +4765,24 @@ function torchDuel(dt, now) {
      against the lagging beam, "first to shine at the other" could never be won
      by the player. Timed against the look, turning to face it first is what
      saves you, which is the rule as stated. */
-  camera.getWorldPosition(aimFrom);
-  camera.getWorldDirection(aimDir);
+  /* Taken from the player's own yaw and pitch, not from the camera. The camera's
+     matrix is written at the end of the frame, after this runs, so reading it
+     here is always one frame stale — and one frame is enough that after any
+     turn the walker locks on before you do and wins every equal exchange. */
+  aimFrom.copy(player.pos);
+  const cp = Math.cos(player.pitch);
+  aimDir.set(-Math.sin(player.yaw) * cp, Math.sin(player.pitch), -Math.cos(player.yaw) * cp);
   const mine = held.length;
   for (const a of antis) {
     if (!a.live) { a.markSprite.visible = false; a.pLock = a.aLock = 0; continue; }
 
-    // your beam on it
+    // your beam on it — across floors as well, so a balcony over an atrium is
+    // a firing position
     toAnti.set(a.pos.x - aimFrom.x, a.pos.y + 1.12 - aimFrom.y, a.pos.z - aimFrom.z);
     const dist = toAnti.length();
-    const playerOn = powered && dist > 1e-3 && a.lev === player.lev
+    const playerOn = powered && dist > 1e-3
       && toAnti.dot(aimDir) / dist > KILL_COS
-      && clearLine(player.pos, a.pos, player.lev);
+      && clearSight(aimFrom, { x: a.pos.x, y: a.pos.y + 1.12, z: a.pos.z });
 
     // its beam on you
     const dx = player.pos.x - a.pos.x, dz = player.pos.z - a.pos.z;
@@ -4612,6 +4792,17 @@ function torchDuel(dt, now) {
       && (-Math.sin(a.yaw) * dx - Math.cos(a.yaw) * dz) / flat > BEAM_COS
       && clearLine(a.pos, player.pos, a.lev);
 
+    /* Where the beam lands on it decides the exchange before anything else
+       does. Anything that is not its front — its back, either flank — destroys
+       it outright whatever it is carrying. Only head-on falls through to the
+       lamp comparison, which is what makes circling the answer to a walker you
+       cannot outgun. */
+    // dx,dz already runs from it to you, which is the direction its own beam
+    // test uses. Negating it here made "frontal" true when you were behind it,
+    // so every rule was exactly inverted.
+    const frontal = flat > 1e-3
+      && (-Math.sin(a.yaw) * dx - Math.cos(a.yaw) * dz) / flat > FRONT_COS;
+
     // when each of you came on target
     a.pLock = playerOn ? (a.pLock || now) : 0;
     a.aLock = itsOn ? (a.aLock || now) : 0;
@@ -4619,7 +4810,7 @@ function torchDuel(dt, now) {
     if (!playerOn) { a.markSprite.visible = false; }
     else {
       // white while you would win the exchange, red while you would lose it
-      const wins = mine > a.pow || (mine === a.pow && (!itsOn || a.pLock <= a.aLock));
+      const wins = !frontal || mine > a.pow || (mine === a.pow && (!itsOn || a.pLock <= a.aLock));
       a.markSprite.visible = true;
       a.markSprite.material.map = wins ? markOpen : markShut;
       a.markSprite.material.needsUpdate = true;
@@ -4630,13 +4821,38 @@ function torchDuel(dt, now) {
        trails a third of a second behind where you look. Without the beat you
        could never win an exchange you turned into, and "the stronger lamp
        wins" would be unreachable. */
+    if (a.zombie) {
+      // It eats your beam. The one move that answers everything else in the
+      // game is the one move that makes this worse.
+      if (playerOn) {
+        a.feedT = (a.feedT || 0) + dt;
+        if (a.feedT > 0.9) { a.feedT = 0; feedZombie(a, 1); say('it is drinking your light', 3); }
+        a.markSprite.visible = true;
+        a.markSprite.material.map = markShut;
+        a.markSprite.material.needsUpdate = true;
+      } else { a.markSprite.visible = false; a.feedT = 0; }
+      continue;
+    }
+    if (playerOn && !frontal) {
+      killAnti(a);                                   // from behind or the side
+      continue;
+    }
     const strongerThanIt = mine > a.pow;
     if (playerOn && strongerThanIt) {
       killAnti(a);                                   // outgunned: no contest
     } else if (playerOn && itsOn) {
-      if (a.pow > mine) caughtBy();
-      else if (a.pLock <= a.aLock) killAnti(a);      // equal lamps: first on target
-      else caughtBy();
+      /* A walker replays a fixed heading, so it is already pointed the instant
+         it rounds a corner while you still have to turn — comparing who locked
+         on first hands it every equal exchange by construction, on a margin of
+         about a tenth of a second that no reaction can close.
+
+         So the question is not who was first, it is whether you got on target
+         at all before its beat ran out. If you did, and your lamp is not
+         weaker, the exchange is yours. If you never manage it, the branch below
+         catches you when the beat completes. That is what "first to shine"
+         means when one of you was already shining. */
+      if (a.pow > mine) { if (now - a.aLock >= CATCH_BEAT) caughtBy(); }
+      else killAnti(a);
     } else if (playerOn) {
       // a beat of steady aim, so a beam sweeping past does not clip one by luck
       if (now - a.pLock >= 0.22) killAnti(a);
@@ -4674,8 +4890,15 @@ function updateAntis(dt) {
 
   for (const a of antis) {
     if (!a.live) continue;
-    stepAnti(a, dt);
-    if (a.done) { retireAnti(a); continue; }     // it has caught up with your present
+    if (a.zombie) stepZombie(a, dt); else stepAnti(a, dt);
+    if (a.zombie) {
+      const tl = a.path[a.path.length - 1];
+      if (!tl || (tl.x - a.pos.x) ** 2 + (tl.z - a.pos.z) ** 2 > 0.5) {
+        a.path.push({ x: a.pos.x, z: a.pos.z, lev: a.lev, t: clock.elapsedTime });
+        if (a.path.length > 90) a.path.shift();
+      }
+    }
+    if (a.done && !a.zombie) turnZombie(a);      // it has run out of you
     // it charts the ground it covers, and leaves a short line behind it
     const [ar, ac] = cellOf(a.pos);
     for (let dr = -2; dr <= 2; dr++) for (let dc = -2; dc <= 2; dc++) {
@@ -4998,6 +5221,7 @@ function fireHeld() {
     for (const a of antis) {
       if (!a.live || a.lev !== player.lev) continue;
       if ((a.pos.x - player.pos.x) ** 2 + (a.pos.z - player.pos.z) ** 2 > 19 ** 2) continue;
+      spectrumBurst(a.pos.clone().setY(a.pos.y + 1.12));
       retireAnti(a); n++;
     }
     if (n) { clockT = ANTI_PERIOD; clockShown = -1; }
@@ -5037,6 +5261,7 @@ function fireHeld() {
       const dx = a.pos.x - player.pos.x, dz = a.pos.z - player.pos.z;
       const d = Math.hypot(dx, dz);
       if (d > 1e-3 && (fx * dx + fz * dz) / d < Math.cos(0.42)) continue;
+      spectrumBurst(a.pos.clone().setY(a.pos.y + 1.12));
       retireAnti(a); n++;
     }
     if (n) { clockT = ANTI_PERIOD; clockShown = -1; }
@@ -5534,7 +5759,7 @@ window.__maze = {
   groundUnder, isWalkableChar, dropOpen, levelY, WALL_H, NLEV, ROWS, COLS, CELL,
   antis, trail, trailEvents, spawnAnti, killAnti, clearLine, safeInLight,
   music, startMusic, metal, drip, retune, legatoStep, CHORDS, DESCENTS, scaleWalk,
-  shards, spectrumBurst, SPECTRUM,
+  shards, spectrumBurst, SPECTRUM, turnZombie, stepZombie, clearSight, feedZombie,
   getBus: () => bus, CHORD_SECS, LEG_STEPS,
   audioState: () => (actx ? actx.state : 'none'),
   markOpen, markShut,
