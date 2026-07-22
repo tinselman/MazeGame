@@ -4364,7 +4364,7 @@ function spawnAnti() {
   a.tagSprite.material.needsUpdate = true;
   a.pt = 0;                         // it begins at the beginning: you, at minute zero
   a.idx = 0; a.evIdx = 0; a.pow = 0;
-  a.pLock = 0; a.aLock = 0; a.path.length = 0;
+  a.pLock = 0; a.aLock = 0; a.path.length = 0; a.warpCool = 0;
   a.pos.set(hubCentre.x, 0, hubCentre.z);
   a.lev = 0; a.yaw = 0;
   a.grp.visible = true;
@@ -4580,6 +4580,55 @@ function feedZombie(a, n) {
   a.light.intensity = 62 + a.eaten * 26;
   a.light.distance = 40 + a.eaten * 12;
   a.halo.scale.setScalar(1.15 + a.eaten * 0.22);
+}
+
+/* ---- walkers take the portals ------------------------------------------
+   A walker uses the network exactly as you do: walk into a vault portal and it
+   puts you in the hub, stand at a hub pedestal and it puts you in that vault.
+   Zombies cannot. They gave up your route when they turned, and the network
+   went with it — a zombie has to walk everywhere.
+
+   The awkward part is that a walker's position comes out of the recording every
+   frame, so warping it would simply snap back on the next one. Instead, when it
+   arrives it re-enters your history at the moment you were nearest to where it
+   has landed. It is still replaying you the whole time — it has just picked up
+   your route at a different point in it, which is what a portal does to a route
+   anyway.                                                                     */
+function reanchor(a, x, z, lev) {
+  a.pos.set(x, levelY(lev), z);
+  a.lev = lev;
+  a.warpCool = 1.8;
+  let best = -1, bestD = 1e9;
+  for (let i = 0; i < trail.length; i++) {
+    const t = trail[i];
+    if (t.lev !== lev) continue;
+    const d = (t.x - x) ** 2 + (t.z - z) ** 2;
+    if (d < bestD) { bestD = d; best = i; }
+  }
+  if (best >= 0) { a.idx = best; a.pt = trail[best].t; }
+  a.path.length = 0;
+  sfx.warp();
+}
+
+function antiPortals(a, dt) {
+  if (a.zombie) return;
+  a.warpCool = (a.warpCool || 0) - dt;
+  if (a.warpCool > 0) return;
+  for (const p of props.portals) {
+    if (p.lev !== a.lev) continue;
+    if ((p.pos.x - a.pos.x) ** 2 + (p.pos.z - a.pos.z) ** 2 > 1.5 ** 2) continue;
+    const hc = cellCentre((HUB.r1 + HUB.r2) / 2, (HUB.c1 + HUB.c2) / 2);
+    reanchor(a, hc.x, hc.z + 4, 0);
+    return;
+  }
+  if (a.lev !== 0) return;
+  for (const ped of props.pedestals) {
+    if ((ped.pos.x - a.pos.x) ** 2 + (ped.pos.z - a.pos.z) ** 2 > 1.5 ** 2) continue;
+    const c = props.crystals.find((x) => x.id === ped.id);
+    if (!c) continue;
+    reanchor(a, c.pos.x, c.pos.z + CELL * 1.4, c.lev);
+    return;
+  }
 }
 
 function killAnti(a) {
@@ -4890,7 +4939,7 @@ function updateAntis(dt) {
 
   for (const a of antis) {
     if (!a.live) continue;
-    if (a.zombie) stepZombie(a, dt); else stepAnti(a, dt);
+    if (a.zombie) stepZombie(a, dt); else { stepAnti(a, dt); antiPortals(a, dt); }
     if (a.zombie) {
       const tl = a.path[a.path.length - 1];
       if (!tl || (tl.x - a.pos.x) ** 2 + (tl.z - a.pos.z) ** 2 > 0.5) {
@@ -5760,6 +5809,7 @@ window.__maze = {
   antis, trail, trailEvents, spawnAnti, killAnti, clearLine, safeInLight,
   music, startMusic, metal, drip, retune, legatoStep, CHORDS, DESCENTS, scaleWalk,
   shards, spectrumBurst, SPECTRUM, turnZombie, stepZombie, clearSight, feedZombie,
+  antiPortals, reanchor,
   getBus: () => bus, CHORD_SECS, LEG_STEPS,
   audioState: () => (actx ? actx.state : 'none'),
   markOpen, markShut,

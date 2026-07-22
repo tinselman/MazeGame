@@ -344,11 +344,23 @@ until you have found more crystals; its back never does.
 is the only way a crowd ever builds — and a crowd is what eventually turns into something
 worse.
 
+**Walkers use the network, both ways.** Walk into a vault portal and it puts one in the
+hub; stand it at a hub pedestal and it goes out to that vault — exactly as you travel. A
+walker's position comes out of the recording every frame, so a warp would simply snap
+back on the next one; instead, when it arrives it re-enters your history at the moment
+you were nearest to where it has landed. It is still replaying you the whole time, it has
+just picked up your route at a different point in it, which is what a portal does to a
+route anyway.
+
 ## Zombies
 
 A walker that replays your whole route and catches up to where you are now has run out of
 you. It stops being a recording at that point, and what is left has no path to follow and
 nothing to do but hunt.
+
+It cannot use the portals. It gave up your route when it turned and the network went with
+it, so a zombie has to walk everywhere — which is the one limit on something that
+otherwise never stops.
 
 It goes slower than a walker, because it is not going anywhere in particular — it is
 going toward light. It eats a room's lights and they do not come back: the switch is dead
