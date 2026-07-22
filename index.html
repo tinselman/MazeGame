@@ -3270,7 +3270,31 @@ const sfx = {
   finale:() => { [523, 659, 784, 1046].forEach((f, i) => setTimeout(() => blip(f, 1.6, 'sine', 0.06), i * 300)); },
   spawn: () => { [196, 147, 110, 82].forEach((f, i) => setTimeout(() => blip(f, 1.1, 'sawtooth', 0.05), i * 210)); },
   charge:() => { [300, 460, 700, 1060].forEach((f, i) => setTimeout(() => blip(f, 0.16, 'square', 0.045), i * 120)); },
-  kill:  () => { [900, 500, 260].forEach((f, i) => setTimeout(() => blip(f, 0.3, 'sine', 0.05), i * 90)); },
+  // A prism, not a death. A bright cluster blooming upward and a scatter of
+  // glass behind it, both drowned in the room.
+  kill:  () => {
+    [523, 659, 784, 1046, 1318, 1568].forEach((f, i) =>
+      setTimeout(() => blip(f, 1.5, 'triangle', 0.055, 0.9), i * 42));
+    setTimeout(() => {
+      try {
+        const b = initBus(), a = b.a, t = a.currentTime;
+        const src = a.createBufferSource();
+        const buf = a.createBuffer(1, Math.floor(a.sampleRate * 0.7), a.sampleRate);
+        const d = buf.getChannelData(0);
+        for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / d.length, 2.2);
+        src.buffer = buf;
+        const bp = a.createBiquadFilter();
+        bp.type = 'bandpass'; bp.Q.value = 3;
+        bp.frequency.setValueAtTime(5200, t);
+        bp.frequency.exponentialRampToValueAtTime(900, t + 0.6);   // the scatter falling away
+        const g = a.createGain();
+        g.gain.setValueAtTime(0.11, t);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + 0.75);
+        src.connect(bp).connect(g); b.out(g, 0.95);
+        src.start(t);
+      } catch (e) { /* */ }
+    }, 30);
+  },
   caught:() => { blip(88, 1.4, 'sawtooth', 0.08); setTimeout(() => blip(62, 1.8, 'square', 0.05), 180); },
   holy:  () => { [784, 1046, 1318].forEach((f, i) => setTimeout(() => blip(f, 0.9, 'sine', 0.06), i * 90)); },
   cloak: () => { [660, 520, 410, 330].forEach((f, i) => setTimeout(() => blip(f, 0.45, 'sine', 0.05), i * 110)); },
@@ -4313,8 +4337,86 @@ function retireAnti(a) {
   a.light.intensity = 0;
 }
 
+/* ---- what a kill looks like ---------------------------------------------
+   The one moment in the game where white light comes apart into colour. You
+   put a white beam on it and it breaks: shards fly out along the spectrum, red
+   through violet, spinning and fading. Everything else here earns its colour by
+   being a light source; this earns it by being light taken apart.
+
+   Additive, unlit, depth-tested but not depth-writing, so shards pile up into
+   brightness where they overlap and never occlude one another. The pool is
+   fixed and reused — nothing is allocated at the moment of the kill.         */
+const SPECTRUM = [0xff2d1e, 0xff7a1e, 0xffd21e, 0x62ff3d, 0x2ee8ff, 0x2f6bff, 0xa64bff];
+const shards = [];
+{
+  const geo = mergeGeos([
+    at3(Box(0.05, 0.05, 0.46), 0, 0, 0),
+    at3(Box(0.10, 0.10, 0.10), 0, 0, -0.22),          // a brighter head
+  ]);
+  for (let i = 0; i < 56; i++) {
+    const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
+      color: 0xffffff, transparent: true, opacity: 0,
+      blending: THREE.AdditiveBlending, depthWrite: false, fog: true,
+    }));
+    m.visible = false;
+    m.renderOrder = 6;
+    scene.add(m);
+    shards.push({ mesh: m, life: 0, vel: new THREE.Vector3(), spin: new THREE.Vector3() });
+  }
+}
+// one pooled light for the flash, allocated once like every other emitter
+const killFlash = { pos: new THREE.Vector3(), color: new THREE.Color(0xffffff), intensity: 0, on: false };
+emitters.push(killFlash);
+
+function spectrumBurst(at) {
+  killFlash.pos.copy(at);
+  killFlash.color.setHex(0xffffff);
+  killFlash.intensity = 40;
+  killFlash.on = true;
+  let n = 0;
+  for (const sh of shards) {
+    if (sh.life > 0) continue;
+    const band = n % SPECTRUM.length;
+    // fanned by colour: red leaves slowest and violet fastest, so the burst
+    // separates into bands the way a prism does rather than flying out as one
+    const speed = 3.4 + band * 0.85;
+    const a1 = (n / 56) * Math.PI * 2 * 3.7;
+    const a2 = Math.acos(1 - 2 * ((n + 0.5) / 56));       // even over a sphere
+    sh.vel.set(Math.sin(a2) * Math.cos(a1), Math.cos(a2) * 0.7 + 0.35, Math.sin(a2) * Math.sin(a1))
+          .multiplyScalar(speed);
+    sh.spin.set((Math.random() - 0.5) * 9, (Math.random() - 0.5) * 9, (Math.random() - 0.5) * 9);
+    sh.life = 1;
+    sh.mesh.position.copy(at);
+    sh.mesh.material.color.setHex(SPECTRUM[band]);
+    sh.mesh.visible = true;
+    if (++n >= 56) break;
+  }
+}
+
+function updateShards(dt) {
+  if (killFlash.on) {
+    killFlash.intensity -= dt * 150;
+    if (killFlash.intensity <= 0) { killFlash.intensity = 0; killFlash.on = false; }
+  }
+  for (const sh of shards) {
+    if (sh.life <= 0) continue;
+    sh.life -= dt / 1.25;
+    if (sh.life <= 0) { sh.life = 0; sh.mesh.visible = false; continue; }
+    sh.vel.y -= 5.5 * dt;                                  // they fall as they go
+    sh.vel.multiplyScalar(1 - 1.4 * dt);                   // and slow
+    sh.mesh.position.addScaledVector(sh.vel, dt);
+    sh.mesh.rotation.x += sh.spin.x * dt;
+    sh.mesh.rotation.y += sh.spin.y * dt;
+    sh.mesh.rotation.z += sh.spin.z * dt;
+    const k = sh.life;
+    sh.mesh.material.opacity = k * k;                      // fades out fast at the end
+    sh.mesh.scale.setScalar(0.5 + k * 0.9);
+  }
+}
+
 function killAnti(a) {
   const had = a.carrying;
+  spectrumBurst(a.pos.clone().setY(a.pos.y + 1.12));
   retireAnti(a);
   if (had) {
     say(`the ${had.name.toLowerCase()} twin goes out with it — your crystal is safe`, 5.5);
@@ -5405,6 +5507,7 @@ function frame(dt) {
   torch.target.position.lerp(tmp, 1 - Math.exp(-TORCH_LAG * dt));
 
   if (started) { trailMark(dt); updateAntis(dt); updatePowers(dt); }
+  updateShards(dt);
 
   assignPool();
 
@@ -5431,6 +5534,7 @@ window.__maze = {
   groundUnder, isWalkableChar, dropOpen, levelY, WALL_H, NLEV, ROWS, COLS, CELL,
   antis, trail, trailEvents, spawnAnti, killAnti, clearLine, safeInLight,
   music, startMusic, metal, drip, retune, legatoStep, CHORDS, DESCENTS, scaleWalk,
+  shards, spectrumBurst, SPECTRUM,
   getBus: () => bus, CHORD_SECS, LEG_STEPS,
   audioState: () => (actx ? actx.state : 'none'),
   markOpen, markShut,

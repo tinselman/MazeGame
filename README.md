@@ -320,6 +320,15 @@ than from where the beam has got to: an Anti-player replays a fixed heading, so 
 is on target the instant it rounds a corner while yours is still swinging. Killing one
 puts the clock back to 5:00, the only way to buy time.
 
+**Killing one breaks the light apart.** It is the only moment in the game where white
+light comes into colour without a crystal doing it: you put a white beam on it and it
+shatters into fifty-six shards along the spectrum, red through violet, spinning and
+falling and fading over a second and a quarter. They fan by colour — red leaves slowest
+and violet fastest — so the burst separates into bands the way a prism does rather than
+flying out as one lump. Additive and unlit, so shards pile into brightness where they
+overlap. The pool is fixed and reused; nothing is allocated at the moment of the kill,
+and the flash uses a pooled emitter like every other light in the building.
+
 **There is no range on that kill.** Line of sight is the only limit: spot a halo three
 rooms down a corridor with its back to you, line it up, and it goes out — verified at
 10, 20, 45 and 75 metres, and blocked by a wall in between. This is deliberately the
