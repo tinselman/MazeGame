@@ -83,6 +83,21 @@ spindles under a moulded handrail bordering restaurants and living rooms, stanch
 horizontal tubes on galleries, museums and halls, tensioned wire on anything industrial.
 334 / 572 / 520 across the building.
 
+**The concrete has been standing a long time.** The surface was flat noise, which at this
+resolution reads as television static rather than as a material. It is 256px now and
+carries four things over that base, all of them grey — nothing in this building has ever
+held colour in its material and aging it is no reason to start. A slow tonal drift, so a
+wall is lighter at one end than the other. Hairline cracks that branch and wander, drawn
+dark and then traced a half-pixel off in white so each has a lip that catches the torch.
+A scatter of pits and chips. And a wash of staining down from the top edge, heaviest on
+the ceilings where damp goes first and lightest on the floors, which are walked on rather
+than weathered.
+
+Cracks are kept clear of the tile edges on purpose: the texture repeats every three
+metres, and a crack that ran off one side and back on the other would let the eye find the
+seam immediately. Two fine ones per tile is aging; the three heavy branching ones I drew
+first read as scratches.
+
 **Mouldings, not scaled boxes.** Skirting with a bead and a fillet, a cornice stepping
 out through a cove, boxed soffits hanging below the ceiling with a shadow gap behind,
 fluted pilasters down the halls, moulded reveals around every doorway — about 2,900
@@ -286,12 +301,16 @@ how you find the guns — **a gun in an unlit room is invisible**, not dimmed bu
 until either you throw that room's switch or your own beam falls across it. That is the
 rule the whole loop now turns on: lighting a room is how you arm yourself.
 
-You start with the pistol. The other four stand in rooms — never corridors, because
-corridors have no fixtures and never will, so a gun left in one could never be lit and
-could only be found by sweeping a torch down every hall in the building. A fresh scatter
-across all three floors every game, one room each. Taking a better one drops the one you
-carry where you stand, and the wanderers are drawn to anything left on the floor. What
-they pick up, they use on you.
+**One at a time.** You start with the pistol, and there is only ever a single gun lying
+in the building: the next rung up from whatever you carry. Taking it drops yours where you
+stand and puts the one after that somewhere new, so the ladder is walked rung by rung.
+Scattering all four at once let you stumble on the laser in the first minute and skip the
+whole climb.
+
+Guns stand in rooms, never corridors — corridors have no fixtures and never will, so a
+gun left in one could never be lit and could only be found by sweeping a torch down every
+hall in the building. What you drop stays dropped, and the wanderers are drawn to it:
+arming yourself is also how you arm them.
 
 | | | |
 |---|---|---|
@@ -317,6 +336,18 @@ clock in the hub, so home is never empty. Taking one fills whatever you carry, a
 return after half a minute so the building never runs dry. Walking into the hub also
 rearms you outright — walking home for every magazine was the whole cost of firing, and
 it was too much of one.
+
+**Ceilings and floors take fire too.** The ray only ever tested the walls, so shooting up
+or down sent the round harmlessly into the next storey and nothing marked it. A shot that
+crosses the plane between two floors now hits the slab between them, unless that cell is a
+stairwell or an atrium and there is nothing there to hit. A bullet in the ceiling brings
+dust and fragments down, and shakes any light fitting within a couple of metres off its
+housing — it falls, it breaks, and it does not come back on. Putting out a room you are
+standing in is a genuinely bad idea and therefore worth allowing.
+
+The blaster and the laser open a slab the way they open a wall: the floor above, the
+ceiling below and the slab between all lose that cell, the rim is left ragged, and you can
+drop through into the room beneath.
 
 **A blast leaves a mess.** The wall block comes out, jagged fragments stay clinging to
 whichever sides still have wall behind them and to the slab above, and two dozen lumps of

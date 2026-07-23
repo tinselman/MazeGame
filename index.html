@@ -532,24 +532,96 @@ const isRoomChar = (ch) => ch === '+' || ch === '~' || ch === '*';
 const isWater = (l, r, c) => at(l, r, c) === '~' || (at(l, r, c) === '*' && false);
 
 /* ============================================================ TEXTURES */
-function noiseTexture(base, spread, seams) {
-  const S = 128, cv = document.createElement('canvas');
+/* Concrete that has been standing a long time. The base was flat noise, which
+   at this resolution reads as television static rather than as a surface. Four
+   things are laid over it, all of them in grey — nothing in this building has
+   ever carried colour in its material and aging it is no reason to start.
+
+     · a coarse blotch, so the tone drifts across a wall rather than sitting flat
+     · hairline cracks that branch, wander and fade out, drawn dark and then
+       traced a half-pixel off in white so each one has a lip that catches light
+     · a scatter of small pits and chips
+     · a wash of staining down from the top edge, the way water leaves a wall
+
+   Everything is drawn with the canvas wrapping deliberately in mind: a crack
+   that runs off the right edge is not drawn again on the left, because the
+   texture repeats every three metres and a matched pair would read as a
+   pattern instantly. They are kept clear of the edges instead.               */
+function noiseTexture(base, spread, seams, age = 1) {
+  const S = 256, cv = document.createElement('canvas');
   cv.width = cv.height = S;
   const ctx = cv.getContext('2d');
   const img = ctx.createImageData(S, S);
   for (let i = 0; i < S * S; i++) {
     const x = i % S, y = (i / S) | 0;
-    const blotch = Math.sin(x * 0.11) * Math.cos(y * 0.09) * 0.5 + Math.sin((x + y) * 0.05) * 0.5;
-    const v = base + blotch * spread * 0.5 + (Math.random() - 0.5) * spread;
+    const blotch = Math.sin(x * 0.055) * Math.cos(y * 0.045) * 0.5
+                 + Math.sin((x + y) * 0.025) * 0.35
+                 + Math.sin(x * 0.013 + y * 0.017) * 0.5;         // a slow, large drift
+    const v = base + blotch * spread * 0.55 + (Math.random() - 0.5) * spread * 0.8;
     const c = Math.max(0, Math.min(255, v));
     img.data[i * 4] = img.data[i * 4 + 1] = img.data[i * 4 + 2] = c;
     img.data[i * 4 + 3] = 255;
   }
   ctx.putImageData(img, 0, 0);
-  if (seams) { ctx.strokeStyle = 'rgba(0,0,0,.30)'; ctx.lineWidth = 2; ctx.strokeRect(1, 1, S - 2, S - 2); }
+
+  // staining, running down from above
+  if (age > 0) {
+    for (let i = 0; i < 5 * age; i++) {
+      const x = 12 + Math.random() * (S - 24), w = 6 + Math.random() * 26;
+      const grad = ctx.createLinearGradient(0, 0, 0, S * (0.4 + Math.random() * 0.5));
+      grad.addColorStop(0, `rgba(0,0,0,${0.05 + Math.random() * 0.06})`);
+      grad.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(x, 0, w, S);
+    }
+  }
+
+  // cracks: a walk that branches, with a lit lip on one side
+  const crack = (x, y, ang, len, w, depth) => {
+    if (depth > 3) return;
+    ctx.lineCap = 'round';
+    let cx = x, cy = y, a = ang;
+    const pts = [[cx, cy]];
+    for (let i = 0; i < len; i++) {
+      a += (Math.random() - 0.5) * 0.75;
+      cx += Math.cos(a) * 3.2;
+      cy += Math.sin(a) * 3.2;
+      if (cx < 10 || cx > S - 10 || cy < 10 || cy > S - 10) break;  // never touch the seam
+      pts.push([cx, cy]);
+      if (Math.random() < 0.06) crack(cx, cy, a + (Math.random() < 0.5 ? 1 : -1) * 0.9,
+                                      len * 0.45, w * 0.65, depth + 1);
+    }
+    const draw = (ox, oy, style, lw) => {
+      ctx.strokeStyle = style; ctx.lineWidth = lw;
+      ctx.beginPath();
+      pts.forEach(([px, py], i) => (i ? ctx.lineTo(px + ox, py + oy) : ctx.moveTo(px + ox, py + oy)));
+      ctx.stroke();
+    };
+    draw(0.6, 0.6, 'rgba(255,255,255,.10)', w * 0.8);            // the lip that catches light
+    draw(0, 0, `rgba(0,0,0,${0.13 + Math.random() * 0.10})`, w); // and the fissure itself
+  };
+  // Sparse and fine. Three heavy branching cracks per tile read as scratches
+  // drawn on, and worse, the texture repeats every three metres so the eye
+  // finds the same crack twice in one wall. Two thin ones is aging; more is
+  // decoration.
+  for (let i = 0; i < 2 * age; i++) {
+    crack(24 + Math.random() * (S - 48), 24 + Math.random() * (S - 48),
+          Math.random() * 6.3, 10 + Math.random() * 18, 0.55 + Math.random() * 0.45, 0);
+  }
+
+  // pits and chips
+  for (let i = 0; i < 110 * age; i++) {
+    const x = Math.random() * S, y = Math.random() * S, rr = 0.4 + Math.random() * 1.7;
+    ctx.fillStyle = `rgba(0,0,0,${0.05 + Math.random() * 0.11})`;
+    ctx.beginPath(); ctx.arc(x, y, rr, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,.10)';
+    ctx.beginPath(); ctx.arc(x - rr * 0.4, y - rr * 0.4, rr * 0.6, 0, Math.PI * 2); ctx.fill();
+  }
+
+  if (seams) { ctx.strokeStyle = 'rgba(0,0,0,.30)'; ctx.lineWidth = 3; ctx.strokeRect(1.5, 1.5, S - 3, S - 3); }
   const t = new THREE.CanvasTexture(cv);
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  t.anisotropy = 4;
+  t.anisotropy = 8;
   return t;
 }
 function rippleTexture() {
@@ -605,9 +677,9 @@ function numeralTexture(n, bg, fg) {
   return new THREE.CanvasTexture(cv);
 }
 
-const texWall  = noiseTexture(150, 46, false);
-const texFloor = noiseTexture(120, 40, true);
-const texCeil  = noiseTexture(132, 26, true);
+const texWall  = noiseTexture(150, 46, false, 1.0);
+const texFloor = noiseTexture(120, 40, true, 0.7);   // walked on, less weathered
+const texCeil  = noiseTexture(132, 26, true, 1.3);   // where the damp goes first
 // A CRT still showing something. Green monospace on black — the machines in
 // this building never got switched off.
 /* The terminals. These were 128x96 with a 7px font, which at the size a screen
@@ -895,6 +967,26 @@ function quadMesh(quads, material) {
   g.setIndex(idx);
   const mesh = new THREE.Mesh(g, material);
   mesh.receiveShadow = true;
+  /* Which quad covers which cell, and how to take one out. A quad owns four
+     consecutive vertices, so collapsing all four onto a single point turns its
+     two triangles degenerate and it stops being drawn — the cheapest way to
+     open a hole in a merged mesh without rebuilding it. */
+  const byCell = new Map();
+  quads.forEach(([r, c, y], i) => {
+    // round to the nearest storey: a slab underside sits SLAB below its floor,
+    // and a ceiling sits WALL_H above its own, so neither divides exactly
+    const lev = Math.round(y / LEVEL_H);
+    byCell.set(`${lev},${r},${c}`, i);
+  });
+  mesh.holeAt = (lev, r, c) => {
+    const i = byCell.get(`${lev},${r},${c}`);
+    if (i === undefined) return false;
+    const a = g.attributes.position;
+    const x = a.getX(i * 4), y = a.getY(i * 4), z = a.getZ(i * 4);
+    for (let k = 0; k < 4; k++) a.setXYZ(i * 4 + k, x, y, z);
+    a.needsUpdate = true;
+    return true;
+  };
   return mesh;
 }
 
@@ -982,9 +1074,12 @@ for (let r = HUB.r1; r <= HUB.r2; r++) for (let c = HUB.c1; c <= HUB.c2; c++) {
     hubFasciaSides.push([r, c, dr, dc, 0, -SLAB]);
   }
 }
-scene.add(quadMesh(floorQuads, matFloor));
-scene.add(quadMesh(ceilQuads, matCeil));
-scene.add(quadMesh(slabQuads, matSlab));
+const floorMeshRef = quadMesh(floorQuads, matFloor);
+const ceilMeshRef  = quadMesh(ceilQuads, matCeil);
+scene.add(floorMeshRef);
+scene.add(ceilMeshRef);
+const slabMeshRef = quadMesh(slabQuads, matSlab);
+scene.add(slabMeshRef);
 scene.add(sideMesh(fasciaSides, matFascia));
 const hubFloor = quadMesh(hubFloorQuads, matFloor);
 hubFloor.add(sideMesh(hubFasciaSides, matFascia));
@@ -3328,6 +3423,8 @@ const sfx = {
       setTimeout(() => blip(42, 1.5, 'square', 0.07, 0.95), 60); },
   laserHum: () => blip(880 + Math.random() * 60, 0.12, 'sawtooth', 0.035, 0.6),
   dry:   () => blip(1250, 0.05, 'square', 0.05, 0.3),
+  glass: () => { [2400, 3100, 1900, 2700].forEach((f, i) =>
+      setTimeout(() => blip(f + Math.random() * 400, 0.16, 'triangle', 0.05, 0.9), i * 45)); },
   reloadSfx: () => { blip(420, 0.07, 'square', 0.06, 0.4);
       setTimeout(() => blip(340, 0.09, 'square', 0.06, 0.4), 110); },
   gunget: () => { [392, 523, 659, 784, 1046].forEach((f, i) =>
@@ -5075,6 +5172,71 @@ function blowFurnitureOver(x, y, z, radius) {
   }
 }
 
+/* Something hits the ceiling above you and the ceiling answers. Dust and
+   fragments come down where the round struck, and any light fitting close
+   enough is shaken off its housing — it drops, and it does not come back on.
+   Shooting at your own ceiling is a way to put out a room you are standing in,
+   which is a genuinely bad idea and therefore worth allowing. */
+function shakeCeiling(x, z, lev, power) {
+  const ceilY = levelY(lev) + WALL_H;
+  for (let i = 0; i < 5; i++) {
+    spawnChunk(x + (Math.random() - 0.5) * 1.4, ceilY - 0.15,
+               z + (Math.random() - 0.5) * 1.4, levelY(lev), power * 0.4);
+  }
+  for (const f of fixtures) {
+    if (f.fallen || f.lev !== lev) continue;
+    const p = cellCentre(f.cell[0], f.cell[1]);
+    if ((p.x - x) ** 2 + (p.z - z) ** 2 > 6.5) continue;
+    f.fallen = true;
+    setFixture(f, 0);
+    f.emitter.on = false;
+    f.dead = true;                              // it will not light again
+    // the tube comes down and lands on the floor
+    f.tube.position.y = levelY(lev) + 0.12;
+    f.tube.rotation.z = (Math.random() - 0.5) * 2.2;
+    f.tube.rotation.x = (Math.random() - 0.5) * 0.6;
+    for (let i = 0; i < 4; i++) {
+      spawnChunk(p.x, ceilY - 0.2, p.z, levelY(lev), power * 0.6);
+    }
+    sfx.glass();
+  }
+}
+
+/* A slab is opened the same way a wall is: the floor cells either side of it
+   come out of their meshes, the rim is left ragged, and the rubble falls to
+   whichever floor is beneath. You can shoot down through a floor and drop
+   into the room below, or up through a ceiling and see the storey above. */
+const slabHoles = new Set();
+function breachSlab(lev, r, c, up, power, chunkCount) {
+  const key = `${lev},${r},${c}`;
+  if (slabHoles.has(key)) return;
+  slabHoles.add(key);
+  const p = cellCentre(r, c);
+  const y = levelY(lev);
+  // the floor of the upper storey is what has to go
+  dropOpen.add(key);
+  // top face, the ceiling seen from below, and the slab underside
+  floorMeshRef.holeAt(lev, r, c);
+  ceilMeshRef.holeAt(lev - 1, r, c);
+  slabMeshRef.holeAt(lev, r, c);
+  for (let i = 0; i < chunkCount; i++) {
+    spawnChunk(p.x + (Math.random() - 0.5) * CELL * 0.8, y + (up ? 0.2 : -0.2),
+               p.z + (Math.random() - 0.5) * CELL * 0.8,
+               levelY(Math.max(0, lev - 1)), power);
+  }
+  // ragged edge round the opening
+  for (let i = 0; i < 8; i++) {
+    const a2 = (i / 8) * Math.PI * 2;
+    addRim(p.x + Math.cos(a2) * (CELL / 2 - 0.15), y + (Math.random() - 0.5) * 0.5,
+           p.z + Math.sin(a2) * (CELL / 2 - 0.15),
+           0.8 + Math.random() * 1.2, 0.5 + Math.random() * 0.8, 0.8 + Math.random() * 1.2,
+           Math.random() * 0.5, Math.random() * 6.3, Math.random() * 0.5);
+  }
+  blowFurnitureOver(p.x, y, p.z, 4.5);
+  if (lev - 1 >= 0) blowFurnitureOver(p.x, levelY(lev - 1), p.z, 4.5);
+  shakeCeiling(p.x, p.z, Math.max(0, lev - 1), power);
+}
+
 /* A wall comes apart. `power` scales how far the pieces are thrown, so a
    pistol round chips and a blaster erupts. */
 function burstWall(lev, r, c, power, chunkCount) {
@@ -5510,13 +5672,18 @@ function torchFallsOn(x, y, z) {
 }
 const seenNow = (lev, x, y, z) => litAt(lev, x, z) || torchFallsOn(x, y, z);
 
+/* One at a time. There is only ever a single gun lying in the building — the
+   next one up from what you carry — and taking it puts the one after that
+   somewhere new. So the ladder is walked rung by rung: pistol, shotgun,
+   machine gun, blaster, laser, each found by going and getting it. Scattering
+   all four at once let you stumble on the laser in the first minute and skip
+   the whole climb.
+
+   Whatever you drop stays where you dropped it, and the wanderers still come
+   for it — that part is unchanged, and it is why arming yourself is also how
+   you arm them.                                                              */
 const worldGuns = [];
 {
-  /* A gun stands in a room, never in a corridor. Corridors have no fixtures
-     and never will, so a gun left in one could never be lit and would only
-     ever be findable by sweeping a torch down every hall in the building. In a
-     room it has a switch of its own: find the switch, arm yourself. A fresh
-     scatter across all three floors every game. */
   const usedRooms = new Set();
   const spot = () => {
     const rooms = ROOM_META.filter((m) => !usedRooms.has(m));
@@ -5535,16 +5702,22 @@ const worldGuns = [];
     mesh.castShadow = true;
     mesh.visible = false;
     scene.add(mesh);
-    const g = { tier: spec.tier, spec, mesh, pos: new THREE.Vector3(), lev: 0, onFloor: false, bob: Math.random() * 6 };
-    if (spec.tier > 1) {                        // the pistol starts in your hand
-      const { p, l } = spot();
-      g.pos.set(p.x, levelY(l) + 1.15, p.z);
-      g.lev = l; g.onFloor = true;
-      mesh.visible = true;
-    }
-    worldGuns.push(g);
+    worldGuns.push({ tier: spec.tier, spec, mesh, pos: new THREE.Vector3(),
+                     lev: 0, onFloor: false, bob: Math.random() * 6 });
   }
+  // put the next rung out, somewhere you have not been sent yet
+  window.__placeNextGun = (tier) => {
+    const g = worldGuns.find((w) => w.tier === tier);
+    if (!g || g.onFloor) return;
+    const { p, l } = spot();
+    g.pos.set(p.x, levelY(l) + 1.15, p.z);
+    g.lev = l;
+    g.onFloor = true;
+    g.mesh.visible = false;                 // until light finds it
+  };
+  __placeNextGun(2);                        // the shotgun is the first thing out there
 }
+const placeNextGun = window.__placeNextGun;
 
 /* ---- ammunition ---------------------------------------------------------
    Walking home for every magazine was the whole cost of firing, and it was too
@@ -5675,6 +5848,25 @@ function gunRay(spread, pierce, maxD) {
                x: rayAt.x - rayDir.x * 0.3, y: rayAt.y - rayDir.y * 0.3, z: rayAt.z - rayDir.z * 0.3,
                nx: -rayDir.x, ny: -rayDir.y, nz: -rayDir.z };
     }
+    /* Slabs stop a bullet too. The ray only ever tested the walls, so firing at
+       the ceiling or the floor sent the round harmlessly into the next storey
+       and nothing marked it. A shot that crosses the plane between two floors
+       has hit the slab between them — unless the cell is a stairwell or an
+       atrium, where there is nothing there to hit. */
+    if (!pierce) {
+      const boundary = rayDir.y > 0 ? Math.ceil(rayAt.y / LEVEL_H) * LEVEL_H
+                                    : Math.floor(rayAt.y / LEVEL_H) * LEVEL_H;
+      const crossed = rayDir.y > 0 ? rayAt.y >= boundary - 0.3 && rayAt.y <= boundary
+                                   : rayAt.y <= boundary + 0.3 && rayAt.y >= boundary;
+      if (crossed && boundary > 0.1) {
+        const slabLev = Math.round(boundary / LEVEL_H);
+        if (at(slabLev, r, c) !== VOID) {
+          return { kind: 'slab', lev: slabLev, up: rayDir.y > 0, r, c,
+                   x: rayAt.x, y: boundary + (rayDir.y > 0 ? -0.06 : 0.06), z: rayAt.z,
+                   nx: 0, ny: rayDir.y > 0 ? -1 : 1, nz: 0 };
+        }
+      }
+    }
   }
   return null;
 }
@@ -5690,6 +5882,8 @@ function fireOnce() {
     const hit = gunRay(0, false, 60) || { x: player.pos.x + rayDir.x * 60, y: player.pos.y, z: player.pos.z + rayDir.z * 60 };
     if (hit.kind === 'wall' && at(hit.lev, hit.r, hit.c) === '#') {
       punchHole({ lev: hit.lev, r: hit.r, c: hit.c }, Infinity, 13, 34);  // and it stays open
+    } else if (hit.kind === 'slab') {
+      breachSlab(hit.lev, hit.r, hit.c, hit.up, 13, 30);
     }
     killFlash.pos.set(hit.x, hit.y, hit.z);
     killFlash.intensity = 60; killFlash.on = true;
@@ -5709,9 +5903,10 @@ function fireOnce() {
     if (hit.kind === 'anti') { spectrumBurst(hit.a.pos.clone().setY(hit.a.pos.y + 1.12)); killAnti(hit.a); }
     else {
       placeDecal(hit.x, hit.y, hit.z, hit.nx, hit.ny, hit.nz);
-      // a chip of the wall comes away with every round
-      spawnChunk(hit.x, hit.y, hit.z, levelY(hit.lev), 2.2);
-      spawnChunk(hit.x, hit.y, hit.z, levelY(hit.lev), 1.6);
+      const floorY = hit.kind === 'slab' ? levelY(hit.lev - (hit.up ? 1 : 0)) : levelY(hit.lev);
+      spawnChunk(hit.x, hit.y, hit.z, floorY, 2.2);
+      spawnChunk(hit.x, hit.y, hit.z, floorY, 1.6);
+      if (hit.kind === 'slab' && hit.up) shakeCeiling(hit.x, hit.z, hit.lev - 1, 2.2);
     }
   }
 }
@@ -5739,6 +5934,7 @@ function updateGuns(dt) {
       sfx.gunget();
       announce(g.spec.name, '#ffffff', 3.6);
       say('what you were carrying is on the floor behind you', 5);
+      placeNextGun(g.tier + 1);            // and the next rung goes out somewhere
     }
   }
 
@@ -5779,10 +5975,14 @@ function updateGuns(dt) {
       const hit = gunRay(0, false, len);
       if (hit) {
         reach = Math.hypot(hit.x - player.pos.x, hit.y - player.pos.y, hit.z - player.pos.z);
-        if (hit.kind === 'wall' && at(hit.lev, hit.r, hit.c) === '#') {
-          if ((laserBore = (laserBore || 0) + dt) > 0.35) {
+        if ((laserBore = (laserBore || 0) + dt) > 0.35) {
+          if (hit.kind === 'wall' && at(hit.lev, hit.r, hit.c) === '#') {
             laserBore = 0;
             punchHole({ lev: hit.lev, r: hit.r, c: hit.c }, Infinity, 5, 14);
+            sfx.blastShot();
+          } else if (hit.kind === 'slab') {
+            laserBore = 0;
+            breachSlab(hit.lev, hit.r, hit.c, hit.up, 5, 12);
             sfx.blastShot();
           }
         }
@@ -6073,7 +6273,10 @@ function frame(dt) {
     if (!room.on) continue;
     if (room.chandelier) continue;              // no tubes to strike in there
     const base = now - room.litAt;
-    for (const f of room.fixtures) setFixture(f, fixtureLevel(f, base - f.delay));
+    for (const f of room.fixtures) {
+      if (f.dead) continue;                     // shot down; it stays down
+      setFixture(f, fixtureLevel(f, base - f.delay));
+    }
   }
   updateChandeliers(dt, now);
   updateXmas(now);
