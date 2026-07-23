@@ -95,8 +95,9 @@
   #gunhud {
     position: absolute; left: 34px; bottom: 104px;
     font-size: 13px; letter-spacing: .14em; color: #e8eef8;
-    text-shadow: 0 2px 8px rgba(0,0,0,.95);
+    text-shadow: 0 2px 8px rgba(0,0,0,.95); line-height: 1.6;
   }
+  #gunhud .next { font-size: 11px; color: rgba(200,214,236,.72); letter-spacing: .1em; }
   /* the countdown, where you can see it from anywhere in the building */
   #hudclockwrap {
     position: absolute; left: 50%; bottom: 50px; transform: translateX(-50%);
@@ -3666,20 +3667,59 @@ function drawMinimap() {
     g.restore();
   }
 
-  // The guns, from the very first moment — you know where they are, not what
-  // is between you and them, and the chart does not say which storey.
-  g.save();
-  g.fillStyle = '#ffffff';
-  g.strokeStyle = 'rgba(255,255,255,.8)';
+  /* Guns and ammunition on the chart.
+
+     These were plain diamond outlines, which was a poor choice twice over: the
+     six crystal slots along the foot of the screen are also diamonds, so one
+     shape meant two things, and an outline told you a gun was somewhere without
+     saying which gun or which floor. A ring with the tier in it says what is
+     there — 2 is the shotgun, 5 the laser — and the caret says whether to go up
+     or down to reach it. Ammunition is a plus, which is nobody else's shape. */
+  const levTag = (lev, x, y) => {
+    if (lev === player.lev) return;
+    const up = lev > player.lev;
+    g.beginPath();
+    g.moveTo(x - 3.4, y + (up ? 2 : -2));
+    g.lineTo(x, y + (up ? -2.4 : 2.4));
+    g.lineTo(x + 3.4, y + (up ? 2 : -2));
+    g.stroke();
+  };
+
+  for (const q of ammoPacks) {
+    if (q.taken > 0) continue;
+    const ax = mmX(q.pos.x / CELL), ay = mmY(q.pos.z / CELL);
+    const here = q.lev === player.lev;
+    g.save();
+    g.globalAlpha = here ? 0.9 : 0.32;
+    g.strokeStyle = '#d8e6ff';
+    g.lineWidth = here ? 2 : 1.2;
+    g.beginPath();
+    g.moveTo(ax - 3.2, ay); g.lineTo(ax + 3.2, ay);
+    g.moveTo(ax, ay - 3.2); g.lineTo(ax, ay + 3.2);
+    g.stroke();
+    g.restore();
+  }
+
   for (const gun of worldGuns) {
     if (!gun.onFloor) continue;
     const gx = mmX(gun.pos.x / CELL), gy = mmY(gun.pos.z / CELL);
-    g.beginPath();
-    g.moveTo(gx, gy - 4.4); g.lineTo(gx + 3.4, gy); g.lineTo(gx, gy + 4.4); g.lineTo(gx - 3.4, gy);
-    g.closePath();
-    g.stroke();
+    const here = gun.lev === player.lev;
+    const better = gun.tier > gunState.tier;
+    g.save();
+    g.globalAlpha = here ? 1 : 0.42;
+    // a gun worth crossing the building for pulses; one weaker than yours sits still
+    const pulse = better ? 0.75 + 0.25 * Math.sin(clock.elapsedTime * 3.4) : 0.55;
+    g.fillStyle = 'rgba(6,8,12,.85)';
+    g.strokeStyle = `rgba(255,255,255,${pulse})`;
+    g.lineWidth = here ? 2.2 : 1.4;
+    g.beginPath(); g.arc(gx, gy, 7.4, 0, Math.PI * 2); g.fill(); g.stroke();
+    g.fillStyle = `rgba(255,255,255,${pulse})`;
+    g.font = 'bold 10px ui-monospace, monospace';
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillText(String(gun.tier), gx, gy + 0.5);
+    levTag(gun.lev, gx, gy - 11);
+    g.restore();
   }
-  g.restore();
 
   // The other lights. You can always see where they are — that is the whole
   // counterplay, and without it being hunted would just be arbitrary.
@@ -5768,10 +5808,25 @@ function updateGuns(dt) {
   }
   gunState.wasDown = gunState.trigger;
 
-  // the readout
-  el.gunhud.textContent = spec.laser
+  // the readout: what you hold, and where the next thing worth holding is
+  const held = spec.laser
     ? `${spec.name}  ${gunState.charge.toFixed(1)}s`
     : `${spec.name}  ${gunState.ammo}/${spec.mag}`;
+  let best = null, bestD = 1e9;
+  for (const g of worldGuns) {
+    if (!g.onFloor || g.tier <= gunState.tier) continue;
+    const d = Math.hypot(g.pos.x - player.pos.x, g.pos.z - player.pos.z)
+            + Math.abs(g.lev - player.lev) * 20;
+    if (d < bestD) { bestD = d; best = g; }
+  }
+  if (best) {
+    const where = best.lev === player.lev ? 'this floor'
+      : best.lev > player.lev ? `${best.lev - player.lev} up` : `${player.lev - best.lev} down`;
+    const flat = Math.round(Math.hypot(best.pos.x - player.pos.x, best.pos.z - player.pos.z));
+    el.gunhud.innerHTML = `${held}<br><span class="next">${best.tier} \u00b7 ${best.spec.name} \u00b7 ${flat}m \u00b7 ${where}</span>`;
+  } else {
+    el.gunhud.textContent = held;
+  }
 }
 
 

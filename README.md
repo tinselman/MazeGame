@@ -301,6 +301,16 @@ they pick up, they use on you.
 | 4 | **Blaster** | Four shots. Bursts a permanent hole you can walk through and kills everything within six metres. |
 | 5 | **Laser** | A held beam, ten seconds of charge. Bores through the first wall it meets and stops there — it no longer kills what it cannot reach, it makes its own line of sight. |
 
+**The chart says which gun and which floor.** Each gun is a ring with its tier inside —
+2 is the shotgun, 5 the laser — bright on your storey and faint on another, with a caret
+above it pointing the way to go. One better than what you carry pulses; one weaker sits
+still. Ammunition is a plus, and the lower left names the next gun worth crossing the
+building for, with its distance and its floor.
+
+These were plain diamond outlines, which was wrong twice over: the six crystal slots
+along the foot of the screen are diamonds too, so one shape meant two things, and an
+outline said a gun was somewhere without saying which gun or which storey.
+
 **Ammunition floats through the labyrinth**, on all three floors, under the same rule as
 the guns: dark until the room is lit or your beam finds it. One always turns under the
 clock in the hub, so home is never empty. Taking one fills whatever you carry, and they
