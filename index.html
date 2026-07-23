@@ -1922,6 +1922,10 @@ const ATRIUM_AREAS = [];        // where a dry fountain might stand
   }
 }
 
+// every instanced furniture mesh, with the list it was built from, so a blast
+// can find the pieces near it and lay them on their side
+const furniture = [];
+
 /* ---- furniture ---------------------------------------------------------
    Landmarks. Every room is a recognisable kind of abandoned space, so you can
    navigate by "past the banquet hall, left at the pallet racks" rather than by
@@ -2195,8 +2199,10 @@ const ATRIUM_AREAS = [];        // where a dry fountain might stand
     mesh.instanceMatrix.needsUpdate = true;
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
     mesh.userData.detail = 2;               // first thing dropped on LOW detail
+    mesh.userData.kind = kind;
     scene.add(mesh);
     propMeshes.push(mesh);
+    furniture.push({ mesh, list });          // so a blast can knock it over
   }
 
   /* ---- the two chandelier rooms ------------------------------------------
@@ -3684,9 +3690,11 @@ function drawMinimap() {
     g.lineCap = 'round';
     for (let i = 1; i < a.path.length; i++) {
       const p0 = a.path[i - 1], p1 = a.path[i];
+      // long trails: where each of them has been for the last minute, so the
+      // chart shows you the shape of their wandering rather than a dash
       const age = now - p1.t;
-      if (age > 9) continue;
-      g.globalAlpha = (1 - age / 9) * (p1.lev === player.lev ? 0.85 : 0.3);
+      if (age > 60) continue;
+      g.globalAlpha = (1 - age / 60) * 0.9 * (p1.lev === player.lev ? 1 : 0.35);
       g.strokeStyle = a.zombie ? '#5bff8f' : '#7fd4ff';
       g.beginPath();
       g.moveTo(mmX(p0.x / CELL), mmY(p0.z / CELL));
@@ -4665,7 +4673,7 @@ function updateAntis(dt) {
     const tl = a.path[a.path.length - 1];
     if (!tl || (tl.x - a.pos.x) ** 2 + (tl.z - a.pos.z) ** 2 > 0.5) {
       a.path.push({ x: a.pos.x, z: a.pos.z, lev: a.lev, t: clock.elapsedTime });
-      if (a.path.length > 90) a.path.shift();
+      if (a.path.length > 420) a.path.shift();
     }
     // it charts the ground it covers as it goes
     const [ar, ac] = cellOf(a.pos);
@@ -4929,12 +4937,150 @@ function paintXray(on) {
 }
 
 /* ---- the holes the third light punches ---------------------------------- */
-const holeGrp = new THREE.Group();
-scene.add(holeGrp);
-const matHole = new THREE.MeshBasicMaterial({
-  color: 0xbfe4ff, transparent: true, opacity: 0.34, side: THREE.DoubleSide, fog: false,
-});
-function punchHole(w, secs) {
+/* ---- what a blast leaves behind ------------------------------------------
+   A hole used to be marked with a translucent blue box the size of the whole
+   cell — a leftover from the walk-through lamp, where it told you where the
+   opening was. Through a blaster it read as a glowing crate sitting in the
+   wall, which is exactly wrong: a blast should leave a mess, not a marker.
+
+   So there is no marker at all now. Instead the wall block comes out, a
+   handful of jagged fragments are left clinging to the rim so the opening
+   reads as broken rather than cut, and two dozen lumps of concrete burst out,
+   fall, bounce and come to rest on the floor — where they stay for the rest of
+   the run. Furniture standing within a few metres goes over with them.
+
+   Both pools are instanced and fixed in size, so a blast costs no allocation
+   and no draw call beyond the two that always exist.                         */
+const CHUNKS = 220;
+const chunkGeo = mergeGeos([
+  at3(Box(0.30, 0.22, 0.26), 0, 0, 0),
+  at3(Box(0.20, 0.30, 0.18), 0.08, 0.06, 0.05, 0.4, 0.7, 0.2),
+  at3(Box(0.16, 0.14, 0.30), -0.09, -0.05, 0.02, 0.2, -0.5, 0.3),
+]);
+const debrisMesh = new THREE.InstancedMesh(chunkGeo, matWall, CHUNKS);
+debrisMesh.castShadow = debrisMesh.receiveShadow = true;
+debrisMesh.count = 0;
+debrisMesh.frustumCulled = false;
+scene.add(debrisMesh);
+const chunks = [];
+for (let i = 0; i < CHUNKS; i++) {
+  chunks.push({ live: false, settled: false, pos: new THREE.Vector3(),
+                vel: new THREE.Vector3(), rot: new THREE.Euler(),
+                spin: new THREE.Vector3(), scale: 1, floor: 0 });
+}
+let chunkNext = 0;
+
+// the fragments left clinging to the rim of an opening
+const RIMS = 90;
+const rimMesh = new THREE.InstancedMesh(chunkGeo, matWall, RIMS);
+rimMesh.castShadow = rimMesh.receiveShadow = true;
+rimMesh.count = 0;
+rimMesh.frustumCulled = false;
+scene.add(rimMesh);
+let rimNext = 0;
+const rimM = new THREE.Matrix4(), rimQ = new THREE.Quaternion(), rimS = new THREE.Vector3();
+
+function addRim(x, y, z, sx, sy, sz, rx, ry, rz) {
+  if (rimNext >= RIMS) return;
+  rimQ.setFromEuler(new THREE.Euler(rx, ry, rz));
+  rimS.set(sx, sy, sz);
+  rimM.compose(new THREE.Vector3(x, y, z), rimQ, rimS);
+  rimMesh.setMatrixAt(rimNext++, rimM);
+  rimMesh.count = rimNext;
+  rimMesh.instanceMatrix.needsUpdate = true;
+}
+
+function spawnChunk(x, y, z, floorY, power) {
+  const ch = chunks[chunkNext++ % CHUNKS];
+  ch.live = true; ch.settled = false;
+  ch.pos.set(x, y, z);
+  ch.vel.set((Math.random() - 0.5) * power, Math.random() * power * 0.6 + 0.6,
+             (Math.random() - 0.5) * power);
+  ch.rot.set(Math.random() * 6.3, Math.random() * 6.3, Math.random() * 6.3);
+  ch.spin.set((Math.random() - 0.5) * 12, (Math.random() - 0.5) * 12, (Math.random() - 0.5) * 12);
+  ch.scale = 0.5 + Math.random() * 0.9;
+  ch.floor = floorY;
+  if (debrisMesh.count < CHUNKS) debrisMesh.count = Math.min(CHUNKS, chunkNext);
+}
+
+/* Lay furniture on its side. The pieces are instanced, so this rewrites the
+   one matrix rather than touching a model: the yaw it was placed with, then a
+   tip about a horizontal axis, and dropped to the floor. */
+const tipM = new THREE.Matrix4(), tipQ = new THREE.Quaternion(),
+      tipE = new THREE.Euler(), tipS = new THREE.Vector3();
+function blowFurnitureOver(x, y, z, radius) {
+  const r2 = radius * radius;
+  for (const f of furniture) {
+    let touched = false;
+    f.list.forEach((it, i) => {
+      if (it.tipped) return;
+      if (Math.abs(it.p.y - y) > 3) return;
+      const dx = it.p.x - x, dz = it.p.z - z;
+      const d2 = dx * dx + dz * dz;
+      if (d2 > r2) return;
+      it.tipped = true;
+      touched = true;
+      // away from the blast, and over
+      const away = Math.atan2(dx, dz);
+      tipE.set(Math.cos(away) * 1.45, it.rot, Math.sin(away) * 1.45);
+      tipQ.setFromEuler(tipE);
+      tipS.set(it.scale, 1, it.scale);
+      tipM.compose(new THREE.Vector3(it.p.x + dx * 0.06, it.p.y + 0.34, it.p.z + dz * 0.06),
+                   tipQ, tipS);
+      f.mesh.setMatrixAt(i, tipM);
+    });
+    if (touched) f.mesh.instanceMatrix.needsUpdate = true;
+  }
+}
+
+/* A wall comes apart. `power` scales how far the pieces are thrown, so a
+   pistol round chips and a blaster erupts. */
+function burstWall(lev, r, c, power, chunkCount) {
+  const p = cellCentre(r, c);
+  const y0 = levelY(lev);
+  for (let i = 0; i < chunkCount; i++) {
+    spawnChunk(p.x + (Math.random() - 0.5) * CELL * 0.8,
+               y0 + 0.4 + Math.random() * (WALL_H - 0.8),
+               p.z + (Math.random() - 0.5) * CELL * 0.8,
+               y0, power);
+  }
+}
+
+function updateChunks(dt) {
+  let moved = false;
+  for (let i = 0; i < debrisMesh.count; i++) {
+    const ch = chunks[i];
+    if (!ch.live || ch.settled) continue;
+    moved = true;
+    ch.vel.y -= 17 * dt;
+    ch.pos.addScaledVector(ch.vel, dt);
+    ch.rot.x += ch.spin.x * dt;
+    ch.rot.y += ch.spin.y * dt;
+    ch.rot.z += ch.spin.z * dt;
+    if (ch.pos.y <= ch.floor + 0.12) {
+      ch.pos.y = ch.floor + 0.12;
+      if (Math.abs(ch.vel.y) < 1.4) {
+        // it has stopped bouncing: put it down and never touch it again
+        ch.settled = true;
+        ch.vel.set(0, 0, 0);
+        ch.spin.set(0, 0, 0);
+        ch.rot.x = Math.round(ch.rot.x / 1.571) * 1.571;
+        ch.rot.z = Math.round(ch.rot.z / 1.571) * 1.571;
+      } else {
+        ch.vel.y = -ch.vel.y * 0.34;
+        ch.vel.x *= 0.6; ch.vel.z *= 0.6;
+        ch.spin.multiplyScalar(0.5);
+      }
+    }
+    tipQ.setFromEuler(ch.rot);
+    tipS.setScalar(ch.scale);
+    tipM.compose(ch.pos, tipQ, tipS);
+    debrisMesh.setMatrixAt(i, tipM);
+  }
+  if (moved) debrisMesh.instanceMatrix.needsUpdate = true;
+}
+
+function punchHole(w, secs, power = 8, chunkCount = 22) {
   const key = `${w.lev},${w.r},${w.c}`;
   if (holes.has(key)) { holes.set(key, clock.elapsedTime + secs); return; }
   holes.set(key, clock.elapsedTime + secs);
@@ -4945,11 +5091,36 @@ function punchHole(w, secs) {
     wallMesh.instanceMatrix.needsUpdate = true;
   }
   const p = cellCentre(w.r, w.c);
-  const box = new THREE.Mesh(new THREE.BoxGeometry(CELL, WALL_H, CELL), matHole);
-  box.position.set(p.x, levelY(w.lev) + WALL_H / 2, p.z);
-  box.userData.key = key;
-  holeGrp.add(box);
+  const y0 = levelY(w.lev);
+  /* Jagged remains around the opening, so it reads as broken rather than cut.
+     They only go where there is something to cling to: a side whose neighbour
+     is still wall, or the head of the opening under the slab, which is always
+     there. Scattered on all four sides regardless, they hung in mid-air in the
+     middle of the hole and read as floating rocks. */
+  const sides = [[-1, 0], [1, 0], [0, -1], [0, 1]]
+    .filter(([dr, dc]) => at(w.lev, w.r + dr, w.c + dc) === '#');
+  for (const [dr, dc] of sides) {
+    for (let i = 0; i < 3; i++) {
+      const t = (Math.random() - 0.5) * CELL * 0.55;
+      addRim(p.x + dc * (CELL / 2 - 0.08) + (dc ? 0 : t),
+             y0 + 0.25 + Math.random() * (WALL_H - 0.7),
+             p.z + dr * (CELL / 2 - 0.08) + (dr ? 0 : t),
+             0.8 + Math.random() * 1.3, 0.7 + Math.random() * 1.6, 0.8 + Math.random() * 1.1,
+             Math.random() * 0.5, Math.random() * 6.3, Math.random() * 0.5);
+    }
+  }
+  // and a broken lintel hanging from the slab above, which never falls away
+  for (let i = 0; i < 4; i++) {
+    addRim(p.x + (Math.random() - 0.5) * CELL * 0.8,
+           y0 + WALL_H - 0.15 - Math.random() * 0.35,
+           p.z + (Math.random() - 0.5) * CELL * 0.8,
+           0.9 + Math.random() * 1.4, 0.7 + Math.random() * 0.9, 0.9 + Math.random() * 1.2,
+           Math.random() * 0.4, Math.random() * 6.3, Math.random() * 0.4);
+  }
+  burstWall(w.lev, w.r, w.c, power, chunkCount);
+  blowFurnitureOver(p.x, y0 + 1, p.z, 5.5);
 }
+
 function closeHole(key) {
   holes.delete(key);
   const idx = wallIndex.get(key);
@@ -4959,7 +5130,6 @@ function closeHole(key) {
     wallMesh.setMatrixAt(idx, new THREE.Matrix4().makeTranslation(p.x, levelY(l) + WALL_H / 2, p.z));
     wallMesh.instanceMatrix.needsUpdate = true;
   }
-  for (const m of [...holeGrp.children]) if (m.userData.key === key) holeGrp.remove(m);
 }
 
 /* ---- firing ------------------------------------------------------------- */
@@ -5236,7 +5406,7 @@ function updateChandeliers(dt, now) {
    about how far from home you can afford to be.                             */
 const GUNS = [
   { key: 'pistol',  name: 'PISTOL',      tier: 1, mag: 6,   auto: false, rate: 0.30, pellets: 1, spread: 0.012 },
-  { key: 'shotgun', name: 'SHOTGUN',     tier: 2, mag: 1,   auto: false, rate: 1.0,  pellets: 9, spread: 0.13 },
+  { key: 'shotgun', name: 'SHOTGUN',     tier: 2, mag: 8,   auto: false, rate: 0.62, pellets: 9, spread: 0.13 },
   { key: 'mg',      name: 'MACHINE GUN', tier: 3, mag: 100, auto: true,  rate: 0.085, pellets: 1, spread: 0.035 },
   { key: 'blaster', name: 'BLASTER',     tier: 4, mag: 4,   auto: false, rate: 0.8,  blast: true },
   { key: 'laser',   name: 'LASER',       tier: 5, charge: 10, laser: true },
@@ -5277,19 +5447,44 @@ const GUN_GEOS = {
   ]),
 };
 
+/* Nothing in this building is handed to you. A gun or a magazine lying in an
+   unlit room is invisible — not dimmed, invisible — until either you throw
+   that room's switch or your own beam falls across it. Which makes the torch
+   what it now is: not a weapon, but the thing that finds weapons.            */
+function litAt(lev, x, z) {
+  const r = Math.floor(z / CELL), c = Math.floor(x / CELL);
+  if (inHub(lev, r, c)) return true;
+  return roomOf.get(`${lev},${r},${c}`)?.on === true;
+}
+const TORCH_SEE = Math.cos(0.52);
+function torchFallsOn(x, y, z) {
+  if (player.battery <= 0) return false;
+  const dx = x - player.pos.x, dy = y - player.pos.y, dz = z - player.pos.z;
+  const d = Math.hypot(dx, dy, dz);
+  if (d > 17 || d < 0.01) return false;
+  const cp = Math.cos(player.pitch);
+  return (dx * -Math.sin(player.yaw) * cp + dy * Math.sin(player.pitch)
+          + dz * -Math.cos(player.yaw) * cp) / d > TORCH_SEE;
+}
+const seenNow = (lev, x, y, z) => litAt(lev, x, z) || torchFallsOn(x, y, z);
+
 const worldGuns = [];
 {
-  // a random open hall cell, a fresh set every game
+  /* A gun stands in a room, never in a corridor. Corridors have no fixtures
+     and never will, so a gun left in one could never be lit and would only
+     ever be findable by sweeping a torch down every hall in the building. In a
+     room it has a switch of its own: find the switch, arm yourself. A fresh
+     scatter across all three floors every game. */
+  const usedRooms = new Set();
   const spot = () => {
-    for (let tries = 0; tries < 400; tries++) {
-      const l = Math.floor(Math.random() * NLEV);
-      const r = 2 + Math.floor(Math.random() * (ROWS - 4));
-      const c = 2 + Math.floor(Math.random() * (COLS - 4));
-      if (at(l, r, c) !== '.') continue;
-      if (inHub(l, r, c)) continue;
-      const p = cellCentre(r, c);
-      if (worldGuns.some((g) => Math.hypot(g.pos.x - p.x, g.pos.z - p.z) < 18)) continue;
-      return { p, l };
+    const rooms = ROOM_META.filter((m) => !usedRooms.has(m));
+    for (let tries = 0; tries < 200 && rooms.length; tries++) {
+      const m = rooms[Math.floor(Math.random() * rooms.length)];
+      const r = m.r1 + Math.floor(Math.random() * (m.r2 - m.r1 + 1));
+      const c = m.c1 + Math.floor(Math.random() * (m.c2 - m.c1 + 1));
+      if (!isWalkableChar(at(m.lev, r, c)) || isSolid(m.lev, r, c)) continue;
+      usedRooms.add(m);
+      return { p: cellCentre(r, c), l: m.lev };
     }
     return { p: cellCentre(2, 2), l: 0 };
   };
@@ -5309,6 +5504,69 @@ const worldGuns = [];
   }
 }
 
+/* ---- ammunition ---------------------------------------------------------
+   Walking home for every magazine was the whole cost of firing, and it was too
+   much of one. Clips float through the labyrinth on all three floors under the
+   same rule as the guns — dark until the room is lit or your beam finds them —
+   and one always turns under the clock in the hub, so home is never empty.
+   Taking one fills whatever you are carrying. They come back after a while,
+   so the building never runs dry.                                            */
+const AMMO_RESPAWN = 34;
+const ammoGeo = mergeGeos([
+  at3(Box(0.13, 0.20, 0.07), 0, 0, 0),
+  at3(Box(0.16, 0.05, 0.10), 0, 0.12, 0),
+  ...[-0.05, 0.0, 0.05].map((y) => at3(Box(0.15, 0.015, 0.09), 0, y, 0)),
+]);
+const matAmmo = new THREE.MeshPhongMaterial({ color: 0xb9b39c, specular: 0xdddddd, shininess: 40 });
+const ammoPacks = [];
+{
+  const place = (x, z, lev, fixed) => {
+    const mesh = new THREE.Mesh(ammoGeo, matAmmo);
+    mesh.castShadow = true;
+    mesh.visible = false;
+    scene.add(mesh);
+    ammoPacks.push({ mesh, pos: new THREE.Vector3(x, levelY(lev) + 1.1, z),
+                     lev, taken: 0, bob: Math.random() * 6, fixed });
+  };
+  // one under the clock, always
+  place(hubCentre.x, hubCentre.z - 2.2, 0, true);
+  // and fourteen through the building, rooms and halls alike
+  for (let i = 0; i < 14; i++) {
+    for (let tries = 0; tries < 200; tries++) {
+      const l = Math.floor(Math.random() * NLEV);
+      const r = 2 + Math.floor(Math.random() * (ROWS - 4));
+      const c = 2 + Math.floor(Math.random() * (COLS - 4));
+      if (!isWalkableChar(at(l, r, c)) || isSolid(l, r, c) || inHub(l, r, c)) continue;
+      const p = cellCentre(r, c);
+      if (ammoPacks.some((q) => Math.hypot(q.pos.x - p.x, q.pos.z - p.z) < 11)) continue;
+      place(p.x, p.z, l, false);
+      break;
+    }
+  }
+}
+
+function updateAmmo(dt, t) {
+  const spec = curGun();
+  for (const q of ammoPacks) {
+    if (q.taken > 0) {
+      q.taken -= dt;
+      if (q.taken > 0) { q.mesh.visible = false; continue; }
+    }
+    q.mesh.visible = seenNow(q.lev, q.pos.x, q.pos.y, q.pos.z);
+    q.mesh.position.set(q.pos.x, q.pos.y + Math.sin(t * 1.7 + q.bob) * 0.09, q.pos.z);
+    q.mesh.rotation.y = t * 1.3 + q.bob;
+    if (q.lev !== player.lev) continue;
+    if ((q.pos.x - player.pos.x) ** 2 + (q.pos.z - player.pos.z) ** 2 > 1.7) continue;
+    const full = spec.laser ? gunState.charge >= spec.charge : gunState.ammo >= spec.mag;
+    if (full) continue;
+    if (spec.laser) gunState.charge = spec.charge; else gunState.ammo = spec.mag;
+    q.taken = AMMO_RESPAWN;
+    q.mesh.visible = false;
+    sfx.reloadSfx();
+    say('reloaded', 2);
+  }
+}
+
 function dropGunAt(g, x, z, lev) {
   g.pos.set(x, levelY(lev) + 1.15, z);
   g.lev = lev;
@@ -5322,14 +5580,14 @@ const decals = [];
 {
   const geo = new THREE.CircleGeometry(0.055, 8);
   const mat = new THREE.MeshBasicMaterial({ color: 0x101010, fog: true });
-  for (let i = 0; i < 60; i++) {
+  for (let i = 0; i < 240; i++) {
     const m = new THREE.Mesh(geo, mat);
     m.visible = false;
     scene.add(m);
     decals.push(m);
   }
 }
-let decalIdx = 0;
+let decalIdx = 0, laserBore = 0;
 function placeDecal(x, y, z, nx, ny, nz) {
   const m = decals[decalIdx++ % decals.length];
   m.position.set(x + nx * 0.012, y + ny * 0.012, z + nz * 0.012);
@@ -5389,7 +5647,7 @@ function fireOnce() {
     sfx.blastShot();
     const hit = gunRay(0, false, 60) || { x: player.pos.x + rayDir.x * 60, y: player.pos.y, z: player.pos.z + rayDir.z * 60 };
     if (hit.kind === 'wall' && at(hit.lev, hit.r, hit.c) === '#') {
-      punchHole({ lev: hit.lev, r: hit.r, c: hit.c }, Infinity);   // and it stays open
+      punchHole({ lev: hit.lev, r: hit.r, c: hit.c }, Infinity, 13, 34);  // and it stays open
     }
     killFlash.pos.set(hit.x, hit.y, hit.z);
     killFlash.intensity = 60; killFlash.on = true;
@@ -5407,7 +5665,12 @@ function fireOnce() {
     const hit = gunRay(spec.spread, false, 60);
     if (!hit) continue;
     if (hit.kind === 'anti') { spectrumBurst(hit.a.pos.clone().setY(hit.a.pos.y + 1.12)); killAnti(hit.a); }
-    else placeDecal(hit.x, hit.y, hit.z, hit.nx, hit.ny, hit.nz);
+    else {
+      placeDecal(hit.x, hit.y, hit.z, hit.nx, hit.ny, hit.nz);
+      // a chip of the wall comes away with every round
+      spawnChunk(hit.x, hit.y, hit.z, levelY(hit.lev), 2.2);
+      spawnChunk(hit.x, hit.y, hit.z, levelY(hit.lev), 1.6);
+    }
   }
 }
 
@@ -5417,8 +5680,10 @@ function updateGuns(dt) {
 
   // the world guns hang and turn; walking into a better one takes it
   const t = clock.elapsedTime;
+  updateAmmo(dt, t);
   for (const g of worldGuns) {
     if (!g.onFloor) continue;
+    g.mesh.visible = seenNow(g.lev, g.pos.x, g.pos.y, g.pos.z);
     g.mesh.position.set(g.pos.x, g.pos.y + Math.sin(t * 1.4 + g.bob) * 0.10, g.pos.z);
     g.mesh.rotation.y = t * 0.9 + g.bob;
     if (g.lev === player.lev && g.tier > gunState.tier
@@ -5460,20 +5725,35 @@ function updateGuns(dt) {
       const cp = Math.cos(player.pitch);
       rayDir.set(-Math.sin(player.yaw) * cp, Math.sin(player.pitch), -Math.cos(player.yaw) * cp);
       const len = 60;
-      laserBeam.position.set(player.pos.x + rayDir.x * len / 2,
-                             player.pos.y - 0.18 + rayDir.y * len / 2,
-                             player.pos.z + rayDir.z * len / 2);
-      laserBeam.scale.set(1, len, 1);
       laserBeam.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), rayDir);
       laserGlow.pos.set(player.pos.x + rayDir.x * 3, player.pos.y, player.pos.z + rayDir.z * 3);
       laserGlow.intensity = 20;
       if ((laserGlow.tick = (laserGlow.tick || 0) + dt) > 0.11) { laserGlow.tick = 0; sfx.laserHum(); }
-      // everything in its path, straight through the walls
+      /* It burns through the first wall it meets and stops there, rather than
+         passing through the building unchecked. So it no longer kills what it
+         cannot reach — it makes its own line of sight instead, which is a
+         better power and a fairer one. The bore is permanent. */
+      let reach = len;
+      const hit = gunRay(0, false, len);
+      if (hit) {
+        reach = Math.hypot(hit.x - player.pos.x, hit.y - player.pos.y, hit.z - player.pos.z);
+        if (hit.kind === 'wall' && at(hit.lev, hit.r, hit.c) === '#') {
+          if ((laserBore = (laserBore || 0) + dt) > 0.35) {
+            laserBore = 0;
+            punchHole({ lev: hit.lev, r: hit.r, c: hit.c }, Infinity, 5, 14);
+            sfx.blastShot();
+          }
+        }
+      }
+      laserBeam.scale.set(1, reach, 1);
+      laserBeam.position.set(player.pos.x + rayDir.x * reach / 2,
+                             player.pos.y - 0.18 + rayDir.y * reach / 2,
+                             player.pos.z + rayDir.z * reach / 2);
       for (const a of antis) {
         if (!a.live) continue;
         const px = a.pos.x - player.pos.x, py = a.pos.y + 1 - player.pos.y, pz = a.pos.z - player.pos.z;
         const along = px * rayDir.x + py * rayDir.y + pz * rayDir.z;
-        if (along < 0 || along > len) continue;
+        if (along < 0 || along > reach) continue;
         const ox = px - rayDir.x * along, oy = py - rayDir.y * along, oz = pz - rayDir.z * along;
         if (ox * ox + oy * oy + oz * oz < 1.1) {
           spectrumBurst(a.pos.clone().setY(a.pos.y + 1.12)); killAnti(a);
@@ -5763,6 +6043,7 @@ function frame(dt) {
   torch.target.position.lerp(tmp, 1 - Math.exp(-TORCH_LAG * dt));
 
   if (started) { updateAntis(dt); updateGuns(dt); updatePowers(dt); }
+  updateChunks(dt);
   updateShards(dt);
 
   assignPool();
@@ -5791,7 +6072,8 @@ window.__maze = {
   antis, spawnAnti, killAnti, clearLine, safeInLight,
   music, startMusic, metal, drip, retune, legatoStep, CHORDS, DESCENTS, scaleWalk,
   shards, spectrumBurst, SPECTRUM, clearSight,
-  worldGuns, GUNS, gunState, dropGunAt, fireOnce,
+  worldGuns, GUNS, gunState, dropGunAt, fireOnce, ammoPacks, seenNow, litAt, torchFallsOn,
+  chunks, debrisMesh, rimMesh, burstWall, blowFurnitureOver, furniture, punchHole,
   getBus: () => bus, CHORD_SECS, LEG_STEPS,
   audioState: () => (actx ? actx.state : 'none'),
   markOpen, markShut,

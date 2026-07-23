@@ -282,30 +282,41 @@ stood, and killing one puts the clock back to 1:00.
 ## Guns
 
 The torch stopped being a weapon. It lights the way, it charges in lit rooms, and it is
-how you find the guns — a gun in a dark hall is a dark object, and nothing here glows
-for your convenience.
+how you find the guns — **a gun in an unlit room is invisible**, not dimmed but absent,
+until either you throw that room's switch or your own beam falls across it. That is the
+rule the whole loop now turns on: lighting a room is how you arm yourself.
 
-You start with the pistol. The other four hang in the air at random hall cells — a fresh
-scatter every game — turning slowly, and they show on the chart from the first moment as
-small diamonds: you know where they are, you just do not know what is between you and
-them, and the chart does not say which storey. Taking a better one drops the one you
+You start with the pistol. The other four stand in rooms — never corridors, because
+corridors have no fixtures and never will, so a gun left in one could never be lit and
+could only be found by sweeping a torch down every hall in the building. A fresh scatter
+across all three floors every game, one room each. Taking a better one drops the one you
 carry where you stand, and the wanderers are drawn to anything left on the floor. What
 they pick up, they use on you.
 
 | | | |
 |---|---|---|
-| 1 | **Pistol** | Six shots. Leaves holes in the wall. |
-| 2 | **Shotgun** | One shell, nine pellets, a wide cone. |
+| 1 | **Pistol** | Six rounds. Chips the wall — a divot and two chips of concrete per shot. |
+| 2 | **Shotgun** | Eight shells, nine pellets each, a wide cone. |
 | 3 | **Machine gun** | Held trigger, a hundred rounds. |
-| 4 | **Blaster** | Four shots. Blows a permanent hole in the wall you can walk through, and kills everything within six metres of the impact. |
-| 5 | **Laser** | Held beam, ten seconds of charge. Kills everything in its path, straight through the walls. |
+| 4 | **Blaster** | Four shots. Bursts a permanent hole you can walk through and kills everything within six metres. |
+| 5 | **Laser** | A held beam, ten seconds of charge. Bores through the first wall it meets and stops there — it no longer kills what it cannot reach, it makes its own line of sight. |
 
-**Reloading happens at the hub and nowhere else.** Every magazine is a promise about how
-far from home you can afford to be. The mouse button is the trigger; walking into a
-higher-tier gun takes it.
+**Ammunition floats through the labyrinth**, on all three floors, under the same rule as
+the guns: dark until the room is lit or your beam finds it. One always turns under the
+clock in the hub, so home is never empty. Taking one fills whatever you carry, and they
+return after half a minute so the building never runs dry. Walking into the hub also
+rearms you outright — walking home for every magazine was the whole cost of firing, and
+it was too much of one.
 
-The six crystal lamps are set aside while the guns are tried in their place — the code
-remains, dormant, behind `__maze.grantAll()`.
+**A blast leaves a mess.** The wall block comes out, jagged fragments stay clinging to
+whichever sides still have wall behind them and to the slab above, and two dozen lumps of
+concrete burst out, fall, bounce and settle on the floor — where they stay for the rest
+of the run. Furniture within a few metres goes over with them and stays over. Both pools
+are instanced and fixed in size, so a blast costs no allocation and no extra draw call.
+
+There used to be a translucent blue box the size of the whole cell marking every opening
+— a leftover from the walk-through lamp, where it told you where the hole was. Through a
+blaster it read as a glowing crate sitting in the wall. There is no marker at all now.
 
 ## Sound
 
