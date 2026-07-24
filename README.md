@@ -337,10 +337,21 @@ return after half a minute so the building never runs dry. Walking into the hub 
 rearms you outright — walking home for every magazine was the whole cost of firing, and
 it was too much of one.
 
-**Ceilings and floors take fire too.** The ray only ever tested the walls, so shooting up
-or down sent the round harmlessly into the next storey and nothing marked it. A shot that
-crosses the plane between two floors now hits the slab between them, unless that cell is a
-stairwell or an atrium and there is nothing there to hit. A bullet in the ceiling brings
+**Ceilings, floors and furniture all take fire.** The ray only tested walls, so shooting up
+or down sent the round into the next storey and nothing marked it. Worse, the first
+attempt to fix that fired at the storey boundary — 4.5m — when the ceiling you can
+actually see is at 3.6m with the slab filling the gap between: the round passed visibly
+through the ceiling and buried its hole nearly a metre inside the slab, with the debris
+appearing to fall out of nothing. It uses the real planes now, the ceiling of the storey
+you are in going up and its floor going down, from any floor, with any gun.
+
+Furniture is a target too, tested analytically — the perpendicular distance from each
+piece to the line, once per shot, rather than every piece at every step, which a machine
+gun burst could not afford. One round puts a chair over.
+
+Debris comes to rest on whatever walkable surface is actually beneath the impact, found
+with the same ground probe the player falls onto, so a chip knocked off a ceiling lands on
+the floor below it rather than hanging at the height it was born. A bullet in the ceiling brings
 dust and fragments down, and shakes any light fitting within a couple of metres off its
 housing — it falls, it breaks, and it does not come back on. Putting out a room you are
 standing in is a genuinely bad idea and therefore worth allowing.

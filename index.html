@@ -2300,7 +2300,9 @@ const furniture = [];
     mesh.userData.kind = kind;
     scene.add(mesh);
     propMeshes.push(mesh);
-    furniture.push({ mesh, list });          // so a blast can knock it over
+    mesh.geometry.computeBoundingSphere();
+    // so a blast can knock it over, and a bullet can find it
+    furniture.push({ mesh, list, rad: Math.max(0.5, mesh.geometry.boundingSphere.radius * 0.72) });
   }
 
   /* ---- the two chandelier rooms ------------------------------------------
@@ -3423,6 +3425,8 @@ const sfx = {
       setTimeout(() => blip(42, 1.5, 'square', 0.07, 0.95), 60); },
   laserHum: () => blip(880 + Math.random() * 60, 0.12, 'sawtooth', 0.035, 0.6),
   dry:   () => blip(1250, 0.05, 'square', 0.05, 0.3),
+  thud:  () => { blip(150, 0.22, 'sine', 0.07, 0.6);
+                 setTimeout(() => blip(90, 0.3, 'square', 0.04, 0.7), 40); },
   glass: () => { [2400, 3100, 1900, 2700].forEach((f, i) =>
       setTimeout(() => blip(f + Math.random() * 400, 0.16, 'triangle', 0.05, 0.9), i * 45)); },
   reloadSfx: () => { blip(420, 0.07, 'square', 0.06, 0.4);
@@ -5147,6 +5151,19 @@ function spawnChunk(x, y, z, floorY, power) {
    tip about a horizontal axis, and dropped to the floor. */
 const tipM = new THREE.Matrix4(), tipQ = new THREE.Quaternion(),
       tipE = new THREE.Euler(), tipS = new THREE.Vector3();
+function tipOne(f, it, i, fromX, fromZ) {
+  if (it.tipped) return;
+  it.tipped = true;
+  const dx = it.p.x - fromX, dz = it.p.z - fromZ;
+  const away = Math.atan2(dx, dz);
+  tipE.set(Math.cos(away) * 1.45, it.rot, Math.sin(away) * 1.45);
+  tipQ.setFromEuler(tipE);
+  tipS.set(it.scale, 1, it.scale);
+  tipM.compose(new THREE.Vector3(it.p.x + dx * 0.06, it.p.y + 0.34, it.p.z + dz * 0.06), tipQ, tipS);
+  f.mesh.setMatrixAt(i, tipM);
+  f.mesh.instanceMatrix.needsUpdate = true;
+}
+
 function blowFurnitureOver(x, y, z, radius) {
   const r2 = radius * radius;
   for (const f of furniture) {
@@ -5155,18 +5172,9 @@ function blowFurnitureOver(x, y, z, radius) {
       if (it.tipped) return;
       if (Math.abs(it.p.y - y) > 3) return;
       const dx = it.p.x - x, dz = it.p.z - z;
-      const d2 = dx * dx + dz * dz;
-      if (d2 > r2) return;
-      it.tipped = true;
+      if (dx * dx + dz * dz > r2) return;
+      tipOne(f, it, i, x, z);
       touched = true;
-      // away from the blast, and over
-      const away = Math.atan2(dx, dz);
-      tipE.set(Math.cos(away) * 1.45, it.rot, Math.sin(away) * 1.45);
-      tipQ.setFromEuler(tipE);
-      tipS.set(it.scale, 1, it.scale);
-      tipM.compose(new THREE.Vector3(it.p.x + dx * 0.06, it.p.y + 0.34, it.p.z + dz * 0.06),
-                   tipQ, tipS);
-      f.mesh.setMatrixAt(i, tipM);
     });
     if (touched) f.mesh.instanceMatrix.needsUpdate = true;
   }
@@ -5822,6 +5830,18 @@ emitters.push(laserGlow);
 
 // One ray of one shot. Returns what it hit; walls stop bullets, not the laser.
 const rayDir = new THREE.Vector3(), rayAt = new THREE.Vector3();
+/* One ray of one shot.
+
+   The slab test used to fire at the storey boundary — 4.5m — but the ceiling
+   you can actually see is at WALL_H, 3.6m, with the slab filling the gap
+   between. So a round aimed at the ceiling passed visibly through it and
+   registered nearly a metre higher, burying its hole inside the slab and
+   spawning its debris out of thin air above the room. It uses the real planes
+   now: the ceiling of the storey you are in going up, its floor going down.
+
+   Furniture is tested too, and analytically rather than by stepping — the
+   perpendicular distance from each piece to the line, once per shot, instead
+   of every piece at every step. A machine gun burst cannot afford the latter. */
 function gunRay(spread, pierce, maxD) {
   const cp = Math.cos(player.pitch);
   rayDir.set(-Math.sin(player.yaw) * cp, Math.sin(player.pitch), -Math.cos(player.yaw) * cp);
@@ -5832,7 +5852,34 @@ function gunRay(spread, pierce, maxD) {
     rayDir.normalize();
   }
   const levOf = (y) => Math.max(0, Math.min(NLEV - 1, Math.floor(y / LEVEL_H)));
+
+  // the nearest piece of furniture on the line
+  let propHit = null, propD = Infinity;
+  if (!pierce) {
+    for (const f of furniture) {
+      if (!f.mesh.visible) continue;
+      for (let i = 0; i < f.list.length; i++) {
+        const it = f.list[i];
+        if (it.tipped) continue;
+        const px = it.p.x - player.pos.x;
+        const py = it.p.y + f.rad * 0.55 - player.pos.y;
+        const pz = it.p.z - player.pos.z;
+        const along = px * rayDir.x + py * rayDir.y + pz * rayDir.z;
+        if (along < 0.7 || along > maxD || along >= propD) continue;
+        const ox = px - rayDir.x * along, oy = py - rayDir.y * along, oz = pz - rayDir.z * along;
+        if (ox * ox + oy * oy + oz * oz > f.rad * f.rad) continue;
+        propD = along;
+        propHit = { kind: 'prop', f, it, i,
+                    x: player.pos.x + rayDir.x * along,
+                    y: player.pos.y + rayDir.y * along,
+                    z: player.pos.z + rayDir.z * along,
+                    nx: -rayDir.x, ny: -rayDir.y, nz: -rayDir.z };
+      }
+    }
+  }
+
   for (let d = 0.6; d < maxD; d += 0.3) {
+    if (propHit && d > propD) return propHit;      // furniture came first
     rayAt.set(player.pos.x + rayDir.x * d, player.pos.y + rayDir.y * d, player.pos.z + rayDir.z * d);
     for (const a of antis) {
       if (!a.live) continue;
@@ -5848,27 +5895,30 @@ function gunRay(spread, pierce, maxD) {
                x: rayAt.x - rayDir.x * 0.3, y: rayAt.y - rayDir.y * 0.3, z: rayAt.z - rayDir.z * 0.3,
                nx: -rayDir.x, ny: -rayDir.y, nz: -rayDir.z };
     }
-    /* Slabs stop a bullet too. The ray only ever tested the walls, so firing at
-       the ceiling or the floor sent the round harmlessly into the next storey
-       and nothing marked it. A shot that crosses the plane between two floors
-       has hit the slab between them — unless the cell is a stairwell or an
-       atrium, where there is nothing there to hit. */
-    if (!pierce) {
-      const boundary = rayDir.y > 0 ? Math.ceil(rayAt.y / LEVEL_H) * LEVEL_H
-                                    : Math.floor(rayAt.y / LEVEL_H) * LEVEL_H;
-      const crossed = rayDir.y > 0 ? rayAt.y >= boundary - 0.3 && rayAt.y <= boundary
-                                   : rayAt.y <= boundary + 0.3 && rayAt.y >= boundary;
-      if (crossed && boundary > 0.1) {
-        const slabLev = Math.round(boundary / LEVEL_H);
-        if (at(slabLev, r, c) !== VOID) {
-          return { kind: 'slab', lev: slabLev, up: rayDir.y > 0, r, c,
-                   x: rayAt.x, y: boundary + (rayDir.y > 0 ? -0.06 : 0.06), z: rayAt.z,
-                   nx: 0, ny: rayDir.y > 0 ? -1 : 1, nz: 0 };
+    if (!pierce && !slabHoles.has(`${lv + (rayDir.y > 0 ? 1 : 0)},${r},${c}`)) {
+      if (rayDir.y > 0) {
+        const ceilY = levelY(lv) + WALL_H;                 // the ceiling you can see
+        if (rayAt.y >= ceilY - 0.3 && rayAt.y <= ceilY + 0.06 && at(lv + 1, r, c) !== VOID) {
+          return { kind: 'slab', lev: lv + 1, up: true, r, c,
+                   x: rayAt.x, y: ceilY - 0.05, z: rayAt.z, nx: 0, ny: -1, nz: 0 };
+        }
+      } else if (rayDir.y < 0) {
+        const flY = levelY(lv);                            // the floor under your feet
+        if (rayAt.y <= flY + 0.3 && rayAt.y >= flY - 0.06 && lv > 0) {
+          return { kind: 'slab', lev: lv, up: false, r, c,
+                   x: rayAt.x, y: flY + 0.05, z: rayAt.z, nx: 0, ny: 1, nz: 0 };
         }
       }
     }
   }
-  return null;
+  return propHit;
+}
+
+// Where a piece of debris should come to rest: the walkable surface under the
+// point it was knocked off, whatever storey that turns out to be.
+function restFloorUnder(x, y, z, lev) {
+  const g = groundUnder(Math.floor(z / CELL), Math.floor(x / CELL), x, z, lev, y + 0.2);
+  return g ? g.y : levelY(lev);
 }
 
 function fireOnce() {
@@ -5884,7 +5934,14 @@ function fireOnce() {
       punchHole({ lev: hit.lev, r: hit.r, c: hit.c }, Infinity, 13, 34);  // and it stays open
     } else if (hit.kind === 'slab') {
       breachSlab(hit.lev, hit.r, hit.c, hit.up, 13, 30);
+    } else {
+      // it went off against furniture or open air: still a blast
+      const lev = Math.round((hit.y || 0) / LEVEL_H);
+      for (let i = 0; i < 16; i++) {
+        spawnChunk(hit.x, hit.y, hit.z, restFloorUnder(hit.x, hit.y, hit.z, lev), 9);
+      }
     }
+    blowFurnitureOver(hit.x, hit.y, hit.z, 6);
     killFlash.pos.set(hit.x, hit.y, hit.z);
     killFlash.intensity = 60; killFlash.on = true;
     let n = 0;
@@ -5901,11 +5958,20 @@ function fireOnce() {
     const hit = gunRay(spec.spread, false, 60);
     if (!hit) continue;
     if (hit.kind === 'anti') { spectrumBurst(hit.a.pos.clone().setY(hit.a.pos.y + 1.12)); killAnti(hit.a); }
-    else {
+    else if (hit.kind === 'prop') {
+      // it takes the round, and it goes over
+      const lev = Math.round(hit.it.p.y / LEVEL_H);
+      const rest = restFloorUnder(hit.x, hit.y, hit.z, lev);
+      tipOne(hit.f, hit.it, hit.i, player.pos.x, player.pos.z);
+      spawnChunk(hit.x, hit.y, hit.z, rest, 2.4);
+      spawnChunk(hit.x, hit.y, hit.z, rest, 1.8);
+      sfx.thud();
+    } else {
       placeDecal(hit.x, hit.y, hit.z, hit.nx, hit.ny, hit.nz);
-      const floorY = hit.kind === 'slab' ? levelY(hit.lev - (hit.up ? 1 : 0)) : levelY(hit.lev);
-      spawnChunk(hit.x, hit.y, hit.z, floorY, 2.2);
-      spawnChunk(hit.x, hit.y, hit.z, floorY, 1.6);
+      const lev = hit.kind === 'slab' ? hit.lev - (hit.up ? 1 : 0) : hit.lev;
+      const rest = restFloorUnder(hit.x, hit.y, hit.z, lev);
+      spawnChunk(hit.x, hit.y, hit.z, rest, 2.2);
+      spawnChunk(hit.x, hit.y, hit.z, rest, 1.6);
       if (hit.kind === 'slab' && hit.up) shakeCeiling(hit.x, hit.z, hit.lev - 1, 2.2);
     }
   }
@@ -5984,6 +6050,10 @@ function updateGuns(dt) {
             laserBore = 0;
             breachSlab(hit.lev, hit.r, hit.c, hit.up, 5, 12);
             sfx.blastShot();
+          } else if (hit.kind === 'prop') {
+            laserBore = 0;
+            tipOne(hit.f, hit.it, hit.i, player.pos.x, player.pos.z);
+            sfx.thud();
           }
         }
       }
