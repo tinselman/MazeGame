@@ -189,7 +189,7 @@ is, the space stays open. A single roof caps every column that is open to the sk
 atrium reads as a tall interior room rather than a shaft into nothing — every column but
 the hub, which is left uncapped. The hub is outdoors: look up from the centre and there is
 a late-evening sky, near-black overhead with a low moon and constellations picked out in
-faint lines, and a cool light falls straight down through the opening. The sky is not a
+faint lines. The sky is not a
 dome over the world — that leaked through every atrium and wrapped the same stars over the
 whole building — but a single flat panel floating above the hub alone, framed by three
 storeys of balcony. Leave the hub and you are indoors again: everywhere else is roofed and

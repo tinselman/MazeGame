@@ -3084,12 +3084,6 @@ const hubCentre = cellCentre((HUB.r1 + HUB.r2) / 2, (HUB.c1 + HUB.c2) / 2);
   panel.position.set(hubCentre.x, H, hubCentre.z);
   panel.renderOrder = -1;
   scene.add(panel);
-
-  // a faint, cool light falling through the opening — dim, since the sky is
-  // dark — confined to the hub so the corridors stay black
-  const moon = new THREE.PointLight(0xbcc8e6, 4.5, 58, 1.5);
-  moon.position.set(hubCentre.x, levelY(NLEV - 1) + WALL_H + 6, hubCentre.z);
-  scene.add(moon);
 }
 
 for (let i = 0; i < 6; i++) {
