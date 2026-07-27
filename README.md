@@ -186,14 +186,7 @@ central hub — are open through all three floors and ringed by the balconies of
 above, so standing on the ground you read two floors of frontage over your head. The
 ceiling rule is simply: if something is built above, its slab is your ceiling; if nothing
 is, the space stays open. A single roof caps every column that is open to the sky, so an
-atrium reads as a tall interior room rather than a shaft into nothing — every column but
-the hub, which is left uncapped. The hub is outdoors: look up from the centre and there is
-a late-evening sky, near-black overhead with a low moon and constellations picked out in
-faint lines. The sky is not a
-dome over the world — that leaked through every atrium and wrapped the same stars over the
-whole building — but a single flat panel floating above the hub alone, framed by three
-storeys of balcony. Leave the hub and you are indoors again: everywhere else is roofed and
-black. Walkways that meet
+atrium reads as a tall interior room rather than a shaft into nothing. Walkways that meet
 a drop get a parapet, a coping course and corbels — except at two balconies, where the
 parapet has a gap and you can step off and fall to the ground floor.
 
