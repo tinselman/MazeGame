@@ -4575,6 +4575,8 @@ function spawnAnti() {
   a.pos.set(hubCentre.x + Math.cos(ang) * 2.5, 0, hubCentre.z + 3.2 + Math.sin(ang) * 1.5);
   a.lev = 0; a.yaw = ang;
   a.goal = null; a.repath = 0; a.stuck = 0;
+  a.destLev = Math.floor(Math.random() * NLEV);   // a floor to make for
+  a.destTimer = 8 + Math.random() * 14;
   a.goal = wanderGoal(a);                    // a heading of its own, straight away
   a.gun = null; a.aimT = 0; a.shotCool = 0;
   a.carrying = null; a.twin.visible = false;
@@ -4694,7 +4696,7 @@ function safeInLight() {
   return roomOf.get(`${player.lev},${r},${c}`)?.on === true;
 }
 
-function caughtBy() {
+function caughtBy(how) {
   hitFlash = 1;
   caughtT = 1.9;                    // a beat to see what took you before it moves you
   // Nothing leaves. Being caught costs you the crystals and sends you home, but
@@ -4725,7 +4727,8 @@ function caughtBy() {
   }
   rebuildReveal();
   sfx.caught();
-  announce('CAUGHT IN THE LIGHT', '#ff4a35', 5.4);
+  announce(how === 'shot' ? 'SHOT DOWN' : 'A KNIFE FINDS YOU', '#ff4a35', 5.4);
+  say('every crystal is back where it was, and so are you', 6);
 }
 
 // The delayed return: you get to see the torch that found you, then the hub.
@@ -4752,8 +4755,29 @@ function sendHome() {
    gun is pursued only within GUN_SCENT, and the rest of the time each picks its
    own far corner of the building, which is what spreads them out. */
 const GUN_SCENT = 26;
+
+/* The nearest stair that takes it one storey toward where it wants to be. A
+   stair joins s.lo and s.lo+1: to climb, it walks to the foot of a stair whose
+   low end is its own floor; to descend, to the head of one whose high end is.
+   Aiming at the far end of the run means it crosses the whole flight, and the
+   ground probe carries it up or down as it goes. */
+function nearestStair(a, up) {
+  let best = null, bestD = 1e9;
+  for (const st of stairs) {
+    const foot = up ? st.lo === a.lev : false;
+    const head = !up ? st.lo + 1 === a.lev : false;
+    if (!foot && !head) continue;
+    const near = up ? st.cells[0] : st.cells[st.cells.length - 1];
+    const far  = up ? st.cells[st.cells.length - 1] : st.cells[0];
+    const np = cellCentre(near[0], near[1]);
+    const d = (np.x - a.pos.x) ** 2 + (np.z - a.pos.z) ** 2;
+    if (d < bestD) { bestD = d; const fp = cellCentre(far[0], far[1]); best = { x: fp.x, z: fp.z, gun: null }; }
+  }
+  return best;
+}
+
 function wanderGoal(a) {
-  // the player
+  // the player — chased only when actually in sight and out of sanctuary
   if (a.lev === player.lev && !safeInLight()
       && clearLine(a.pos, player.pos, a.lev)
       && Math.hypot(player.pos.x - a.pos.x, player.pos.z - a.pos.z) < 30) {
@@ -4767,20 +4791,32 @@ function wanderGoal(a) {
     if (d < bestD) { bestD = d; best = { x: g.pos.x, z: g.pos.z, gun: g }; }
   }
   if (best) return best;
-  // otherwise a corner of the maze it has not been to, biased away from where
-  // it stands so it actually crosses the building rather than circling
+  // it wants to be on some floor, re-rolled now and then, so over time the
+  // crowd spreads through all three storeys rather than pooling on the ground
+  if (a.destLev !== a.lev) {
+    const st = nearestStair(a, a.destLev > a.lev);
+    if (st) return st;
+    a.destLev = a.lev;                       // no stair that way: give up on it
+  }
+  // a far corner of its own floor, biased away so it crosses ground
   for (let tries = 0; tries < 30; tries++) {
     const r = 2 + Math.floor(Math.random() * (ROWS - 4));
     const c = 2 + Math.floor(Math.random() * (COLS - 4));
     if (at(a.lev, r, c) !== '.') continue;
     const p = cellCentre(r, c);
-    if ((p.x - a.pos.x) ** 2 + (p.z - a.pos.z) ** 2 < 12 * 12) continue;  // not next door
+    if ((p.x - a.pos.x) ** 2 + (p.z - a.pos.z) ** 2 < 12 * 12) continue;
     return { x: p.x, z: p.z, gun: null };
   }
   return { x: a.pos.x + (Math.random() - 0.5) * 20, z: a.pos.z + (Math.random() - 0.5) * 20, gun: null };
 }
 
 function stepAnti(a, dt) {
+  // pick a new floor to head for every so often, so the crowd spreads upward
+  if ((a.destTimer -= dt) <= 0) {
+    a.destLev = Math.floor(Math.random() * NLEV);
+    a.destTimer = 14 + Math.random() * 16;
+    a.goal = null;
+  }
   if ((a.repath -= dt) <= 0 || !a.goal) { a.goal = wanderGoal(a); a.repath = 2.2; }
   const dx = a.goal.x - a.pos.x, dz = a.goal.z - a.pos.z;
   const d = Math.hypot(dx, dz);
@@ -4790,8 +4826,11 @@ function stepAnti(a, dt) {
     a.pos.z += (dz / d) * ANTI_WALK * dt;
     collide(a.pos, a.lev);
     {
+      // No ceiling clamp, so a stair carries it up or down a storey exactly the
+      // way it carries the player. The old clamp pinned it to the floor it
+      // spawned on, which is why the crowd never left the ground.
       const [zr, zc] = cellOf(a.pos);
-      const g = groundUnder(zr, zc, a.pos.x, a.pos.z, a.lev, levelY(a.lev) + WALL_H);
+      const g = groundUnder(zr, zc, a.pos.x, a.pos.z, a.lev);
       if (g) { a.pos.y = g.y; a.lev = g.lev; }
     }
     if (Math.hypot(a.pos.x - bx, a.pos.z - bz) < ANTI_WALK * dt * 0.3) {
@@ -4830,7 +4869,7 @@ function stepAnti(a, dt) {
   if (caughtT <= 0 && !safeInLight() && a.lev === player.lev) {
     const pdx = player.pos.x - a.pos.x, pdz = player.pos.z - a.pos.z;
     const pd = Math.hypot(pdx, pdz);
-    if (pd < KNIFE_RANGE) { caughtBy(); return; }
+    if (pd < KNIFE_RANGE) { caughtBy('knife'); return; }
     if (a.gun) {
       a.shotCool -= dt;
       const sees = pd < SHOOT_RANGE && clearLine(a.pos, player.pos, a.lev);
@@ -4843,7 +4882,7 @@ function stepAnti(a, dt) {
           sfx.shot(0.8);
           a.shotCool = 1.6;
           a.aimT = 0;
-          caughtBy();
+          caughtBy('shot');
           return;
         }
       } else { a.aimT = 0; a.light.intensity = 62; }

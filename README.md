@@ -292,10 +292,14 @@ fixture in the room dark rather than waiting for the flicker model to decide.
 the same countdown draws at the foot of the screen. When it runs out an Anti-player is
 loosed from the hub, and another every minute after.
 
-They wander. They are not smart — they head for a gun only when one is close by on their
-own floor, and the rest of the time strike out for a far corner of the building, so a
-crowd of them fans across the labyrinth rather than piling onto the single gun on the
-board. They douse any lit switch they pass (and leave it off, because they prefer the
+They wander the whole building, all three floors. Every so often one settles on a storey
+to head for and climbs the nearest stair toward it, so over a few minutes the crowd spreads
+up through the structure rather than pooling on the ground. They head for a gun only when
+one is close by on their own floor, and otherwise strike out for a far corner — and if you
+cross the sight of an armed one, out of a lit room, it holds you for the better part of a
+second and shoots. They are not as sharp as you: they only see in a straight line, they
+only chase what is in front of them, and an unarmed one has to reach you with its knife.
+They douse any lit switch they pass (and leave it off, because they prefer the
 dark and the dark eats your map), and every one of them carries a knife. Some of them,
 by the time you meet them, carry something you dropped — and you cannot tell which until
 it fires. They cannot enter the crystal vaults: a shut gate stops them exactly as it
