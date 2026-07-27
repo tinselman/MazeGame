@@ -201,8 +201,21 @@ and one to three never stop dropping out. It is all deterministic from the room'
 position, so a room looks the same every playthrough.
 
 Two atriums have a switch of their own that lights the whole three-storey volume, and
-it comes up a storey at a time from the bottom: the first balcony ring strikes, then
-the one above it, then the pendants under the roof.
+it comes up a storey at a time from where you stand: the balcony ring over your head
+strikes first and lights the floor you are on, then the one above it, then the pendants
+under the roof.
+
+**A switch lights its whole column.** Rooms are stacked — the same footprint carries a
+room on each storey — and flipping one switch now lights every room above it as well as
+its own, a storey at a time and later the higher it climbs, so the building comes up from
+the floor you are on rather than one room at a time. Fourteen columns across the map. The
+slabs between them are solid, so you meet the upper floors already lit when you climb
+rather than seeing them through the ceiling — but the whole column appears on the chart
+the moment you throw the switch.
+
+**Chandelier rooms keep some hard light.** They were lit by the fittings alone, which left
+them dim and strange; every third fluorescent strikes now as well, so the banquet halls
+have working tubes under the sparkle.
 
 **Light lives in rooms.** Corridors have no fixtures at all and never will — they are
 the dark you cross. Each room has exactly one switch, which lights that room and
@@ -319,6 +332,12 @@ arming yourself is also how you arm them.
 | 3 | **Machine gun** | Held trigger, a hundred rounds. |
 | 4 | **Blaster** | Four shots. Bursts a permanent hole you can walk through and kills everything within six metres. |
 | 5 | **Laser** | A held beam, ten seconds of charge. Bores through the first wall it meets and stops there — it no longer kills what it cannot reach, it makes its own line of sight. |
+
+**A detector for the nearest gun worth having.** It clicks, faster the closer you are,
+the way a metal detector reads — so you can sweep a floor by ear rather than by staring at
+the chart. A warmer/colder bar under the readout does the same for the sound off, filling
+as you close on the next weapon up. Both go quiet past 34m and when nothing on the floor
+beats what you carry.
 
 **The chart says which gun and which floor.** Each gun is a ring with its tier inside —
 2 is the shotgun, 5 the laser — bright on your storey and faint on another, with a caret

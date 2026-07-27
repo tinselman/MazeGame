@@ -98,6 +98,7 @@
     text-shadow: 0 2px 8px rgba(0,0,0,.95); line-height: 1.6;
   }
   #gunhud .next { font-size: 11px; color: rgba(200,214,236,.72); letter-spacing: .1em; }
+  #gunhud .heat { font-size: 11px; color: #ffd24a; letter-spacing: .05em; }
   /* the countdown, where you can see it from anywhere in the building */
   #hudclockwrap {
     position: absolute; left: 50%; bottom: 50px; transform: translateX(-50%);
@@ -2268,10 +2269,28 @@ const furniture = [];
   }
   // Mark the switch rooms that will be lit by chandelier, so the fluorescent
   // pass leaves their tubes dark and the strike model skips them entirely.
+  /* Which rooms sit directly above which. A switch lights its own room and
+     every room stacked over it, so flipping a ground-floor switch brings the
+     whole column up — seen through the stairwells and atriums that cut between
+     the storeys. Two rooms are stacked if their footprints overlap. */
+  const overlaps = (a, b) =>
+    a.cell[0] <= b.cell[0] + 30 &&                 // cheap reject by cell distance
+    a.cells.some(([ar, ac]) => b.cells.some(([br, bc]) => ar === br && ac === bc));
+  for (const room of props.switches) {
+    if (room.atrium) continue;
+    room.above = props.switches
+      .filter((o) => !o.atrium && o.lev > room.lev && overlaps(room, o))
+      .sort((a, b) => a.lev - b.lev);
+  }
+
   for (const rm of chandelierRooms) {
     const room = props.switches.find((sw) => !sw.atrium && sw.cells.some(
       ([r, c]) => r >= rm.r1 && r <= rm.r2 && c >= rm.c1 && c <= rm.c2));
-    if (room) { room.chandelier = true; rm.switchRoom = room; }
+    if (room) {
+      room.chandelier = true; rm.switchRoom = room;
+      // every third tube stays working — hard light under the sparkle
+      room.fixtures.forEach((f, i) => { f.backup = (i % 3 === 0); });
+    }
   }
 
   const matProp = new THREE.MeshPhongMaterial({ color: 0xffffff, specular: 0x2a2a2a, shininess: 18 });
@@ -3425,6 +3444,7 @@ const sfx = {
       setTimeout(() => blip(42, 1.5, 'square', 0.07, 0.95), 60); },
   laserHum: () => blip(880 + Math.random() * 60, 0.12, 'sawtooth', 0.035, 0.6),
   dry:   () => blip(1250, 0.05, 'square', 0.05, 0.3),
+  ping:  (near) => blip(1300 + near * 900, 0.05, 'sine', 0.03 + near * 0.05, 0.4),
   thud:  () => { blip(150, 0.22, 'sine', 0.07, 0.6);
                  setTimeout(() => blip(90, 0.3, 'square', 0.04, 0.7), 40); },
   glass: () => { [2400, 3100, 1900, 2700].forEach((f, i) =>
@@ -3994,14 +4014,25 @@ function interact() {
     // spare panels, so act on the real room in the list.
     const room = props.switches.find((s) => s.cell === t.obj.cell) || t.obj;
     if (room.eaten) { sfx.click(); say('this one will not come back on'); return; }
-    room.on = !room.on;                       // a switch is a switch: it goes both ways
-    if (room.on) room.litAt = clock.elapsedTime;
-    else for (const f of room.fixtures) setFixture(f, 0);
+    const turnOn = !room.on;
+    /* The switch lights its own room now, and every room stacked above it — a
+       storey at a time, later the higher you go, so the column comes up from
+       where you are standing rather than all at once. */
+    const column = [room, ...(room.above || [])];
+    const now2 = clock.elapsedTime;
+    column.forEach((rm) => {
+      if (rm.eaten) return;
+      rm.on = turnOn;
+      if (rm.mesh && rm.mesh.userData && rm.mesh.userData.rocker) {
+        rm.mesh.userData.rocker.position.y = turnOn ? -0.12 : 0.12;
+      }
+      if (turnOn) rm.litAt = now2 + Math.max(0, rm.lev - room.lev) * 1.1;   // flicker up
+      else for (const f of rm.fixtures) setFixture(f, 0);
+    });
     t.obj = room;
-    if (t.obj.mesh.userData.rocker) t.obj.mesh.userData.rocker.position.y = room.on ? -0.12 : 0.12;
     sfx.hum();
     rebuildReveal();
-    say(room.on ? 'the lights come up' : 'the lights die');
+    say(turnOn ? 'the lights come up, floor by floor' : 'the lights die');
   }
 
   else if (t.kind === 'button') {
@@ -5624,6 +5655,7 @@ const GUNS = [
   { key: 'laser',   name: 'LASER',       tier: 5, charge: 10, laser: true },
 ];
 const gunState = { tier: 1, ammo: 6, charge: 10, cool: 0, trigger: false, wasDown: false };
+const detect = { t: 0, near: Infinity };
 const curGun = () => GUNS[gunState.tier - 1];
 
 /* ---- the gun models: small, dark, and mute without light ---------------- */
@@ -5984,6 +6016,26 @@ function updateGuns(dt) {
   // the world guns hang and turn; walking into a better one takes it
   const t = clock.elapsedTime;
   updateAmmo(dt, t);
+
+  /* A detector for the nearest gun worth having. It clicks, and the closer you
+     are the faster it clicks — the same read a metal detector gives, so you can
+     sweep a floor by ear rather than by staring at the map. Silent past 34m and
+     when there is nothing better than what you hold. */
+  {
+    let near = Infinity;
+    for (const g of worldGuns) {
+      if (!g.onFloor || g.tier <= gunState.tier || g.lev !== player.lev) continue;
+      const d = Math.hypot(g.pos.x - player.pos.x, g.pos.z - player.pos.z);
+      if (d < near) near = d;
+    }
+    detect.near = near;
+    if (near < 34) {
+      const period = 0.14 + (near / 34) * 1.3;         // 0.14s on top of it, 1.4s far off
+      detect.t += dt;
+      if (detect.t >= period) { detect.t = 0; sfx.ping(1 - near / 40); }
+    } else detect.t = 0;
+  }
+
   for (const g of worldGuns) {
     if (!g.onFloor) continue;
     g.mesh.visible = seenNow(g.lev, g.pos.x, g.pos.y, g.pos.z);
@@ -6093,7 +6145,12 @@ function updateGuns(dt) {
     const where = best.lev === player.lev ? 'this floor'
       : best.lev > player.lev ? `${best.lev - player.lev} up` : `${player.lev - best.lev} down`;
     const flat = Math.round(Math.hypot(best.pos.x - player.pos.x, best.pos.z - player.pos.z));
-    el.gunhud.innerHTML = `${held}<br><span class="next">${best.tier} \u00b7 ${best.spec.name} \u00b7 ${flat}m \u00b7 ${where}</span>`;
+    // a warmer/colder bar, so the closing works with the sound off too
+    const heat = best.lev === player.lev ? Math.max(0, Math.min(1, 1 - flat / 34)) : 0;
+    const bars = Math.round(heat * 12);
+    const bar = '\u25b0'.repeat(bars) + '\u25b1'.repeat(12 - bars);
+    el.gunhud.innerHTML = `${held}<br><span class="next">${best.tier} \u00b7 ${best.spec.name} \u00b7 ${flat}m \u00b7 ${where}</span>`
+      + `<br><span class="heat" style="opacity:${0.3 + heat * 0.7}">${bar}</span>`;
   } else {
     el.gunhud.textContent = held;
   }
@@ -6341,10 +6398,13 @@ function frame(dt) {
   // Every lit room's tubes, striking and stuttering on their own schedules.
   for (const room of props.switches) {
     if (!room.on) continue;
-    if (room.chandelier) continue;              // no tubes to strike in there
     const base = now - room.litAt;
     for (const f of room.fixtures) {
       if (f.dead) continue;                     // shot down; it stays down
+      // In a chandelier room the fittings are the show, but not every tube is
+      // dead — a scatter of them still strikes, so the room has hard light as
+      // well as sparkle.
+      if (room.chandelier && !f.backup) continue;
       setFixture(f, fixtureLevel(f, base - f.delay));
     }
   }
