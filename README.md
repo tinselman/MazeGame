@@ -186,7 +186,11 @@ central hub — are open through all three floors and ringed by the balconies of
 above, so standing on the ground you read two floors of frontage over your head. The
 ceiling rule is simply: if something is built above, its slab is your ceiling; if nothing
 is, the space stays open. A single roof caps every column that is open to the sky, so an
-atrium reads as a tall interior room rather than a shaft into nothing. Walkways that meet
+atrium reads as a tall interior room rather than a shaft into nothing — every column but
+the hub, which is left uncapped. The hub is outdoors: look up from the centre and there is
+the evening sky, deep blue overhead and dusk-pale toward the horizon, scattered with stars
+and a low moon, and a cool light falls straight down through the opening while the halls
+around it stay black. Walkways that meet
 a drop get a parapet, a coping course and corbels — except at two balconies, where the
 parapet has a gap and you can step off and fall to the ground floor.
 
@@ -276,6 +280,13 @@ lights out: the map is something you can lose. It used to be sticky for the oppo
 reason, so that a walker could not erase ground you had walked; losing it is better,
 because it gives the dark somewhere to spread.
 
+**You can see where they are, but only just.** Every Anti-player draws as a tagged dot on
+the chart, each dragging a trail barely a centimetre long — a second of motion, no more, so
+you read the direction it is heading without being handed its whole route. And wherever one
+walks it briefly lights the plan: the halls and rooms it crosses flicker onto the map and
+fade over the next few seconds, so the structure keeps revealing itself along their paths
+and going dark again behind them.
+
 There is deliberately no floor label on either. The level you are on draws bold and the
 others faint, so a marker on a ghosted layer already tells you which storey to go
 looking on. Fixed extent, north-up. Where a known hall runs into unrevealed ground it is
@@ -288,30 +299,31 @@ which side its crystal sits on, so a gate never opens out into the corridor you 
 standing in. Light switches toggle the same way, and flicking one off forces every
 fixture in the room dark rather than waiting for the flicker model to decide.
 
-**Something else is walking.** A clock hangs over the hub counting down from 1:00, and
+**Something else is walking.** A clock hangs over the hub counting down from 4:00, and
 the same countdown draws at the foot of the screen. When it runs out an Anti-player is
-loosed from the hub, and another every minute after.
+loosed from the hub, and another every four minutes after. The first thing a new one does
+is leave: it fixes on a point well out in the building and walks off into the halls rather
+than milling by the centre.
 
-They wander the whole building, all three floors. Every so often one settles on a storey
-to head for and climbs the nearest stair toward it, so over a few minutes the crowd spreads
-up through the structure rather than pooling on the ground. They head for a gun only when
-one is close by on their own floor, and otherwise strike out for a far corner — and if you
-cross the sight of an armed one, out of a lit room, it holds you for the better part of a
-second and shoots. They are not as sharp as you: they only see in a straight line, they
-only chase what is in front of them, and an unarmed one has to reach you with its knife.
-They douse any lit switch they pass (and leave it off, because they prefer the
-dark and the dark eats your map), and every one of them carries a knife. Some of them,
-by the time you meet them, carry something you dropped — and you cannot tell which until
-it fires. They cannot enter the crystal vaults: a shut gate stops them exactly as it
-stops you. Lit rooms and the hub are sanctuary from knife and bullet alike.
+They wander the whole building, all three floors, and every one of them carries a pistol
+from the start. Every so often one settles on a storey to head for and climbs the nearest
+stair toward it, so over a few minutes the crowd spreads up through the structure rather
+than pooling on the ground. They head for a gun only when one is close by on their own
+floor, and otherwise strike out for a far corner — and if you cross their sight, out of a
+lit room, one holds you for the better part of a second and shoots. They are not as sharp
+as you: they only see in a straight line and only chase what is in front of them. Their
+flashlight is how they see, not how they kill — being caught in the beam does nothing; only
+a bullet takes you. They douse any lit switch they pass (and leave it off, because they
+prefer the dark and the dark eats your map). They cannot enter the crystal vaults: a shut
+gate stops them exactly as it stops you. Lit rooms and the hub are sanctuary from the gun.
 
-Being caught — knifed up close, or shot by an armed one — sends every crystal home to
-its vault and you back to the hub.
+Being shot sends every crystal home to its vault and you back to the hub — demoted to a
+bare pistol, the weapon ladder restarted from the bottom.
 
 **Killing one breaks the light apart.** Fifty-six shards along the spectrum, red through
 violet, spinning and fading. They fan by colour — red slowest, violet fastest — so the
 burst separates into bands the way a prism does. Whatever it was carrying falls where it
-stood, and killing one puts the clock back to 1:00.
+stood, and killing one puts the clock back to 4:00.
 
 ## Guns
 
