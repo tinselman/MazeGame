@@ -3004,48 +3004,90 @@ for (let l = 0; l < NLEV; l++) for (let r = 0; r < ROWS; r++) for (let c = 0; c 
 const hubCentre = cellCentre((HUB.r1 + HUB.r2) / 2, (HUB.c1 + HUB.c2) / 2);
 
 /* ---- the evening sky over the hub --------------------------------------
-   The hub has no roof: look up and there is the sky, deep blue at the top and
-   dusk-pale at the horizon, scattered with stars. A dome drawn on the inside,
-   with fog off so the black interior haze does not swallow it — you only see
-   it through the opening, framed by three storeys of balcony. And a cool light
-   comes down through the hole, so the hub reads as lit from the sky rather than
-   by a lamp.                                                                 */
+   Only the hub is open; everywhere else is roofed and black. So the sky is not
+   a dome wrapping the world — that leaked through every opening and mapped the
+   same stars over the whole building. It is a single flat panel floating above
+   the hub alone, a patch of late-evening sky with constellations, seen through
+   the opening and framed by three storeys of balcony. Leave the hub and you are
+   indoors again, in the dark. Flat plane, flat (planar) UVs — nothing wrapped.  */
 {
-  const S = 512, cv = document.createElement('canvas');
+  const S = 2048, cv = document.createElement('canvas');
   cv.width = cv.height = S;
   const g = cv.getContext('2d');
-  const grad = g.createLinearGradient(0, 0, 0, S);
-  grad.addColorStop(0.0, '#0a1636');       // deep blue overhead
-  grad.addColorStop(0.55, '#1b3564');
-  grad.addColorStop(0.85, '#3a5688');      // dusk toward the horizon
-  grad.addColorStop(1.0, '#5f7099');
-  g.fillStyle = grad; g.fillRect(0, 0, S, S);
-  // stars, thicker toward the top
-  for (let i = 0; i < 900; i++) {
-    const x = Math.random() * S, y = Math.random() * S * 0.8;
-    const b = Math.pow(Math.random(), 2);
-    const r = 0.4 + b * 1.3;
-    g.fillStyle = `rgba(255,255,255,${0.25 + b * 0.7})`;
+  // late evening: dark overhead (panel centre), a touch of blue toward the rim
+  const rg = g.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S * 0.72);
+  rg.addColorStop(0.0, '#02040c');
+  rg.addColorStop(0.6, '#050d1f');
+  rg.addColorStop(1.0, '#0d1c37');
+  g.fillStyle = rg; g.fillRect(0, 0, S, S);
+
+  // faint background stars — tiny, sparse
+  for (let i = 0; i < 340; i++) {
+    const x = Math.random() * S, y = Math.random() * S;
+    const b = 0.2 + Math.pow(Math.random(), 3) * 0.5;
+    g.fillStyle = `rgba(226,233,247,${b})`;
+    const r = Math.random() < 0.85 ? 1 : 1.8;
     g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
   }
-  // a low moon, off to one side
-  const mx = S * 0.68, my = S * 0.24;
-  const mg = g.createRadialGradient(mx, my, 0, mx, my, 34);
-  mg.addColorStop(0, 'rgba(238,242,255,.95)');
-  mg.addColorStop(0.4, 'rgba(210,220,245,.8)');
-  mg.addColorStop(1, 'rgba(210,220,245,0)');
-  g.fillStyle = mg; g.beginPath(); g.arc(mx, my, 34, 0, Math.PI * 2); g.fill();
-  const skyTex = new THREE.CanvasTexture(cv);
-  const dome = new THREE.Mesh(
-    new THREE.SphereGeometry(220, 24, 16),
-    new THREE.MeshBasicMaterial({ map: skyTex, side: THREE.BackSide, fog: false, depthWrite: false }));
-  dome.position.set(hubCentre.x, 0, hubCentre.z);
-  dome.renderOrder = -1;
-  scene.add(dome);
 
-  // the evening light falling through the opening, confined to the hub so the
-  // corridors stay dark
-  const moon = new THREE.PointLight(0xcdd8f2, 9, 60, 1.4);
+  // a handful of named constellations: bright stars joined by the faintest
+  // lines, so the groupings read as figures rather than random scatter
+  const CONS = [
+    { pts: [[0, .45], [.22, 0], [.44, .38], [.66, .04], [.88, .42]],                 // Cassiopeia, a W
+      edges: [[0, 1], [1, 2], [2, 3], [3, 4]] },
+    { pts: [[0, .52], [.22, .55], [.44, .5], [.63, .42], [.66, .16], [.45, .1], [.44, .44]],  // the Plough
+      edges: [[0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 6], [6, 3]] },
+    { pts: [[.42, 0], [.36, .28], [.28, .6], [.02, .4], [.6, .34], [.28, .35]],       // Cygnus, a cross
+      edges: [[0, 1], [1, 2], [3, 5], [5, 4]] },
+    { pts: [[.1, 0], [.5, .08], [.32, .34], [.28, .4], [.4, .42], [.16, .82], [.62, .74]], // Orion
+      edges: [[0, 2], [1, 4], [2, 3], [3, 4], [3, 5], [4, 6], [0, 1]] },
+  ];
+  const drawCon = (con, cx, cy, scl, rot) => {
+    const cs = Math.cos(rot), sn = Math.sin(rot);
+    const P = con.pts.map(([x, y]) => {
+      const dx = (x - .4) * scl, dy = (y - .35) * scl;
+      return [cx + dx * cs - dy * sn, cy + dx * sn + dy * cs];
+    });
+    g.strokeStyle = 'rgba(150,175,220,0.16)'; g.lineWidth = 1.4;
+    g.beginPath();
+    for (const [a, b] of con.edges) { g.moveTo(P[a][0], P[a][1]); g.lineTo(P[b][0], P[b][1]); }
+    g.stroke();
+    for (const [x, y] of P) {
+      const r = 2 + Math.random() * 1.4;
+      const gl = g.createRadialGradient(x, y, 0, x, y, r * 3.4);
+      gl.addColorStop(0, 'rgba(255,255,255,0.5)'); gl.addColorStop(1, 'rgba(255,255,255,0)');
+      g.fillStyle = gl; g.beginPath(); g.arc(x, y, r * 3.4, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#eef3ff'; g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
+    }
+  };
+  const spots = [[.26, .3], [.7, .28], [.32, .72], [.74, .68]];
+  CONS.forEach((con, i) => drawCon(con, spots[i][0] * S, spots[i][1] * S,
+    S * (0.2 + Math.random() * 0.06), (Math.random() - 0.5) * 1.2));
+
+  // a small, crisp moon, low and to one side
+  const mx = S * 0.62, my = S * 0.32, mr = 15;
+  const halo = g.createRadialGradient(mx, my, 0, mx, my, mr * 3);
+  halo.addColorStop(0, 'rgba(160,175,215,.3)'); halo.addColorStop(1, 'rgba(160,175,215,0)');
+  g.fillStyle = halo; g.beginPath(); g.arc(mx, my, mr * 3, 0, Math.PI * 2); g.fill();
+  g.fillStyle = '#e4eaf8'; g.beginPath(); g.arc(mx, my, mr, 0, Math.PI * 2); g.fill();
+
+  const skyTex = new THREE.CanvasTexture(cv);
+  // High and wide: well above the 12.6 m roofline, so the surrounding roofs
+  // read as a clean low border framing the opening rather than black islands
+  // floating in the sky, and the extra height cuts the parallax as you cross
+  // the hub — the higher the sky, the less it slides.
+  const W = 300, H = levelY(NLEV - 1) + WALL_H + 34;
+  const panel = new THREE.Mesh(
+    new THREE.PlaneGeometry(W, W),
+    new THREE.MeshBasicMaterial({ map: skyTex, side: THREE.DoubleSide, fog: false, depthWrite: false }));
+  panel.rotation.x = Math.PI / 2;             // lay it flat, facing down over the hub
+  panel.position.set(hubCentre.x, H, hubCentre.z);
+  panel.renderOrder = -1;
+  scene.add(panel);
+
+  // a faint, cool light falling through the opening — dim, since the sky is
+  // dark — confined to the hub so the corridors stay black
+  const moon = new THREE.PointLight(0xbcc8e6, 4.5, 58, 1.5);
   moon.position.set(hubCentre.x, levelY(NLEV - 1) + WALL_H + 6, hubCentre.z);
   scene.add(moon);
 }
@@ -4398,7 +4440,10 @@ clockCv.width = 512; clockCv.height = 208;
 const clockG = clockCv.getContext('2d');
 const clockTex = new THREE.CanvasTexture(clockCv);
 const clockFace = new THREE.MeshBasicMaterial({ map: clockTex, fog: false });
-const clockEdge = new THREE.MeshBasicMaterial({ color: 0x0b0c10, fog: false });
+// the housing top and underside: a finished mid-grey, not the old near-black —
+// against the open sky the underside is what you see from the hub floor, and a
+// black slab reads as a hole where a hanging clock should read as an object
+const clockEdge = new THREE.MeshBasicMaterial({ color: 0x3b3e46, fog: false });
 const clockBox = new THREE.Mesh(new THREE.BoxGeometry(4.4, 1.8, 4.4),
   [clockFace, clockFace, clockEdge, clockEdge, clockFace, clockFace]);
 clockBox.position.set(hubCentre.x, 8.2, hubCentre.z);
