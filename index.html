@@ -2871,6 +2871,30 @@ const hubViewRT = new THREE.WebGLRenderTarget(512, 512, {
 const hubViewCam = new THREE.PerspectiveCamera(74, 1, 0.1, 140);
 
 /* ---- crystals and their return portals --------------------------------- */
+/* The cells inside a crystal chamber, flooded out from each crystal and stopped
+   by walls and the door, so a bullet or a blast can be refused the moment it
+   would open a sealed vault. A vault is meant to be entered through its gate or
+   not at all — being able to blow the back wall off one would make finding its
+   button pointless. */
+const vaultCells = new Set();
+for (let l = 0; l < NLEV; l++) for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+  if (!'123456'.includes(at(l, r, c))) continue;
+  const q = [[r, c]], seen = new Set([`${r},${c}`]);
+  while (q.length) {
+    const [cr, cc] = q.pop();
+    vaultCells.add(`${l},${cr},${cc}`);
+    for (const [dr, dc] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
+      const nr = cr + dr, nc = cc + dc, ch2 = at(l, nr, nc), k = `${nr},${nc}`;
+      if (seen.has(k) || ch2 === '#' || DOORCH.includes(ch2) || !isWalkableChar(ch2)) continue;
+      seen.add(k); q.push([nr, nc]);
+    }
+  }
+}
+// a '#' that backs onto a vault, or a slab over or under one, is protected
+const isVaultWall = (l, r, c) =>
+  [[-1, 0], [1, 0], [0, -1], [0, 1]].some(([dr, dc]) => vaultCells.has(`${l},${r + dr},${c + dc}`));
+const isVaultSlab = (l, r, c) => vaultCells.has(`${l},${r},${c}`) || vaultCells.has(`${l - 1},${r},${c}`);
+
 const crystalGeo = new THREE.OctahedronGeometry(0.36, 0);
 for (let l = 0; l < NLEV; l++) for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
   const ch = at(l, r, c);
@@ -3445,6 +3469,8 @@ const sfx = {
   laserHum: () => blip(880 + Math.random() * 60, 0.12, 'sawtooth', 0.035, 0.6),
   dry:   () => blip(1250, 0.05, 'square', 0.05, 0.3),
   ping:  (near) => blip(1300 + near * 900, 0.05, 'sine', 0.03 + near * 0.05, 0.4),
+  clang: () => { blip(2600, 0.05, 'square', 0.07, 0.5);
+                 setTimeout(() => blip(1400, 0.12, 'triangle', 0.05, 0.7), 20); },
   thud:  () => { blip(150, 0.22, 'sine', 0.07, 0.6);
                  setTimeout(() => blip(90, 0.3, 'square', 0.04, 0.7), 40); },
   glass: () => { [2400, 3100, 1900, 2700].forEach((f, i) =>
@@ -3513,10 +3539,17 @@ addEventListener('keyup', (e) => {
 
 const startScreen = document.getElementById('startscreen');
 startScreen.addEventListener('click', () => {
+  // Sound is on when the game begins. A muted previous session no longer
+  // carries over — the game starts with sound, and M mutes it for this one.
+  muted = false;
+  localStorage.setItem('cm-muted', '0');
+  if (bus) bus.master.gain.value = 0.9;
+  paintSound();
   startMusic();
+  const a = audio();
+  if (a.state === 'suspended') a.resume();     // browsers hold it until this click
   startScreen.classList.add('hidden');
   started = true;
-  audio();
   renderer.domElement.requestPointerLock?.();
 });
 addEventListener('mousedown', (e) => {
@@ -4538,9 +4571,11 @@ function spawnAnti() {
   a.tag = ++antiCount;
   a.tagSprite.material.map = tagTex(a.tag, false);
   a.tagSprite.material.needsUpdate = true;
-  a.pos.set(hubCentre.x, 0, hubCentre.z + 3.2);
-  a.lev = 0; a.yaw = Math.random() * Math.PI * 2;
+  const ang = Math.random() * Math.PI * 2;
+  a.pos.set(hubCentre.x + Math.cos(ang) * 2.5, 0, hubCentre.z + 3.2 + Math.sin(ang) * 1.5);
+  a.lev = 0; a.yaw = ang;
   a.goal = null; a.repath = 0; a.stuck = 0;
+  a.goal = wanderGoal(a);                    // a heading of its own, straight away
   a.gun = null; a.aimT = 0; a.shotCool = 0;
   a.carrying = null; a.twin.visible = false;
   a.path.length = 0;
@@ -4710,31 +4745,39 @@ function sendHome() {
    Movement is the same greedy press the halls forgive — they are a loop
    network, so walking at a thing gets there without a path-finder — and a
    shut vault gate stops it exactly as it stops you. */
+/* What one of them wants, in order of urgency. The player if it can see you and
+   you are out of sanctuary. Else a gun, but only one close by on the same
+   floor — with a single gun on the board, chasing the nearest one from anywhere
+   sent every walker to the same cell and they piled into one moving dot. So a
+   gun is pursued only within GUN_SCENT, and the rest of the time each picks its
+   own far corner of the building, which is what spreads them out. */
+const GUN_SCENT = 26;
 function wanderGoal(a) {
-  let best = null, bestD = 1e9;
-  for (const g of worldGuns) {
-    if (!g.onFloor) continue;
-    const d = (g.pos.x - a.pos.x) ** 2 + (g.pos.z - a.pos.z) ** 2
-            + Math.abs(g.lev - a.lev) * 900;
-    if (d < bestD) { bestD = d; best = { x: g.pos.x, z: g.pos.z, gun: g }; }
-  }
-  if (best) return best;
-  // the player, if it can see you and you are not in sanctuary
+  // the player
   if (a.lev === player.lev && !safeInLight()
       && clearLine(a.pos, player.pos, a.lev)
       && Math.hypot(player.pos.x - a.pos.x, player.pos.z - a.pos.z) < 30) {
     return { x: player.pos.x, z: player.pos.z, gun: null, isPlayer: true };
   }
-  // otherwise: somewhere. anywhere.
-  for (let tries = 0; tries < 24; tries++) {
+  // a gun it can smell — near, and on its own floor
+  let best = null, bestD = GUN_SCENT * GUN_SCENT;
+  for (const g of worldGuns) {
+    if (!g.onFloor || g.lev !== a.lev) continue;
+    const d = (g.pos.x - a.pos.x) ** 2 + (g.pos.z - a.pos.z) ** 2;
+    if (d < bestD) { bestD = d; best = { x: g.pos.x, z: g.pos.z, gun: g }; }
+  }
+  if (best) return best;
+  // otherwise a corner of the maze it has not been to, biased away from where
+  // it stands so it actually crosses the building rather than circling
+  for (let tries = 0; tries < 30; tries++) {
     const r = 2 + Math.floor(Math.random() * (ROWS - 4));
     const c = 2 + Math.floor(Math.random() * (COLS - 4));
-    if (at(a.lev, r, c) === '.' ) {
-      const p = cellCentre(r, c);
-      return { x: p.x, z: p.z, gun: null };
-    }
+    if (at(a.lev, r, c) !== '.') continue;
+    const p = cellCentre(r, c);
+    if ((p.x - a.pos.x) ** 2 + (p.z - a.pos.z) ** 2 < 12 * 12) continue;  // not next door
+    return { x: p.x, z: p.z, gun: null };
   }
-  return { x: a.pos.x, z: a.pos.z, gun: null };
+  return { x: a.pos.x + (Math.random() - 0.5) * 20, z: a.pos.z + (Math.random() - 0.5) * 20, gun: null };
 }
 
 function stepAnti(a, dt) {
@@ -5247,6 +5290,7 @@ function shakeCeiling(x, z, lev, power) {
    into the room below, or up through a ceiling and see the storey above. */
 const slabHoles = new Set();
 function breachSlab(lev, r, c, up, power, chunkCount) {
+  if (isVaultSlab(lev, r, c)) { vaultClang({ lev, r, c }); return; }
   const key = `${lev},${r},${c}`;
   if (slabHoles.has(key)) return;
   slabHoles.add(key);
@@ -5274,6 +5318,21 @@ function breachSlab(lev, r, c, up, power, chunkCount) {
   blowFurnitureOver(p.x, y, p.z, 4.5);
   if (lev - 1 >= 0) blowFurnitureOver(p.x, levelY(lev - 1), p.z, 4.5);
   shakeCeiling(p.x, p.z, Math.max(0, lev - 1), power);
+}
+
+// A round striking a vault wall goes nowhere — a hard clang and a scatter of
+// sparks, but the wall holds.
+let vaultSaidNo = 0;
+function vaultClang(w) {
+  const p = cellCentre(w.r, w.c);
+  killFlash.pos.set(p.x, levelY(w.lev) + WALL_H / 2, p.z);
+  killFlash.color.setHex(0xffe4b0);
+  killFlash.intensity = 12; killFlash.on = true;
+  sfx.clang();
+  if (clock.elapsedTime - vaultSaidNo > 2) {
+    vaultSaidNo = clock.elapsedTime;
+    say('the vault walls will not break — its gate is the only way in', 4);
+  }
 }
 
 /* A wall comes apart. `power` scales how far the pieces are thrown, so a
@@ -5324,6 +5383,7 @@ function updateChunks(dt) {
 }
 
 function punchHole(w, secs, power = 8, chunkCount = 22) {
+  if (isVaultWall(w.lev, w.r, w.c)) { vaultClang(w); return; }   // a vault does not open here
   const key = `${w.lev},${w.r},${w.c}`;
   if (holes.has(key)) { holes.set(key, clock.elapsedTime + secs); return; }
   holes.set(key, clock.elapsedTime + secs);
@@ -6463,6 +6523,7 @@ window.__maze = {
   music, startMusic, metal, drip, retune, legatoStep, CHORDS, DESCENTS, scaleWalk,
   shards, spectrumBurst, SPECTRUM, clearSight,
   worldGuns, GUNS, gunState, dropGunAt, fireOnce, ammoPacks, seenNow, litAt, torchFallsOn,
+  vaultCells, isVaultWall, isVaultSlab, breachSlab, wanderGoal,
   chunks, debrisMesh, rimMesh, burstWall, blowFurnitureOver, furniture, punchHole,
   getBus: () => bus, CHORD_SECS, LEG_STEPS,
   audioState: () => (actx ? actx.state : 'none'),

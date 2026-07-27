@@ -292,8 +292,10 @@ fixture in the room dark rather than waiting for the flicker model to decide.
 the same countdown draws at the foot of the screen. When it runs out an Anti-player is
 loosed from the hub, and another every minute after.
 
-They wander. They are not smart — they are drawn to any gun left lying anywhere in the
-building, they douse any lit switch they pass (and leave it off, because they prefer the
+They wander. They are not smart — they head for a gun only when one is close by on their
+own floor, and the rest of the time strike out for a far corner of the building, so a
+crowd of them fans across the labyrinth rather than piling onto the single gun on the
+board. They douse any lit switch they pass (and leave it off, because they prefer the
 dark and the dark eats your map), and every one of them carries a knife. Some of them,
 by the time you meet them, carry something you dropped — and you cannot tell which until
 it fires. They cannot enter the crystal vaults: a shut gate stops them exactly as it
@@ -391,9 +393,10 @@ blaster it read as a glowing crate sitting in the wall. There is no marker at al
 
 ## Sound
 
-**There is a SOUND switch over the chart and `M` toggles it**, and the choice is
-remembered between sessions. Muted, the bed is never built at all rather than built and
-silenced, so starting muted costs nothing; unmuting builds it on the spot.
+**Sound is on when the game begins.** A SOUND switch over the chart and `M` toggle it for
+the session, but a game always starts with sound — a muted previous session no longer
+carries over. The starting click is also where the audio context is resumed, which
+browsers hold suspended until a gesture.
 
 Everything is synthesised — no files, so nothing to load and nothing to go missing. The
 signal path is the whole design: every voice splits into a dry line and a send into a
