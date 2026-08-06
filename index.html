@@ -2756,6 +2756,26 @@ const furniture = [];
     };
     const roundGeo = ribbedRound(1), squareGeo = ribbedSquare(1);
     const roundCore = ribbedRound(0.82), squareCore = ribbedSquare(0.82);
+    /* Paper over a flame is not evenly bright. The candle is a point in the
+       middle, so the belly of the lantern glows and the shoulders fall away
+       into the cap. A radial gradient on the shell does it: white in the
+       middle, dark at the rim, multiplied by whatever colour the instance
+       carries — so red paper reads as a hot red centre with deep red edges,
+       which is what makes it look lit rather than painted. */
+    const lanternPaper = (() => {
+      const S = 128, cv = document.createElement('canvas');
+      cv.width = cv.height = S;
+      const g = cv.getContext('2d');
+      const rg = g.createRadialGradient(S / 2, S * 0.52, 0, S / 2, S * 0.52, S * 0.56);
+      rg.addColorStop(0.00, '#ffffff');
+      rg.addColorStop(0.35, '#e2e2e2');
+      rg.addColorStop(0.70, '#8f8f8f');
+      rg.addColorStop(1.00, '#3a3a3a');
+      g.fillStyle = rg; g.fillRect(0, 0, S, S);
+      const tex = new THREE.CanvasTexture(cv);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      return tex;
+    })();
     const taken = new Set(xmasRooms);
     const cands = [[], [], []];
     for (const meta of ROOM_META) {
@@ -2819,7 +2839,7 @@ const furniture = [];
       const build = (wantRound, geo, core) => {
         const idx = lanterns.map((l, i) => i).filter((i) => lanterns[i].round === wantRound);
         const n = Math.max(1, idx.length);
-        const shell = new THREE.InstancedMesh(geo, new THREE.MeshBasicMaterial({ fog: true }), n);
+        const shell = new THREE.InstancedMesh(geo, new THREE.MeshBasicMaterial({ fog: true, map: lanternPaper }), n);
         const glow = new THREE.InstancedMesh(core, new THREE.MeshBasicMaterial({
           fog: true, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending,
           depthWrite: false }), n);
@@ -6710,6 +6730,37 @@ const vendStockGeo = (() => {
   return geo;
 })();
 
+/* The light a machine actually throws. The strip is inside a box with one
+   glazed face, so what reaches the floor is not a pool but a rectangle: bright
+   and hard-edged directly in front of the window, fading out with distance and
+   cut off square at the sides by the carcass. Drawn as an additive patch lying
+   on the floor rather than lit by the pool light, because a point light inside
+   a closed box has no way to know the box is there. */
+const vendSpillTex = (() => {
+  const W = 128, H = 160, cv = document.createElement('canvas');
+  cv.width = W; cv.height = H;
+  const g = cv.getContext('2d');
+  g.fillStyle = '#000'; g.fillRect(0, 0, W, H);
+  // the throw: full width at the glass, spreading and dimming as it goes out
+  for (let y = 0; y < H; y++) {
+    const u = y / (H - 1);                       // 0 at the machine, 1 far out
+    const fall = Math.pow(1 - u, 1.7);           // brightness with distance
+    const half = (0.30 + u * 0.30) * W;          // the spread of the beam
+    const grd = g.createLinearGradient(W / 2 - half, 0, W / 2 + half, 0);
+    grd.addColorStop(0.0, 'rgba(255,150,60,0)');
+    grd.addColorStop(0.5, `rgba(255,168,88,${(fall * 0.92).toFixed(3)})`);
+    grd.addColorStop(1.0, 'rgba(255,150,60,0)');
+    g.fillStyle = grd;
+    g.fillRect(0, y, W, 1);
+  }
+  const tex = new THREE.CanvasTexture(cv);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+})();
+const matVendSpill = new THREE.MeshBasicMaterial({
+  map: vendSpillTex, transparent: true, blending: THREE.AdditiveBlending,
+  depthWrite: false, fog: true, opacity: 1 });
+
 const vendors = [];
 {
   // Against a wall, facing out of it. A machine in open floor reads as a crate.
@@ -6743,6 +6794,12 @@ const vendors = [];
   const glows  = mk(vendGlowGeo, matVendGlow);
   const stocks = mk(vendStockGeo, matVendStock);
   const glass  = mk(vendGlassGeo, matVendGlass);
+  // the patch of light on the floor in front, lying just clear of it
+  const spillGeo = new THREE.PlaneGeometry(1.5, 2.1);
+  spillGeo.rotateX(-Math.PI / 2);
+  spillGeo.translate(VG_X, 0.012, VEND_D / 2 + 1.05);
+  const spills = mk(spillGeo, matVendSpill);
+  spills.renderOrder = 4;
   bodies.castShadow = true;
   const m4 = new THREE.Matrix4(), q4 = new THREE.Quaternion(), e4 = new THREE.Euler(), s4 = new THREE.Vector3(1, 1, 1);
   spots.forEach((sp, i) => {
@@ -6753,7 +6810,7 @@ const vendors = [];
     const y = levelY(sp.lev);
     e4.set(0, yaw, 0); q4.setFromEuler(e4);
     m4.compose(new THREE.Vector3(px, y, pz), q4, s4);
-    for (const m of [bodies, trims, glows, stocks, glass]) m.setMatrixAt(i, m4);
+    for (const m of [bodies, trims, glows, stocks, glass, spills]) m.setMatrixAt(i, m4);
     const emitter = { pos: new THREE.Vector3(px - dc * 0.4, y + 1.15, pz - dr * 0.4),
                       color: new THREE.Color(0xffa64d), intensity: 6.5, on: true };
     emitters.push(emitter);
@@ -6761,8 +6818,8 @@ const vendors = [];
     vendors.push({ lev: sp.lev, pos: new THREE.Vector3(px, y + 1.0, pz),
                    emitter, cool: 0, spotted: false, awake: false, wake: 0, i });
   });
-  for (const m of [bodies, trims, glows, stocks, glass]) m.instanceMatrix.needsUpdate = true;
-  window.__vendors = { bodies, trims, glows, stocks, glass, list: vendors };
+  for (const m of [bodies, trims, glows, stocks, glass, spills]) m.instanceMatrix.needsUpdate = true;
+  window.__vendors = { bodies, trims, glows, stocks, glass, spills, list: vendors };
 }
 
 /* A machine is dead when you find it — dark, silent, one more grey cabinet in
@@ -6790,6 +6847,8 @@ function updateVendors(dt, t) {
 
     if (V) {
       V.glows.setColorAt(v.i, c.setScalar(k));
+      V.spills.setColorAt(v.i, c.setScalar(k * 0.85));
+      if (V.spills.instanceColor) V.spills.instanceColor.needsUpdate = true;
       V.stocks.setColorAt(v.i, c.setScalar(v.awake ? Math.max(0.06, k) : 0.03));
       if (V.glows.instanceColor) V.glows.instanceColor.needsUpdate = true;
       if (V.stocks.instanceColor) V.stocks.instanceColor.needsUpdate = true;
