@@ -1653,6 +1653,11 @@ let playerColliding = false;           // decks exist only while the player asks
     if (!isWalkableChar(at(l, r, c))) continue;
     for (const [dr, dc, sx, sz] of [[-1, 0, 0, -1], [1, 0, 0, 1], [0, -1, -1, 0], [0, 1, 1, 0]]) {
       if (at(l, r + dr, c + dc) !== VOID) continue;
+      // Not on a flight. A stair cell is walkable and does have a void beside
+      // it, but its floor is climbing, so a parapet set at the storey height
+      // spears straight through the treads. (stairAt is not built yet up here,
+      // so the char is the test.)
+      if (at(l, r, c) === '/') continue;
       // A balcony goes through here — but only for the walkway the balcony is
       // actually attached to. A void cell at an inside corner has two walkable
       // neighbours, and testing the void alone stripped the rail from the other
@@ -2021,6 +2026,11 @@ for (let l = 0; l < NLEV; l++) for (let r = 0; r < ROWS; r++) for (let c = 0; c 
   const maxR = Math.max(...cells.map((x) => x[0])), maxC = Math.max(...cells.map((x) => x[1]));
   for (const [cr, cc] of cells) {
     if ((cr - minR) % 2 !== 1 || (cc - minC) % 2 !== 1) continue;
+    // A downstand beam hangs in every third row and column. A fixture in one of
+    // those cells is inside the beam, so the tube passes through the concrete.
+    if (cr % 3 === 0 || cc % 3 === 0) continue;
+    // and never on a stair, where the flight climbs through the ceiling plane
+    if (stairAt.has(`${l},${cr},${cc}`)) continue;
     const p = cellCentre(cr, cc);
     const housing = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.14, 0.34), matHousing);
     housing.position.set(p.x, levelY(l) + WALL_H - 0.09, p.z);
@@ -2129,11 +2139,16 @@ const ATRIUM_AREAS = [];        // where a dry fountain might stand
     };
     for (const [cr, cc] of cells) roomOf.set(`0,${cr},${cc}`, room);
 
-    const add = (x, y, z, stage, i) => {
+    // `along` is the fascia's direction. Without it the 1.4 m housing always lay
+    // east-west, so every fitting on a north or south rim sat across the fascia
+    // with both ends buried in the slab behind it.
+    const add = (x, y, z, stage, i, along = 0) => {
       const housing = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.13, 0.3), matHousing);
       housing.position.set(x, y + 0.08, z);
+      housing.rotation.y = along;
       const tube = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.1, 0.17), matFixOff);
       tube.position.set(x, y, z);
+      tube.rotation.y = along;
       scene.add(housing, tube);
       const emitter = { pos: new THREE.Vector3(x, y - 0.3, z), color: new THREE.Color(FLUOR), intensity: 15, on: false };
       emitters.push(emitter);
@@ -2158,7 +2173,7 @@ const ATRIUM_AREAS = [];        // where a dry fountain might stand
           if (inAtrium.has(`${cr + dr},${cc + dc}`)) continue;
           if ((cr + cc) % 3 !== 0) continue;                    // space them out
           const p = cellCentre(cr, cc);
-          add(p.x + dc * CELL * 0.5, levelY(lev) - SLAB - 0.22, p.z + dr * CELL * 0.5, lev - 1, n++);
+          add(p.x + dc * CELL * 0.5, levelY(lev) - SLAB - 0.22, p.z + dr * CELL * 0.5, lev - 1, n++, dc ? Math.PI / 2 : 0);
           break;
         }
       }
@@ -2568,7 +2583,10 @@ const furniture = [];
       const czz = longX ? (z0 + z1) / 2 : z0 + f * d;
       const top = y + WALL_H;
       const grp = new THREE.Group();
-      grp.position.set(cxx, top - 0.05, czz);
+      // The frame reaches 0.41 up from its own origin and the coffer lip hangs
+      // 0.40 down from the ceiling, so hanging at top - 0.05 buried the whole
+      // crown in the slab. Drop it clear of both.
+      grp.position.set(cxx, top - 0.85, czz);
       const frame = new THREE.Mesh(frameGeo, matChand);
       frame.castShadow = true;
       grp.add(frame);
@@ -2656,13 +2674,21 @@ const furniture = [];
       const first = xmasBulbs.length;
       const roomEmitters = [];
       for (let s2 = 0; s2 < runs; s2++) {
-        const f = (s2 + 1) / (runs + 1);
+        // Off the column grid. A hall places its columns at (j+0.5)/rows, which
+        // for two rows is 0.25 and 0.75 — exactly where evenly spaced runs land,
+        // so two of the three strings threaded straight through the capitals.
+        const f = 0.18 + s2 * 0.32;
         for (let i = 0; i < per; i++) {
           const u = i / (per - 1);
           const sag = Math.sin(u * Math.PI) * 0.42;          // a swag, not a straight line
-          const px = longX ? x0 + u * (x1 - x0) : x0 + f * (x1 - x0);
-          const pz = longX ? z0 + f * (z1 - z0) : z0 + u * (z1 - z0);
-          xmasBulbs.push({ x: px, y: y - 0.16 - sag, z: pz,
+          // Inset the run by most of a cell at each end. Spanning the full
+          // room rect ran the last bulbs of every string into the bounding
+          // wall — the lantern pass already stops short for the same reason.
+          const px = longX ? x0 + 1.1 + u * (x1 - x0 - 2.2) : x0 + f * (x1 - x0);
+          const pz = longX ? z0 + f * (z1 - z0) : z0 + 1.1 + u * (z1 - z0 - 2.2);
+          // hung below the coffer soffit (0.395 down from the ceiling), not up
+          // inside the beams
+          xmasBulbs.push({ x: px, y: y - 0.47 - sag, z: pz,
                            hue: XMAS_HUES[(i + s2) % XMAS_HUES.length],
                            phase: (i * 0.7 + s2 * 1.9) % 6.283 });
         }
@@ -3044,6 +3070,10 @@ for (let l = 0; l < NLEV; l++) for (let r = 0; r < ROWS; r++) for (let c = 0; c 
   for (let l = 0; l < NLEV; l++) for (let r = 1; r < ROWS - 1; r++) for (let c = 1; c < COLS - 1; c++) {
     const ch = at(l, r, c);
     if (!isWalkableChar(ch)) continue;
+    // Skirting sits on the floor and cornice under the ceiling, both measured
+    // from the storey height — but a stair cell's floor is climbing through
+    // that storey, so every run in one is embedded in the flight.
+    if (stairAt.has(`${l},${r},${c}`)) continue;
     const p = cellCentre(r, c);
     const y0 = levelY(l);
     const room = isRoomChar(ch);
@@ -3115,8 +3145,13 @@ for (let l = 0; l < NLEV; l++) for (let r = 0; r < ROWS; r++) for (let c = 0; c 
     const xs = [], zs = [];
     for (let l = 0; l < NLEV; l++) for (let r = 1; r < ROWS - 1; r++) for (let c = 1; c < COLS - 1; c++) {
       if (!isWalkableChar(at(l, r, c))) continue;
-      // only where something is actually built overhead
-      const roofed = l === NLEV - 1 ? true : at(l + 1, r, c) !== VOID;
+      // Not over a stair. A flight climbs through the whole storey, so a beam
+      // hanging at the ceiling plane of the lower level ends up buried in the
+      // treads halfway up.
+      if (stairAt.has(`${l},${r},${c}`)) continue;
+      // only where something is actually built overhead — and a slab, not just
+      // any non-void char: a wall or a stair above leaves no ceiling to hang from
+      const roofed = l === NLEV - 1 ? true : hasSlab(l + 1, r, c);
       if (!roofed) continue;
       const p = cellCentre(r, c);
       const y = levelY(l) + WALL_H;
