@@ -20,6 +20,13 @@
     position: absolute; left: 50%; top: 50%;
     width: 5px; height: 5px; margin: -2.5px 0 0 -2.5px;
     border-radius: 50%; background: rgba(230,230,230,.55);
+    transition: box-shadow .12s linear, background .12s linear;
+  }
+  /* the aim has thickened near something: a ring, so the slowdown is felt as
+     the controls doing it rather than as the game stuttering */
+  #crosshair.settling {
+    background: rgba(255,244,220,.95);
+    box-shadow: 0 0 0 3px rgba(255,190,110,.30), 0 0 9px rgba(255,170,90,.55);
   }
 
   /* battery ------------------------------------------------------------ */
@@ -4180,6 +4187,7 @@ const el = {
   banner: document.getElementById('banner'),
   hitflash: document.getElementById('hitflash'),
   swoosh: document.getElementById('swoosh'),
+  crosshair: document.getElementById('crosshair'),
   hudclockwrap: document.getElementById('hudclockwrap'),
   gunhud: document.getElementById('gunhud'),
   powers: document.getElementById('powers'),
@@ -6667,14 +6675,62 @@ function tick() {
   frame(Math.min(0.05, clock.getDelta()));
 }
 
+/* ---- aim friction --------------------------------------------------------
+   The kill window is narrow at range — the shot tests a 0.9 m radius, which
+   is a hair over two and a half degrees at twenty metres — and the arrow keys
+   turn at a fixed rate, so a single tap steps straight over a walker standing
+   at the far end of a hall. This slows the keys inside a cone about three
+   times the width of that window, hardest at the middle, so the aim thickens
+   as it approaches and you can walk it onto the target instead of hunting
+   back and forth past it.
+
+   Deliberately wider than the hitbox: friction that started only once the
+   shot would already land would arrive too late to help. Only walkers you
+   could actually hit count — same floor, clear line — so the keys never drag
+   on something behind a wall.                                                */
+const AIM_ZONE = 3.2;              // cone width, as a multiple of the hit angle
+const AIM_GRIP = 0.26;             // slowest the keys ever get, at dead centre
+function aimFriction() {
+  let best = 1;
+  if (!started || ending || caughtT > 0) { el.crosshair.classList.remove('settling'); return 1; }
+  for (const a of antis) {
+    if (!a.live || a.lev !== player.lev) continue;
+    const dx = a.pos.x - player.pos.x, dz = a.pos.z - player.pos.z;
+    const flat = Math.hypot(dx, dz);
+    if (flat < 0.7 || flat > 40) continue;
+    let yawErr = Math.atan2(-dx, -dz) - player.yaw;
+    while (yawErr > Math.PI) yawErr -= Math.PI * 2;      // yaw is never wrapped
+    while (yawErr < -Math.PI) yawErr += Math.PI * 2;     // and grows all session
+    const pitchErr = Math.atan2((a.pos.y + 1.0) - player.pos.y, flat) - player.pitch;
+    // Each axis measured against its own tolerance, because the shot is not a
+    // circle: it tests a 0.9 m radius across but allows 1.27 m up and down. A
+    // single angle would report a miss while standing flat on the target.
+    const yawN = yawErr / Math.atan2(0.906, flat);
+    const pitchN = pitchErr / Math.atan2(1.265, flat);
+    const off = Math.hypot(yawN, pitchN);                // in hit-windows
+    if (off > AIM_ZONE) continue;
+    if (!clearLine(player.pos, a.pos, player.lev)) continue;
+    const k = AIM_GRIP + (1 - AIM_GRIP) * (off / AIM_ZONE);
+    if (k < best) best = k;
+  }
+  el.crosshair.classList.toggle('settling', best < 0.92);
+  return best;
+}
+
 function frame(dt) {
   const now = clock.elapsedTime;
 
   if (started && !ending) {
+    // The arrow keys get heavier the closer the aim is to something worth
+    // shooting, so a tap that used to sail past settles on it instead. It is
+    // friction, not aim-assist: nothing is pulled anywhere, the controls just
+    // get finer where fine matters. The mouse is left alone — it is already
+    // precise, and easing it reads as lag.
+    const grip = aimFriction();
     let turn = 0;
     if (keys.has('ArrowLeft')) turn += 1;
     if (keys.has('ArrowRight')) turn -= 1;
-    player.yawVel += (turn * TURN_RATE - player.yawVel) * (1 - Math.exp(-TURN_ACCEL * dt));
+    player.yawVel += (turn * TURN_RATE * grip - player.yawVel) * (1 - Math.exp(-TURN_ACCEL * dt));
     player.yaw += player.yawVel * dt;
 
     // Pitch uses the same eased model as turning, so looking up at a walkway
@@ -6682,7 +6738,7 @@ function frame(dt) {
     let look = 0;
     if (keys.has('ArrowUp')) look += 1;
     if (keys.has('ArrowDown')) look -= 1;
-    player.pitchVel += (look * PITCH_RATE - player.pitchVel) * (1 - Math.exp(-PITCH_ACCEL * dt));
+    player.pitchVel += (look * PITCH_RATE * grip - player.pitchVel) * (1 - Math.exp(-PITCH_ACCEL * dt));
     player.pitch += player.pitchVel * dt;
     if (player.pitch > PITCH_MAX || player.pitch < -PITCH_MAX) {
       player.pitch = Math.max(-PITCH_MAX, Math.min(PITCH_MAX, player.pitch));
@@ -6979,7 +7035,7 @@ window.__maze = {
   pick(n) { if (n < held.length) { sel = n; drawPowers(); } return POWERS[held[n]]?.name; },
   cloak: () => cloakT,
   flying: () => flight && { id: flight.crystal.id, t: +flight.t.toFixed(2) },
-  seatCrystal, unseatCrystal,
+  seatCrystal, unseatCrystal, aimFriction, vendorsOf: () => vendors, hubHeap,
   setCloak(s) { cloakT = s; if (s <= 0) el.cloak.classList.remove('on'); },
   grantAll() { while (held.length < POWERS.length) grantPower(); },
   clock: () => clockT,
