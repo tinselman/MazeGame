@@ -1512,6 +1512,92 @@ function chandelierFrame(tiers) {
   return mergeGeos(parts);
 }
 
+/* ---- the projecting balconies: where they go -----------------------------
+   Placement has to happen here, above the balustrades, because the parapet
+   pass fences every walkway edge that meets a void — including the mouth of
+   every deck, which made them look sealed off when you could in fact walk
+   straight out. The pass below skips any edge a deck occupies. Geometry and
+   the ground rules are built further down; this is only the list.           */
+const DECK_W = 1.8, DECK_D = 1.2;
+const decks = [];
+const deckCells = new Map();           // "l,r,c" -> the one deck that fills it
+const deckOpen = new Set();            // those same cells, walkable to the player
+let playerColliding = false;           // decks exist only while the player asks
+
+/* Where the decks go: any walkway upstairs with a void beside it, which on
+   levels one and two means the atrium rings and the balconies over the hub.
+   Every fourth candidate, so they punctuate a run rather than fencing it, and
+   never two into the same void cell — one deck per cell keeps the ground
+   question a single answer rather than a list. */
+{
+  // Only the big voids count. A deck wants three storeys of nothing under it,
+  // so the void beside it has to be an atrium or the hub — flood each void
+  // region and keep the ones with real size. A gap of a few cells is a hole in
+  // the floor, not a view.
+  const bigVoid = new Set();
+  for (let l = 1; l < NLEV; l++) {
+    const seen = new Set();
+    for (let r = 1; r < ROWS - 1; r++) for (let c = 1; c < COLS - 1; c++) {
+      const k0 = `${r},${c}`;
+      if (seen.has(k0) || at(l, r, c) !== VOID) continue;
+      const q = [[r, c]], region = [];
+      seen.add(k0);
+      while (q.length) {
+        const [cr, cc] = q.pop();
+        region.push([cr, cc]);
+        for (const [dr, dc] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
+          const nr = cr + dr, nc = cc + dc, k = `${nr},${nc}`;
+          if (seen.has(k) || nr < 1 || nc < 1 || nr >= ROWS - 1 || nc >= COLS - 1) continue;
+          if (at(l, nr, nc) !== VOID) continue;
+          seen.add(k); q.push([nr, nc]);
+        }
+      }
+      if (region.length >= 24) for (const [rr, cc] of region) bigVoid.add(`${l},${rr},${cc}`);
+    }
+  }
+  const cand = [];
+  for (let l = 1; l < NLEV; l++) {
+    for (let r = 2; r < ROWS - 2; r++) for (let c = 2; c < COLS - 2; c++) {
+      // isSolid, stairAt, dropOpen and groundUnder are all still in the
+      // temporal dead zone this early in the file, so this asks the map
+      // directly: a walkable cell that is not a gate and not a stair run.
+      const ch = at(l, r, c);
+      if (!isWalkableChar(ch) || DOORCH.includes(ch) || ch === '/') continue;
+      for (const [dr, dc] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
+        const nr = r + dr, nc = c + dc;
+        if (!bigVoid.has(`${l},${nr},${nc}`)) continue;
+        if (DROP_POINTS.some((d) => d.lev === l && d.into[0] === nr && d.into[1] === nc)) continue;
+        // there must be something to look down on, and to land on
+        let floorBelow = false;
+        for (let l2 = l - 1; l2 >= 0 && !floorBelow; l2--) {
+          if (isWalkableChar(at(l2, nr, nc))) floorBelow = true;
+        }
+        if (!floorBelow) continue;
+        cand.push({ lev: l, r, c, dr, dc });
+      }
+    }
+  }
+  let taken = 0;
+  cand.forEach((k, i) => {
+    if (i % 9 !== 0) return;
+    const key = `${k.lev},${k.r + k.dr},${k.c + k.dc}`;
+    if (deckCells.has(key)) return;
+    const p = cellCentre(k.r, k.c);
+    // the deck hangs off the cell edge, centred on it
+    const cx = p.x + k.dc * (CELL / 2 + DECK_D / 2);
+    const cz = p.z + k.dr * (CELL / 2 + DECK_D / 2);
+    const d = { lev: k.lev, r: k.r, c: k.c, dr: k.dr, dc: k.dc,
+                cx, cz, y: levelY(k.lev),
+                railed: (taken % 2) === 0,        // every other one is open at the front
+                key };
+    decks.push(d);
+    deckCells.set(key, d);
+    deckOpen.add(key);
+    taken++;
+  });
+}
+
+
 /* ---- balustrades, coping and corbels ------------------------------------
    Wherever a walkway meets a drop. Which rail a run gets is decided by what it
    overlooks, so the balustrade tells you what sort of space you are in before
@@ -1525,6 +1611,7 @@ function chandelierFrame(tiers) {
     if (!isWalkableChar(at(l, r, c))) continue;
     for (const [dr, dc, sx, sz] of [[-1, 0, 0, -1], [1, 0, 0, 1], [0, -1, -1, 0], [0, 1, 1, 0]]) {
       if (at(l, r + dr, c + dc) !== VOID) continue;
+      if (deckCells.has(`${l},${r + dr},${c + dc}`)) continue;   // a balcony goes through here
       edges.push([l, r, c, dc !== 0, sx, sz]);
     }
   }
@@ -3799,12 +3886,6 @@ const dropOpen = new Set(DROP_POINTS.map((d) => `${d.lev},${d.into[0]},${d.into[
    and stepping off is a real fall to the atrium floor — which costs nothing
    but the climb back up, since nothing in this building has ever hurt you by
    landing.                                                                   */
-const DECK_W = 1.8, DECK_D = 1.2;
-const decks = [];
-const deckCells = new Map();           // "l,r,c" -> the one deck that fills it
-const deckOpen = new Set();            // those same cells, walkable to the player
-let playerColliding = false;           // decks exist only while the player asks
-
 const holes = new Map();               // "l,r,c" -> expiry, punched by the third light
 function isSolid(l, r, c) {
   const ch = at(l, r, c);
@@ -3844,72 +3925,6 @@ function collide(pos, lev) {
 }
 const cellOf = (pos) => [Math.floor(pos.z / CELL), Math.floor(pos.x / CELL)];
 
-/* Where the decks go: any walkway upstairs with a void beside it, which on
-   levels one and two means the atrium rings and the balconies over the hub.
-   Every fourth candidate, so they punctuate a run rather than fencing it, and
-   never two into the same void cell — one deck per cell keeps the ground
-   question a single answer rather than a list. */
-{
-  // Only the big voids count. A deck wants three storeys of nothing under it,
-  // so the void beside it has to be an atrium or the hub — flood each void
-  // region and keep the ones with real size. A gap of a few cells is a hole in
-  // the floor, not a view.
-  const bigVoid = new Set();
-  for (let l = 1; l < NLEV; l++) {
-    const seen = new Set();
-    for (let r = 1; r < ROWS - 1; r++) for (let c = 1; c < COLS - 1; c++) {
-      const k0 = `${r},${c}`;
-      if (seen.has(k0) || at(l, r, c) !== VOID) continue;
-      const q = [[r, c]], region = [];
-      seen.add(k0);
-      while (q.length) {
-        const [cr, cc] = q.pop();
-        region.push([cr, cc]);
-        for (const [dr, dc] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
-          const nr = cr + dr, nc = cc + dc, k = `${nr},${nc}`;
-          if (seen.has(k) || nr < 1 || nc < 1 || nr >= ROWS - 1 || nc >= COLS - 1) continue;
-          if (at(l, nr, nc) !== VOID) continue;
-          seen.add(k); q.push([nr, nc]);
-        }
-      }
-      if (region.length >= 24) for (const [rr, cc] of region) bigVoid.add(`${l},${rr},${cc}`);
-    }
-  }
-  const cand = [];
-  for (let l = 1; l < NLEV; l++) {
-    for (let r = 2; r < ROWS - 2; r++) for (let c = 2; c < COLS - 2; c++) {
-      if (!isWalkableChar(at(l, r, c)) || isSolid(l, r, c)) continue;
-      if (stairAt.has(`${l},${r},${c}`)) continue;             // not off a flight
-      for (const [dr, dc] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
-        const nr = r + dr, nc = c + dc;
-        if (!bigVoid.has(`${l},${nr},${nc}`)) continue;
-        if (dropOpen.has(`${l},${nr},${nc}`)) continue;        // leave the two gaps alone
-        // there must be something to look down on, and to land on
-        if (!groundUnder(nr, nc, (nc + 0.5) * CELL, (nr + 0.5) * CELL, l - 1)) continue;
-        cand.push({ lev: l, r, c, dr, dc });
-      }
-    }
-  }
-  let taken = 0;
-  cand.forEach((k, i) => {
-    if (i % 9 !== 0) return;
-    const key = `${k.lev},${k.r + k.dr},${k.c + k.dc}`;
-    if (deckCells.has(key)) return;
-    const p = cellCentre(k.r, k.c);
-    // the deck hangs off the cell edge, centred on it
-    const cx = p.x + k.dc * (CELL / 2 + DECK_D / 2);
-    const cz = p.z + k.dr * (CELL / 2 + DECK_D / 2);
-    const d = { lev: k.lev, r: k.r, c: k.c, dr: k.dr, dc: k.dc,
-                cx, cz, y: levelY(k.lev),
-                railed: (taken % 2) === 0,        // every other one is open at the front
-                key };
-    decks.push(d);
-    deckCells.set(key, d);
-    deckOpen.add(key);
-    taken++;
-  });
-}
-
 /* The decks themselves. Local +z points out of the building, so one instanced
    mesh per variant carries them all: a slab on two corbels, a rail down each
    side, and across the front only if this one has it. The rails are tagged as
@@ -3935,12 +3950,37 @@ const cellOf = (pos) => [Math.floor(pos.z / CELL), Math.floor(pos.x / CELL)];
     ...barZ(DECK_D, -hx + PT), ...barZ(DECK_D, hx - PT),
   ];
   const front = [...barX(DECK_W, hz - PT)];
-  const stub = [                                    // the rail that is not there
-    at3(Box(0.19, 0.06, 0.06), -hx + 0.16, H - 0.03, hz - PT),
-    at3(Box(0.14, 0.06, 0.06), hx - 0.13, H - 0.03, hz - PT),
+
+  /* The open ones are not "missing a rail" — they are broken, and they have to
+     look it from across the atrium, or the gap reads as something you are not
+     meant to walk through. So: one front post snapped off at a third of its
+     height, the other bent out over the drop, a length of handrail still
+     hanging from it, and the wreckage of the rest lying on the deck. */
+  const broken = [
+    // the snapped post, left, with a torn stump
+    at3(Box(PT, H * 0.34, PT), -hx + PT, H * 0.17, hz - PT),
+    at3(Box(PT * 1.5, 0.05, PT * 1.4), -hx + PT, H * 0.35, hz - PT, 0.3, 0.4, 0.22),
+    // the bent post, right, leaning out over nothing
+    at3(Box(PT, H * 0.9, PT), hx - PT + 0.1, H * 0.42, hz - PT + 0.12, 0.30, 0, -0.12),
+    // a length of handrail still hanging off it, swinging down into the void
+    at3(Box(0.06, 0.06, 0.78), hx - PT - 0.02, H * 0.60, hz + 0.16, 0.95, 0.12, 0),
+    // and the piece that came away, lying on the deck
+    at3(Box(0.62, 0.05, 0.05), -0.12, 0.03, hz - 0.34, 0, 0.22, 0),
+    at3(Box(0.24, 0.045, 0.045), 0.34, 0.03, hz - 0.52, 0, -0.6, 0.15),
+    // the fixing plates the rail tore out of, still bolted to the slab
+    at3(Box(0.11, 0.03, 0.11), -hx + PT, 0.015, hz - PT),
+    at3(Box(0.11, 0.03, 0.11), hx - PT, 0.015, hz - PT),
   ];
   const geoRailed = mergeGeos([...slab, ...sides, ...front]);
-  const geoOpen   = mergeGeos([...slab, ...sides, ...stub]);
+  // The sides stay fully railed on the open ones too — the clamp holds you in
+  // sideways, and a rail that stopped short would promise a fall the game then
+  // refuses. Only the front is gone, and its two posts are the casualties, so
+  // the side runs end unsupported, which is what a broken railing looks like.
+  const openSides = [
+    post(-hx + PT, -hz + PT), post(hx - PT, -hz + PT),
+    ...barZ(DECK_D, -hx + PT), ...barZ(DECK_D, hx - PT),
+  ];
+  const geoOpen   = mergeGeos([...slab, ...openSides, ...broken]);
   const mk = (geo, list) => {
     if (!list.length) return null;
     const m = new THREE.InstancedMesh(geo, matRail, list.length);
