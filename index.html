@@ -2551,6 +2551,108 @@ const furniture = [];
     }
   }
 
+  /* ---- paper lanterns ---------------------------------------------------
+     Five rooms are strung with Japanese lanterns instead of fairy lights —
+     round ones and square ones alternating along a sagging cord, hung low
+     enough to duck under. They are painted rather than lit: the paper carries
+     cream, vermilion and amber in its own material, which is the one place
+     besides the crystals and the bulbs where this building keeps colour of its
+     own. They come up with the room, the same as the fairy lights do.
+
+     Chosen from rooms the fairy lights did NOT take, a floor at a time, so the
+     two kinds of decoration never share a room and both reach the top.        */
+  {
+    const LANT_HUES = [0xfff0d2, 0xe8462a, 0xf2b13c, 0xfff0d2, 0xd8452e];
+    // round: a squat paper globe with a dark cap top and bottom
+    const roundGeo = mergeGeos([
+      at3(new THREE.SphereGeometry(0.23, 12, 9), 0, 0, 0, 0, 0, 0, 1, 0.82, 1),
+      at3(Cyl(0.075, 0.075, 0.035, 8), 0, 0.19, 0),
+      at3(Cyl(0.06, 0.06, 0.03, 8), 0, -0.185, 0),
+    ]);
+    // square: a boxed paper lantern, slightly tapered, with the same caps
+    const squareGeo = mergeGeos([
+      at3(new THREE.CylinderGeometry(0.185, 0.185, 0.40, 4), 0, 0, 0, 0, Math.PI / 4, 0),
+      at3(Cyl(0.075, 0.075, 0.035, 8), 0, 0.21, 0),
+      at3(Cyl(0.06, 0.06, 0.03, 8), 0, -0.205, 0),
+    ]);
+    const taken = new Set(xmasRooms);
+    const cands = [[], [], []];
+    for (const meta of ROOM_META) {
+      if (taken.has(meta) || meta.type === 'alcove') continue;
+      // not warehouses: the pallet racking stands taller than the cord hangs
+      if (meta.type === 'warehouse') continue;
+      if ((meta.c2 - meta.c1) < 3 || (meta.r2 - meta.r1) < 3) continue;
+      cands[meta.lev].push(meta);
+    }
+    const picked = [];
+    for (let i = 0; picked.length < 5; i++) {
+      let took = false;
+      for (const list of cands) {
+        if (i >= list.length || picked.length >= 5) continue;
+        picked.push(list[i]);
+        took = true;
+      }
+      if (!took) break;
+    }
+
+    const lanterns = [], strings = [];
+    for (const rm of picked) {
+      const y = levelY(rm.lev) + WALL_H;
+      const x0 = rm.c1 * CELL, x1 = (rm.c2 + 1) * CELL;
+      const z0 = rm.r1 * CELL, z1 = (rm.r2 + 1) * CELL;
+      const longX = (x1 - x0) >= (z1 - z0);
+      const runs = 2, per = 9;
+      const first = lanterns.length;
+      const roomEmitters = [];
+      for (let s2 = 0; s2 < runs; s2++) {
+        const f = (s2 + 1) / (runs + 1);
+        for (let i = 0; i < per; i++) {
+          const u = i / (per - 1);
+          const sag = Math.sin(u * Math.PI) * 0.34;
+          const px = longX ? x0 + 0.8 + u * (x1 - x0 - 1.6) : x0 + f * (x1 - x0);
+          const pz = longX ? z0 + f * (z1 - z0) : z0 + 0.8 + u * (z1 - z0 - 1.6);
+          lanterns.push({ x: px, y: y - 0.42 - sag, z: pz,
+                          round: (i + s2) % 2 === 0,
+                          hue: LANT_HUES[(i + s2 * 2) % LANT_HUES.length],
+                          phase: (i * 1.3 + s2 * 2.7) % 6.283 });
+        }
+        const mx = longX ? (x0 + x1) / 2 : x0 + f * (x1 - x0);
+        const mz = longX ? z0 + f * (z1 - z0) : (z0 + z1) / 2;
+        const em = { pos: new THREE.Vector3(mx, y - 1.3, mz),
+                     color: new THREE.Color(0xffd9a0), intensity: 0, on: false };
+        emitters.push(em);
+        roomEmitters.push(em);
+      }
+      const room = props.switches.find((sw) => !sw.atrium && sw.lev === rm.lev && sw.cells.some(
+        ([r, c]) => r >= rm.r1 && r <= rm.r2 && c >= rm.c1 && c <= rm.c2));
+      strings.push({ room, from: first, to: lanterns.length, emitters: roomEmitters });
+    }
+
+    if (lanterns.length) {
+      const build = (wantRound, geo) => {
+        const idx = lanterns.map((l, i) => i).filter((i) => lanterns[i].round === wantRound);
+        const mesh = new THREE.InstancedMesh(geo,
+          new THREE.MeshBasicMaterial({ fog: true }), Math.max(1, idx.length));
+        const m3 = new THREE.Matrix4(), q3 = new THREE.Quaternion(), s3 = new THREE.Vector3(1, 1, 1);
+        const c3 = new THREE.Color();
+        idx.forEach((li, k) => {
+          const l = lanterns[li];
+          m3.compose(new THREE.Vector3(l.x, l.y, l.z), q3, s3);
+          mesh.setMatrixAt(k, m3);
+          mesh.setColorAt(k, c3.setHex(l.hue));
+          l.slot = k;                          // where it lives in its own mesh
+        });
+        mesh.instanceMatrix.needsUpdate = true;
+        mesh.userData.detail = 1;
+        scene.add(mesh);
+        return mesh;
+      };
+      const meshRound = build(true, roundGeo);
+      const meshSquare = build(false, squareGeo);
+      window.__lanterns = { meshRound, meshSquare, lanterns, strings };
+    }
+  }
+
   window.__props = { groups, propMeshes, chandelierRooms };
 
   // Screens are their own mesh: emissive, so they read as the source of the
@@ -5778,6 +5880,35 @@ function updateXmas(now) {
   if (touched) col.needsUpdate = true;
 }
 
+// The lanterns follow their room's switch the same way, but they burn steadily
+// rather than twinkling — paper over a flame, with only a slow breath in it —
+// and each shape lives in its own instanced mesh, so a lantern's slot is an
+// index into that mesh rather than into the flat list.
+function updateLanterns(now) {
+  const L = window.__lanterns;
+  if (!L) return;
+  const cR = L.meshRound.instanceColor, cS = L.meshSquare.instanceColor;
+  if (!cR || !cS) return;
+  const c = new THREE.Color();
+  let touched = false;
+  for (const st of L.strings) {
+    const on = st.room ? st.room.on : false;
+    for (const em of st.emitters) {
+      em.on = on;
+      em.intensity = on ? 6.5 + Math.sin(now * 0.9 + em.pos.x) * 1.1 : 0;
+    }
+    for (let i = st.from; i < st.to; i++) {
+      const l = L.lanterns[i];
+      if (l.slot === undefined) continue;
+      const k = on ? 0.72 + 0.28 * Math.sin(now * 1.35 + l.phase) : 0.05;
+      c.setHex(l.hue).multiplyScalar(k);
+      (l.round ? cR : cS).setXYZ(l.slot, c.r, c.g, c.b);
+      touched = true;
+    }
+  }
+  if (touched) { cR.needsUpdate = true; cS.needsUpdate = true; }
+}
+
 function updateChandeliers(dt, now) {
   const chs = window.__chandeliers;
   if (!chs || !chs.length) return;
@@ -6592,6 +6723,7 @@ function frame(dt) {
   }
   updateChandeliers(dt, now);
   updateXmas(now);
+  updateLanterns(now);
 
   texWater.offset.x = now * 0.014;
   texWater.offset.y = now * 0.009;
