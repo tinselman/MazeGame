@@ -1611,7 +1611,12 @@ let playerColliding = false;           // decks exist only while the player asks
     if (!isWalkableChar(at(l, r, c))) continue;
     for (const [dr, dc, sx, sz] of [[-1, 0, 0, -1], [1, 0, 0, 1], [0, -1, -1, 0], [0, 1, 1, 0]]) {
       if (at(l, r + dr, c + dc) !== VOID) continue;
-      if (deckCells.has(`${l},${r + dr},${c + dc}`)) continue;   // a balcony goes through here
+      // A balcony goes through here — but only for the walkway the balcony is
+      // actually attached to. A void cell at an inside corner has two walkable
+      // neighbours, and testing the void alone stripped the rail from the other
+      // one too, leaving a walkway unguarded over a three-storey drop.
+      const dk = deckCells.get(`${l},${r + dr},${c + dc}`);
+      if (dk && dk.r === r && dk.c === c) continue;
       edges.push([l, r, c, dc !== 0, sx, sz]);
     }
   }
