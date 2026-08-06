@@ -24,6 +24,12 @@
   }
   /* the aim has thickened near something: a ring, so the slowdown is felt as
      the controls doing it rather than as the game stuttering */
+  /* bullet time: the picture cools and tightens */
+  #hud.slowmo { filter: saturate(.72) contrast(1.1) brightness(.95); }
+  #hud.slowmo #crosshair {
+    background: rgba(210,232,255,.98);
+    box-shadow: 0 0 0 5px rgba(150,190,255,.22), 0 0 16px rgba(120,180,255,.6);
+  }
   #crosshair.settling {
     background: rgba(255,244,220,.95);
     box-shadow: 0 0 0 3px rgba(255,190,110,.30), 0 0 9px rgba(255,170,90,.55);
@@ -3893,6 +3899,10 @@ function updateMusic(dt, nearest) {
 
 const sfx = {
   click: () => blip(880, 0.07, 'square', 0.05),
+  // the world dropping a gear: a pitch bend down over a low bed
+  slow:  () => { [880, 620, 440, 310].forEach((f, i) =>
+                   setTimeout(() => blip(f, 0.5, 'sine', 0.045, 0.8), i * 55));
+                 blip(58, 1.5, 'sawtooth', 0.05); },
   hum:   () => { blip(120, 0.55, 'sawtooth', 0.035); setTimeout(() => blip(240, 0.4, 'sine', 0.03), 60); },
   door:  () => { blip(70, 0.9, 'sawtooth', 0.05); setTimeout(() => blip(52, 0.7, 'square', 0.03), 220); },
   take:  () => { blip(660, 0.12, 'sine', 0.06); setTimeout(() => blip(990, 0.16, 'sine', 0.05), 90); },
@@ -5596,7 +5606,11 @@ function faceToward2(a, dx, dz, k) {
   a.yaw += d * Math.min(1, k);
 }
 
-function updateAntis(dt) {
+// dt is real seconds; sdt is world seconds, which run slower during bullet
+// time. Everything that is a TIMER reads dt — the 4:00 countdown above all,
+// which lives in here and would otherwise stretch every time you took a long
+// shot. Only the walkers themselves read sdt.
+function updateAntis(dt, sdt) {
   if (hitFlash > 0) hitFlash = Math.max(0, hitFlash - dt * 1.6);
   el.hitflash.style.opacity = hitFlash * hitFlash;
   if (caughtT > 0 && (caughtT -= dt) <= 0) sendHome();
@@ -5623,7 +5637,7 @@ function updateAntis(dt) {
 
   for (const a of antis) {
     if (!a.live) continue;
-    stepAnti(a, dt);
+    stepAnti(a, sdt);
     const tl = a.path[a.path.length - 1];
     if (!tl || (tl.x - a.pos.x) ** 2 + (tl.z - a.pos.z) ** 2 > 0.5) {
       a.path.push({ x: a.pos.x, z: a.pos.z, lev: a.lev, t: clock.elapsedTime });
@@ -6966,26 +6980,37 @@ function fireOnce() {
     return;
   }
   sfx.shot(spec.pellets > 1 ? 1.4 : 0.9);
+  // A long shot at somebody drops the world into slow motion and the round
+  // becomes a thing you can watch. Ordinary shooting stays instant.
+  const far = slowMoTarget();
   for (let i = 0; i < spec.pellets; i++) {
     const hit = gunRay(spec.spread, false, 60);
-    if (!hit) continue;
-    if (hit.kind === 'anti') { spectrumBurst(hit.a.pos.clone().setY(hit.a.pos.y + 1.12)); killAnti(hit.a); }
-    else if (hit.kind === 'prop') {
-      // it takes the round, and it goes over
-      const lev = Math.round(hit.it.p.y / LEVEL_H);
-      const rest = restFloorUnder(hit.x, hit.y, hit.z, lev);
-      tipOne(hit.f, hit.it, hit.i, player.pos.x, player.pos.z);
-      spawnChunk(hit.x, hit.y, hit.z, rest, 2.4);
-      spawnChunk(hit.x, hit.y, hit.z, rest, 1.8);
-      sfx.thud();
-    } else {
-      placeDecal(hit.x, hit.y, hit.z, hit.nx, hit.ny, hit.nz);
-      const lev = hit.kind === 'slab' ? hit.lev - (hit.up ? 1 : 0) : hit.lev;
-      const rest = restFloorUnder(hit.x, hit.y, hit.z, lev);
-      spawnChunk(hit.x, hit.y, hit.z, rest, 2.2);
-      spawnChunk(hit.x, hit.y, hit.z, rest, 1.6);
-      if (hit.kind === 'slab' && hit.up) shakeCeiling(hit.x, hit.z, hit.lev - 1, 2.2);
-    }
+    if (far) spawnTracer(rayDir, hit);       // rayDir is this pellet's line
+    else if (hit) resolveHit(hit);
+  }
+  if (far) beginSlowMo();
+}
+
+// What a round does where it lands. Split out of fireOnce so a tracer can call
+// it on arrival instead of at the moment the trigger went.
+function resolveHit(hit) {
+  if (!hit) return;
+  if (hit.kind === 'anti') { spectrumBurst(hit.a.pos.clone().setY(hit.a.pos.y + 1.12)); killAnti(hit.a); }
+  else if (hit.kind === 'prop') {
+    // it takes the round, and it goes over
+    const lev = Math.round(hit.it.p.y / LEVEL_H);
+    const rest = restFloorUnder(hit.x, hit.y, hit.z, lev);
+    tipOne(hit.f, hit.it, hit.i, player.pos.x, player.pos.z);
+    spawnChunk(hit.x, hit.y, hit.z, rest, 2.4);
+    spawnChunk(hit.x, hit.y, hit.z, rest, 1.8);
+    sfx.thud();
+  } else {
+    placeDecal(hit.x, hit.y, hit.z, hit.nx, hit.ny, hit.nz);
+    const lev = hit.kind === 'slab' ? hit.lev - (hit.up ? 1 : 0) : hit.lev;
+    const rest = restFloorUnder(hit.x, hit.y, hit.z, lev);
+    spawnChunk(hit.x, hit.y, hit.z, rest, 2.2);
+    spawnChunk(hit.x, hit.y, hit.z, rest, 1.6);
+    if (hit.kind === 'slab' && hit.up) shakeCeiling(hit.x, hit.z, hit.lev - 1, 2.2);
   }
 }
 
@@ -7053,6 +7078,14 @@ function updateGuns(dt) {
 
   // firing
   const pressed = gunState.trigger && !gunState.wasDown;
+  // During bullet time you are granted three extra pulls, and they ignore the
+  // cool-down — otherwise the window closes before the gun is ready again.
+  if (pressed && slowT > 0 && slowShots > 0 && !spec.laser) {
+    slowShots--;
+    fireOnce();
+    gunState.wasDown = gunState.trigger;
+    return;
+  }
   if (spec.laser) {
     const firing = gunState.trigger && gunState.charge > 0 && started && !ending;
     laserBeam.visible = firing;
@@ -7141,6 +7174,110 @@ function updateGuns(dt) {
 function tick() {
   requestAnimationFrame(tick);
   frame(Math.min(0.05, clock.getDelta()));
+}
+
+/* ---- bullet time ---------------------------------------------------------
+   A long shot at somebody slows the world down. Not every shot: only when the
+   walker is far enough away that aiming is genuinely hard, which is exactly
+   where a fixed turn rate lets you down. The round becomes a thing you can
+   watch — it leaves the muzzle and crosses the room at eighty metres a second
+   through a world running at a fifth speed — and while it flies you may pull
+   the trigger three more times at a walker moving as slowly as everything
+   else.
+
+   What is slowed and what is not matters more than the effect. The walkers
+   slow, the debris slows, the rounds slow. Your aim does not: the whole point
+   is that you get to aim, so look and turn stay at full speed. Nor does the
+   4:00 countdown, the torch battery, the vending restock, the swoosh or the
+   finale — all of which read real seconds, and several of which are scripted
+   sequences that would visibly stretch.                                      */
+const SLOW_SCALE = 0.2;            // world speed while it lasts
+const SLOW_DUR   = 2.4;           // real seconds
+const SLOW_SHOTS = 3;             // extra trigger pulls granted
+const SLOW_MIN   = 10;            // no slow motion inside this range
+const SLOW_CONE  = 5.0;           // in hit-windows, wider than the aim friction
+let slowT = 0, slowShots = 0;
+
+// The walker this shot is roughly aimed at, if it is far enough to matter.
+// Same normalised measure the aim friction uses, so the two agree about what
+// "pointing at" means.
+function slowMoTarget() {
+  let best = null, bestOff = SLOW_CONE;
+  for (const a of antis) {
+    if (!a.live || a.lev !== player.lev) continue;
+    const dx = a.pos.x - player.pos.x, dz = a.pos.z - player.pos.z;
+    const flat = Math.hypot(dx, dz);
+    if (flat < SLOW_MIN || flat > 55) continue;
+    let yawErr = Math.atan2(-dx, -dz) - player.yaw;
+    while (yawErr > Math.PI) yawErr -= Math.PI * 2;
+    while (yawErr < -Math.PI) yawErr += Math.PI * 2;
+    const pitchErr = Math.atan2((a.pos.y + 1.0) - player.pos.y, flat) - player.pitch;
+    const off = Math.hypot(yawErr / Math.atan2(0.906, flat), pitchErr / Math.atan2(1.265, flat));
+    if (off > SLOW_CONE || off >= bestOff) continue;
+    if (!clearLine(player.pos, a.pos, player.lev)) continue;
+    bestOff = off; best = a;
+  }
+  return best;
+}
+function beginSlowMo() {
+  // A shot fired DURING the window must not touch the budget here — the extra
+  // pulls are counted where the trigger is read, and decrementing in both
+  // places spent two of the three on every pull.
+  if (slowT > 0) return;
+  slowT = SLOW_DUR;
+  slowShots = SLOW_SHOTS;
+  sfx.slow();
+  el.hud.classList.add('slowmo');
+}
+function endSlowMo() {
+  slowT = 0; slowShots = 0;
+  el.hud.classList.remove('slowmo');
+}
+
+/* The rounds themselves. A fixed pool of little bright rods, claimed by
+   scanning for a dead one, exactly the way the kill shards work. Each carries
+   the hit its ray already found and calls it in on arrival, so a tracer never
+   disagrees with the shot that spawned it. */
+const TRACERS = 30;
+const tracers = [];
+{
+  const geo = new THREE.CylinderGeometry(0.03, 0.012, 0.62, 6);
+  geo.rotateX(Math.PI / 2);                       // lies along -z, like a look
+  for (let i = 0; i < TRACERS; i++) {
+    const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
+      color: 0xffeab0, fog: true, transparent: true, opacity: 0.95, depthWrite: false }));
+    m.visible = false;
+    m.renderOrder = 6;
+    scene.add(m);
+    tracers.push({ mesh: m, live: false, from: new THREE.Vector3(),
+                   dir: new THREE.Vector3(), t: 0, dist: 0, hit: null });
+  }
+}
+const BULLET_SPEED = 80;
+const _trTmp = new THREE.Vector3();
+function spawnTracer(dir, hit) {
+  const tr = tracers.find((t) => !t.live);
+  if (!tr) { resolveHit(hit); return; }          // pool dry: fall back to instant
+  tr.live = true; tr.t = 0; tr.hit = hit;
+  tr.from.copy(player.pos);
+  tr.dir.copy(dir).normalize();
+  tr.dist = hit ? Math.hypot(hit.x - player.pos.x, hit.y - player.pos.y, hit.z - player.pos.z) : 60;
+  tr.mesh.position.copy(tr.from);
+  tr.mesh.visible = true;
+}
+function updateTracers(sdt) {
+  for (const tr of tracers) {
+    if (!tr.live) continue;
+    tr.t += BULLET_SPEED * sdt;
+    if (tr.t >= tr.dist) {
+      tr.live = false; tr.mesh.visible = false;
+      resolveHit(tr.hit); tr.hit = null;
+      continue;
+    }
+    tr.mesh.position.copy(tr.from).addScaledVector(tr.dir, tr.t);
+    _trTmp.copy(tr.mesh.position).add(tr.dir);
+    tr.mesh.lookAt(_trTmp);
+  }
 }
 
 /* ---- aim friction --------------------------------------------------------
@@ -7467,9 +7604,18 @@ function frame(dt) {
   tmp.set(0, 0, -6).applyQuaternion(camera.quaternion).add(camera.position);
   torch.target.position.lerp(tmp, 1 - Math.exp(-TORCH_LAG * dt));
 
-  if (started) { updateAntis(dt); updateGuns(dt); updatePowers(dt); }
-  updateChunks(dt);
-  updateShards(dt);
+  // Bullet time. The window itself is measured in real seconds, so it lasts as
+  // long from the outside however slow the inside gets.
+  if (slowT > 0) {
+    slowT -= dt;
+    if (slowT <= 0) endSlowMo();
+  }
+  const sdt = slowT > 0 ? dt * SLOW_SCALE : dt;
+
+  if (started) { updateAntis(dt, sdt); updateGuns(dt); updatePowers(dt); }
+  updateTracers(sdt);
+  updateChunks(sdt);
+  updateShards(sdt);
 
   assignPool();
 
