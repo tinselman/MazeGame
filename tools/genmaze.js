@@ -22,7 +22,14 @@
 const fs = require('fs');
 const path = require('path');
 
-const SIZE = 66, NLEV = 3;
+// The building is 66 cells square, but the grid is bigger than the building:
+// a ring of empty cells all round lets walkways cantilever out past the outer
+// wall on the upper floors with nothing beneath them. Everything the plan
+// authors by hand in absolute coordinates is shifted by PAD immediately after
+// it is declared, so the plan itself is still written in building coordinates.
+const PAD = 6;
+const SIZE = 66 + 2 * PAD, NLEV = 3;
+const B0 = PAD, B1 = SIZE - 1 - PAD;      // the building's own extent
 const VOID = ' ', WALL = '#';
 const DOORCH = 'abcdef';
 
@@ -43,7 +50,7 @@ const rng = mulberry32(20260719);
 // sizes, from cramped service rooms to long galleries.
 const LINES = [
   [1, 3], [11, 2], [21, 4], [41, 3], [50, 2], [62, 3],
-];
+].map(([s0, w]) => [s0 + PAD, w]);
 // -> bands 7, 8, 16, 6, 10 cells wide. Nothing so small it cannot hold a room
 // with two ways out, nothing so uniform that the plan reads as graph paper.
 // Bands between the halls become blocks.
@@ -62,7 +69,7 @@ const HUB_EXITS = [
   { side: 'N', at: 29 }, { side: 'N', at: 36 },
   { side: 'S', at: 29 }, { side: 'S', at: 36 },
   { side: 'W', at: 32 }, { side: 'E', at: 32 },
-];
+].map((e) => ({ ...e, at: e.at + PAD }));
 
 // Which halls exist on each level. Level 1 carries the whole grid, so its
 // walkways ring every atrium; level 2 keeps only the inner loop, so the
@@ -139,7 +146,7 @@ const STAIRS = [
   { lo: 1, cells: [[42, 18], [42, 17], [42, 16], [42, 15]] },
   { lo: 1, cells: [[45, 22], [46, 22], [47, 22], [48, 22]] },
   { lo: 1, cells: [[18, 42], [17, 42], [16, 42], [15, 42]] },
-];
+].map((st) => ({ ...st, cells: st.cells.map(([r, c]) => [r + PAD, c + PAD]) }));
 
 /* Over-and-back bridges. Each climbs off an atrium floor, crosses above that
    same floor on a narrow span, and descends again on the far side — so the
@@ -151,7 +158,7 @@ const OVERPASSES = [
   { lo: 0, axis: 'c', at: 56, a: 26, b: 39, rise: 4 },   // over the south atrium
   { lo: 0, axis: 'c', at: 7,  a: 13, b: 20, rise: 3 },   // over the north-west atrium
   { lo: 0, axis: 'r', at: 56, a: 13, b: 20, rise: 3 },   // over the east atrium
-];
+].map((o) => ({ ...o, at: o.at + PAD, a: o.a + PAD, b: o.b + PAD }));
 for (const o of OVERPASSES) {
   const cell = (i) => (o.axis === 'c' ? [o.at, i] : [i, o.at]);
   const up = [], down = [];
@@ -167,7 +174,7 @@ for (const o of OVERPASSES) {
 const DROPS = [
   { lev: 1, at: [11, 16], into: [10, 16] },
   { lev: 1, at: [51, 32], into: [52, 32] },
-];
+].map((d) => ({ ...d, at: [d.at[0] + PAD, d.at[1] + PAD], into: [d.into[0] + PAD, d.into[1] + PAD] }));
 
 /* ---------------------------------------------------------- pre-flight
    Two rules about the third dimension, both of which are silent disasters if
@@ -219,14 +226,18 @@ function rect(l, r1, c1, r2, c2, ch) {
 for (let l = 0; l < NLEV; l++) {
   for (const li of LEVEL_LINES[l]) {
     const [s, w] = LINES[li];
-    rect(l, s, 0, s + w - 1, SIZE - 1, '.');       // horizontal
-    rect(l, 0, s, SIZE - 1, s + w - 1, '.');       // vertical
+    rect(l, s, B0, s + w - 1, B1, '.');           // horizontal
+    rect(l, B0, s, B1, s + w - 1, '.');           // vertical
   }
   // trim to the interior so the outer wall survives
-  rect(l, 0, 0, 0, SIZE - 1, l === 0 ? WALL : VOID);
-  rect(l, SIZE - 1, 0, SIZE - 1, SIZE - 1, l === 0 ? WALL : VOID);
-  rect(l, 0, 0, SIZE - 1, 0, l === 0 ? WALL : VOID);
-  rect(l, 0, SIZE - 1, SIZE - 1, SIZE - 1, l === 0 ? WALL : VOID);
+  rect(l, B0, B0, B0, B1, l === 0 ? WALL : VOID);
+  rect(l, B1, B0, B1, B1, l === 0 ? WALL : VOID);
+  rect(l, B0, B0, B1, B0, l === 0 ? WALL : VOID);
+  rect(l, B0, B1, B1, B1, l === 0 ? WALL : VOID);
+  // and everything beyond the building is genuinely outside: nothing at all
+  for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
+    if (r < B0 || r > B1 || c < B0 || c > B1) G[l][r][c] = VOID;
+  }
 }
 
 // blocks: wall them in, then hollow the ones the plan uses
@@ -347,6 +358,48 @@ for (const s of STAIRS) {
   for (const [r, c] of s.cells) { G[s.lo][r][c] = '/'; G[s.lo + 1][r][c] = '/'; }
 }
 
+/* ---- the exterior galleries ---------------------------------------------
+   Two walkways that leave the building altogether. They run in the empty ring
+   outside the outer wall, on the upper floors, with nothing at all beneath
+   them — you are outside the structure, looking back at its face.
+
+   Neither is a spur. The level-one gallery leaves the north hall, runs along
+   the outside and comes back in further along, so it is an alternative to
+   walking the hall it parallels. From the middle of it a flight climbs to a
+   second gallery above, and that one crosses back over the north hall on a
+   bridge and lands on the level-two loop — so the way out and the way up are
+   the same walk, and it rejoins the building somewhere else entirely.
+
+   Carved as plain hall cells rather than PLAN blocks, which is what keeps
+   them out of the support pre-flight: a cantilever has nothing beneath it by
+   definition, and the pre-flight only ever sees blocks.                      */
+const GALLERY_ROW = B0 - 3;                 // three cells clear of the wall
+{
+  const nHall = LINES[0][0];                // the level-1 hall it leaves from
+  const l2Hall = LINES[1][0] + LINES[1][1] - 1;
+  const WEST = B0 + 18, EAST = B0 + 46;
+
+  // level 1: out, along, and back in
+  rect(1, GALLERY_ROW, WEST, GALLERY_ROW, EAST, '.');
+  rect(1, GALLERY_ROW, WEST, nHall, WEST, '.');
+  rect(1, GALLERY_ROW, EAST, nHall, EAST, '.');
+
+  // Level two: a short run from the head of the stair to the bridge. Both ends
+  // have to go somewhere — the west end onto the flight (a stair cell counts as
+  // an exit, because it continues vertically), the east end onto the bridge.
+  const sc = B0 + 30;                       // the flight, cols sc..sc+3
+  const W2 = sc + 4, E2 = W2 + 4;
+  rect(2, GALLERY_ROW, W2, GALLERY_ROW, E2, '.');
+  // the bridge back over the north hall, onto the level-two loop
+  rect(2, GALLERY_ROW, E2, l2Hall, E2, '.');
+
+  // The stair pass has already run by this point, so the flight is cut here by
+  // hand; it still joins STAIRS so the validator checks its footings.
+  for (let k = 0; k < 4; k++) { G[1][GALLERY_ROW][sc + k] = '/'; G[2][GALLERY_ROW][sc + k] = '/'; }
+  STAIRS.push({ lo: 1, cells: [[GALLERY_ROW, sc], [GALLERY_ROW, sc + 1],
+                               [GALLERY_ROW, sc + 2], [GALLERY_ROW, sc + 3]] });
+}
+
 /* ---- markers ----------------------------------------------------------- */
 // one switch per room, tucked inside a corner
 for (const rm of rooms) {
@@ -361,7 +414,7 @@ const WALKABLE = (chr) => chr !== WALL && chr !== VOID;
 const BUTTON_PREFS = [
   { lev: 1, at: [12, 12] }, { lev: 0, at: [52, 52] }, { lev: 2, at: [23, 40] },
   { lev: 0, at: [12, 52] }, { lev: 1, at: [52, 23] }, { lev: 0, at: [23, 12] },
-];
+].map((b) => ({ ...b, at: [b.at[0] + PAD, b.at[1] + PAD] }));
 const BUTTONS = [];
 BUTTON_PREFS.forEach((b, i) => {
   const seen = new Set([b.at.join(',')]), q = [b.at];
