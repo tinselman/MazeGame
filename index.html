@@ -2055,7 +2055,12 @@ const furniture = [];
   // six hearths across the building: four monumental, two modest
   const hearthsLeft = { big: 4, small: 2 };
   // a few rooms somebody decorated and never took down
-  const xmasRooms = [], XMAS_MAX = 4;
+  // Somebody decorated and never took it down. Rooms volunteer as candidates
+  // here and the eight are chosen after the sweep, a floor at a time, because
+  // first-come order follows ROOM_META and would put every string on the
+  // ground floor.
+  const xmasCands = [], XMAS_MAX = 8;
+  let xmasRooms = [];
 
   // A hearth stands against the inside face of a wall, facing in. The first
   // version placed it at the wall cell itself — its offset into the room was
@@ -2118,7 +2123,7 @@ const furniture = [];
       }
       tryHearth(rm, y, g);
       chandelierRooms.push(rm);
-      if (xmasRooms.length < XMAS_MAX) xmasRooms.push(rm);
+      xmasCands.push(rm);
 
     } else if (t === 'living') {
       for (const q of [[-1, -1], [1, 1]]) {
@@ -2128,7 +2133,7 @@ const furniture = [];
         place('armchair', gx + 2.1, y, gz + 0.5, 0.9, g(3));
         place('lowTable', gx, y, gz + 0.7, 0, g(4));
       }
-      if (xmasRooms.length < XMAS_MAX) xmasRooms.push(rm);
+      xmasCands.push(rm);
       place('shelfUnit', cx, y, z0 + 0.5, 0, g(5));
       place('shelfUnit', cx - 3.2, y, z0 + 0.5, 0, g(6));
       tryHearth(rm, y, g);
@@ -2173,6 +2178,7 @@ const furniture = [];
         if (at(rm.lev, rm.r2 + 1, cc) === '#') place('hungPanel', fx, y + 1.9, z1 - 0.32, Math.PI / 2, g(i + 11));
       }
       place('bench', cx, y, cz, longX ? 0 : Math.PI / 2, g(9));
+      xmasCands.push(rm);
 
     } else if (t === 'warehouse') {
       const aisles = Math.max(2, Math.floor((longX ? d : w) / 5));
@@ -2236,6 +2242,7 @@ const furniture = [];
         place('column', x0 + ((i + 0.5) / cols) * w, y, z0 + ((j + 0.5) / rows) * d, 0, g(i + j));
       }
       chandelierRooms.push(rm);
+      xmasCands.push(rm);
 
     } else if (t === 'alcove') {
       // A recess off the hall with somewhere to sit. Three cells square, so it
@@ -2249,6 +2256,23 @@ const furniture = [];
   }
 
   for (const meta of ROOM_META) furnish(meta);
+
+  /* Pick the decorated rooms a floor at a time. Taking the first eight
+     candidates in ROOM_META order put all eight on the ground floor, which is
+     the one place you already have plenty to look at. */
+  {
+    const byLev = [[], [], []];
+    for (const rm of xmasCands) byLev[rm.lev].push(rm);
+    for (let i = 0; xmasRooms.length < XMAS_MAX; i++) {
+      let took = false;
+      for (const list of byLev) {
+        if (i >= list.length || xmasRooms.length >= XMAS_MAX) continue;
+        xmasRooms.push(list[i]);
+        took = true;
+      }
+      if (!took) break;                       // ran out of candidates everywhere
+    }
+  }
 
   /* Dry fountains in the atriums — never in the hub, and never sharing ground
      with anything else. Placing them at the atrium's centroid put three of
@@ -2499,7 +2523,11 @@ const furniture = [];
         emitters.push(em);
         roomEmitters.push(em);
       }
-      const room = props.switches.find((sw) => !sw.atrium && sw.cells.some(
+      // Match the level too. Rooms are stacked — the same footprint carries a
+      // room on each storey — so a rect test alone bound an upstairs swag to
+      // the switch of whatever sat under it, and the lights came on when you
+      // lit the wrong floor.
+      const room = props.switches.find((sw) => !sw.atrium && sw.lev === rm.lev && sw.cells.some(
         ([r, c]) => r >= rm.r1 && r <= rm.r2 && c >= rm.c1 && c <= rm.c2));
       xmasStrings.push({ room, from: first, to: xmasBulbs.length, emitters: roomEmitters });
     }
