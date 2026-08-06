@@ -298,6 +298,47 @@ chamberSlots.forEach((slot, i) => {
   CHAMBERS.push({ id: i + 1, lev: slot.lev, cr, cc, door });
 });
 
+/* ---- alcoves ------------------------------------------------------------
+   Small rooms budded off the halls upstairs, carved into the corner of a block
+   the plan left empty rather than filling the whole block — a block interior is
+   eight cells across at its narrowest and would read as another room. An alcove
+   is three by three inside a wall ring, tucked into the corner where two halls
+   meet, with one door on each of them. Two doors, so it stays a through-route
+   and the no-dead-ends rule holds: an alcove is a corner you can cut as well as
+   a recess you can duck into. The rest of its block stays void.
+
+   Every one sits on a block that is empty on its own level, is not under an
+   atrium, and has a room beneath it — the same three conditions the pre-flight
+   enforces for whole rooms.                                                  */
+const ALCOVES = [
+  // second floor
+  { lev: 1, br: 0, bc: 3, v: 'S', h: 'W' },
+  { lev: 1, br: 1, bc: 0, v: 'N', h: 'E' },
+  { lev: 1, br: 3, bc: 4, v: 'S', h: 'W' },
+  // third floor, where the building has thinned out and there is more room for them
+  { lev: 2, br: 0, bc: 0, v: 'S', h: 'E' },
+  { lev: 2, br: 0, bc: 4, v: 'S', h: 'W' },
+  { lev: 2, br: 2, bc: 4, v: 'N', h: 'W' },
+  { lev: 2, br: 4, bc: 0, v: 'N', h: 'E' },
+  { lev: 2, br: 4, bc: 3, v: 'N', h: 'W' },
+];
+const ALC_IN = 3;                        // interior is ALC_IN x ALC_IN
+for (const a of ALCOVES) {
+  const R = blockRect(a.br, a.bc);
+  const span = ALC_IN + 1;               // wall ring is the interior plus one each side
+  const wr1 = a.v === 'N' ? R.r1 : R.r2 - span;
+  const wr2 = wr1 + span;
+  const wc1 = a.h === 'W' ? R.c1 : R.c2 - span;
+  const wc2 = wc1 + span;
+  rect(a.lev, wr1, wc1, wr2, wc2, WALL);
+  rect(a.lev, wr1 + 1, wc1 + 1, wr2 - 1, wc2 - 1, '+');
+  const room = { lev: a.lev, r1: wr1 + 1, c1: wc1 + 1, r2: wr2 - 1, c2: wc2 - 1, type: 'alcove' };
+  // one door onto each of the two halls its corner touches
+  punch(a.lev, room, a.v, wc1 + 1);
+  punch(a.lev, room, a.h, wr1 + 1);
+  rooms.push(room);
+}
+
 /* ---- stairs, and the spans that turn pairs of them into bridges --------- */
 for (const o of OVERPASSES) {
   for (const [r, c] of o.span) G[o.lo + 1][r][c] = '.';
