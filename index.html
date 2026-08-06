@@ -3783,10 +3783,33 @@ const doorAtCell = new Map(props.doors.map((d) => [`${d.lev},${d.cell[0]},${d.ce
 // you step off it and fall — where every other void is a wall you bump into.
 const dropOpen = new Set(DROP_POINTS.map((d) => `${d.lev},${d.into[0]},${d.into[1]}`));
 
+/* ---- the projecting balconies -------------------------------------------
+   Small decks hung off the walkways that ring the atriums upstairs, four feet
+   out and six wide — barely two paces, which is the point: you step out over
+   three storeys of nothing with the building at your back.
+
+   They are the first ground in the game that is not a grid cell. Everything
+   else stands on whole three-metre squares; a deck is 1.8 by 1.2 hanging in a
+   void cell, so it needs its own support, its own edges, and its own rule
+   about who may use it. Only the player: an Anti-player asks the same ground
+   question through the same function, and the decks are invisible to it, so
+   the drop is a way out that only you have.
+
+   Half are railed on three sides. The other half have the outer rail missing,
+   and stepping off is a real fall to the atrium floor — which costs nothing
+   but the climb back up, since nothing in this building has ever hurt you by
+   landing.                                                                   */
+const DECK_W = 1.8, DECK_D = 1.2;
+const decks = [];
+const deckCells = new Map();           // "l,r,c" -> the one deck that fills it
+const deckOpen = new Set();            // those same cells, walkable to the player
+let playerColliding = false;           // decks exist only while the player asks
+
 const holes = new Map();               // "l,r,c" -> expiry, punched by the third light
 function isSolid(l, r, c) {
   const ch = at(l, r, c);
-  if (ch === VOID) return !dropOpen.has(`${l},${r},${c}`);
+  if (ch === VOID) return !dropOpen.has(`${l},${r},${c}`)
+                          && !(playerColliding && deckOpen.has(`${l},${r},${c}`));
   if (ch === '#') return !holes.has(`${l},${r},${c}`);
   if (DOORCH.includes(ch)) {
     const d = doorAtCell.get(`${l},${r},${c}`);
@@ -3820,6 +3843,163 @@ function collide(pos, lev) {
   }
 }
 const cellOf = (pos) => [Math.floor(pos.z / CELL), Math.floor(pos.x / CELL)];
+
+/* Where the decks go: any walkway upstairs with a void beside it, which on
+   levels one and two means the atrium rings and the balconies over the hub.
+   Every fourth candidate, so they punctuate a run rather than fencing it, and
+   never two into the same void cell — one deck per cell keeps the ground
+   question a single answer rather than a list. */
+{
+  // Only the big voids count. A deck wants three storeys of nothing under it,
+  // so the void beside it has to be an atrium or the hub — flood each void
+  // region and keep the ones with real size. A gap of a few cells is a hole in
+  // the floor, not a view.
+  const bigVoid = new Set();
+  for (let l = 1; l < NLEV; l++) {
+    const seen = new Set();
+    for (let r = 1; r < ROWS - 1; r++) for (let c = 1; c < COLS - 1; c++) {
+      const k0 = `${r},${c}`;
+      if (seen.has(k0) || at(l, r, c) !== VOID) continue;
+      const q = [[r, c]], region = [];
+      seen.add(k0);
+      while (q.length) {
+        const [cr, cc] = q.pop();
+        region.push([cr, cc]);
+        for (const [dr, dc] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
+          const nr = cr + dr, nc = cc + dc, k = `${nr},${nc}`;
+          if (seen.has(k) || nr < 1 || nc < 1 || nr >= ROWS - 1 || nc >= COLS - 1) continue;
+          if (at(l, nr, nc) !== VOID) continue;
+          seen.add(k); q.push([nr, nc]);
+        }
+      }
+      if (region.length >= 24) for (const [rr, cc] of region) bigVoid.add(`${l},${rr},${cc}`);
+    }
+  }
+  const cand = [];
+  for (let l = 1; l < NLEV; l++) {
+    for (let r = 2; r < ROWS - 2; r++) for (let c = 2; c < COLS - 2; c++) {
+      if (!isWalkableChar(at(l, r, c)) || isSolid(l, r, c)) continue;
+      if (stairAt.has(`${l},${r},${c}`)) continue;             // not off a flight
+      for (const [dr, dc] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
+        const nr = r + dr, nc = c + dc;
+        if (!bigVoid.has(`${l},${nr},${nc}`)) continue;
+        if (dropOpen.has(`${l},${nr},${nc}`)) continue;        // leave the two gaps alone
+        // there must be something to look down on, and to land on
+        if (!groundUnder(nr, nc, (nc + 0.5) * CELL, (nr + 0.5) * CELL, l - 1)) continue;
+        cand.push({ lev: l, r, c, dr, dc });
+      }
+    }
+  }
+  let taken = 0;
+  cand.forEach((k, i) => {
+    if (i % 9 !== 0) return;
+    const key = `${k.lev},${k.r + k.dr},${k.c + k.dc}`;
+    if (deckCells.has(key)) return;
+    const p = cellCentre(k.r, k.c);
+    // the deck hangs off the cell edge, centred on it
+    const cx = p.x + k.dc * (CELL / 2 + DECK_D / 2);
+    const cz = p.z + k.dr * (CELL / 2 + DECK_D / 2);
+    const d = { lev: k.lev, r: k.r, c: k.c, dr: k.dr, dc: k.dc,
+                cx, cz, y: levelY(k.lev),
+                railed: (taken % 2) === 0,        // every other one is open at the front
+                key };
+    decks.push(d);
+    deckCells.set(key, d);
+    deckOpen.add(key);
+    taken++;
+  });
+}
+
+/* The decks themselves. Local +z points out of the building, so one instanced
+   mesh per variant carries them all: a slab on two corbels, a rail down each
+   side, and across the front only if this one has it. The rails are tagged as
+   detail like every other rail in the building — but the slab is not, because
+   ground that vanishes on the low setting is a hole in the floor. */
+{
+  const H = 1.02, PT = 0.055;
+  const post = (x, z) => at3(Box(PT, H, PT), x, H / 2, z);
+  const barX = (w, z) => [at3(Box(w, 0.06, 0.06), 0, H - 0.03, z),
+                          at3(Box(w, 0.035, 0.035), 0, H * 0.45, z)];
+  const barZ = (w, x) => [at3(Box(0.06, 0.06, w), x, H - 0.03, 0),
+                          at3(Box(0.035, 0.035, w), x, H * 0.45, 0)];
+  const hx = DECK_W / 2, hz = DECK_D / 2;
+  const slab = [
+    at3(Box(DECK_W, 0.16, DECK_D), 0, -0.08, 0),
+    at3(Box(DECK_W - 0.12, 0.07, DECK_D - 0.1), 0, -0.19, 0),      // a moulded lip
+    at3(Box(0.16, 0.34, 0.5), -hx + 0.22, -0.34, -hz + 0.3, -0.5, 0, 0),   // corbels
+    at3(Box(0.16, 0.34, 0.5), hx - 0.22, -0.34, -hz + 0.3, -0.5, 0, 0),
+  ];
+  const sides = [
+    post(-hx + PT, -hz + PT), post(-hx + PT, hz - PT),
+    post(hx - PT, -hz + PT), post(hx - PT, hz - PT),
+    ...barZ(DECK_D, -hx + PT), ...barZ(DECK_D, hx - PT),
+  ];
+  const front = [...barX(DECK_W, hz - PT)];
+  const stub = [                                    // the rail that is not there
+    at3(Box(0.19, 0.06, 0.06), -hx + 0.16, H - 0.03, hz - PT),
+    at3(Box(0.14, 0.06, 0.06), hx - 0.13, H - 0.03, hz - PT),
+  ];
+  const geoRailed = mergeGeos([...slab, ...sides, ...front]);
+  const geoOpen   = mergeGeos([...slab, ...sides, ...stub]);
+  const mk = (geo, list) => {
+    if (!list.length) return null;
+    const m = new THREE.InstancedMesh(geo, matRail, list.length);
+    const m4 = new THREE.Matrix4(), q4 = new THREE.Quaternion(), e4 = new THREE.Euler();
+    const s4 = new THREE.Vector3(1, 1, 1);
+    list.forEach((d, i) => {
+      e4.set(0, Math.atan2(d.dc, d.dr), 0); q4.setFromEuler(e4);
+      m4.compose(new THREE.Vector3(d.cx, d.y, d.cz), q4, s4);
+      m.setMatrixAt(i, m4);
+    });
+    m.instanceMatrix.needsUpdate = true;
+    m.castShadow = m.receiveShadow = true;
+    m.frustumCulled = false;
+    scene.add(m);
+    return m;
+  };
+  window.__decks = {
+    railed: mk(geoRailed, decks.filter((d) => d.railed)),
+    open:   mk(geoOpen,   decks.filter((d) => !d.railed)),
+    list: decks,
+  };
+}
+
+// Deck-local coordinates: u out from the building, v across the front.
+function deckLocal(d, x, z) {
+  const nx = d.dc, nz = d.dr;                     // outward
+  const tx = -d.dr, tz = d.dc;                    // across
+  const ex = x - d.cx, ez = z - d.cz;
+  return { u: ex * nx + ez * nz, v: ex * tx + ez * tz };
+}
+// The player's ground, decks included. Anti-players call groundUnder directly
+// and so never find one — which is what keeps the drop yours alone.
+function playerGround(r, c, x, z, lev, ceilY) {
+  const best = groundUnder(r, c, x, z, lev, ceilY);
+  // lev is null while falling — the deck is then found by its own level
+  const d = lev == null ? (deckCells.get(`1,${r},${c}`) || deckCells.get(`2,${r},${c}`))
+                        : deckCells.get(`${lev},${r},${c}`);
+  if (!d) return best;
+  const { u, v } = deckLocal(d, x, z);
+  if (Math.abs(u) > DECK_D / 2 || Math.abs(v) > DECK_W / 2) return best;
+  if (ceilY != null && d.y > ceilY) return best;
+  if (!best || d.y > best.y) return { y: d.y, lev: d.lev };
+  return best;
+}
+// Keep the player on the deck. The sides are railed on every one of them; the
+// front is railed on half, and open on the other half so you can step off.
+function deckClamp() {
+  const [r, c] = cellOf(player.pos);
+  const d = deckCells.get(`${player.lev},${r},${c}`);
+  if (!d) return;
+  const { u, v } = deckLocal(d, player.pos.x, player.pos.z);
+  const vLim = DECK_W / 2 - RADIUS;
+  const uLim = DECK_D / 2 - RADIUS;
+  let nu = u, nv = Math.max(-vLim, Math.min(vLim, v));
+  if (d.railed) nu = Math.min(u, uLim);
+  if (nu === u && nv === v) return;
+  player.pos.x = d.cx + nu * d.dc + nv * -d.dr;
+  player.pos.z = d.cz + nu * d.dr + nv * d.dc;
+}
 
 /* ============================================================ MINIMAP
    A chart you fill in, not one you are given: only the hub, rooms whose
@@ -5449,7 +5629,7 @@ function xraySurface() {
   // nothing ahead: if you are looking down, open it in the floor instead
   if (player.pitch < -0.55) {
     const [r, c] = cellOf(player.pos);
-    const below = groundUnder(r, c, player.pos.x, player.pos.z, player.lev, levelY(player.lev) + WALL_H);
+    const below = playerGround(r, c, player.pos.x, player.pos.z, player.lev, levelY(player.lev) + WALL_H);
     const fy = below ? below.y : levelY(player.lev);
     return {
       pos: new THREE.Vector3(player.pos.x + fx * 1.2, fy + 0.04, player.pos.z + fz * 1.2),
@@ -6771,7 +6951,10 @@ function frame(dt) {
       player.pos.x += player.vel.x * dt;
       player.pos.z += player.vel.z * dt;
       tmp.copy(player.pos);
+      playerColliding = true;          // the decks exist only for this call
       collide(player.pos, player.lev);
+      playerColliding = false;
+      deckClamp();
       const pushX = player.pos.x - tmp.x, pushZ = player.pos.z - tmp.z;
       if (pushX * pushX + pushZ * pushZ > 1e-9) {
         const inv = 1 / Math.hypot(pushX, pushZ);
@@ -6785,7 +6968,7 @@ function frame(dt) {
        real fall under gravity — off a balcony, off the side of a stair flight,
        off anything — and you land with a jolt scaled by how hard you hit. */
     const [cr, cc] = cellOf(player.pos);
-    const here = groundUnder(cr, cc, player.pos.x, player.pos.z, player.lev);
+    const here = playerGround(cr, cc, player.pos.x, player.pos.z, player.lev);
 
     if (!player.falling) {
       const footY = player.pos.y - EYE;
@@ -6802,7 +6985,7 @@ function frame(dt) {
       const prevFoot = player.pos.y - EYE;
       player.vy -= GRAVITY * dt;
       player.pos.y += player.vy * dt;
-      const land = groundUnder(cr, cc, player.pos.x, player.pos.z, null, prevFoot + 0.25);
+      const land = playerGround(cr, cc, player.pos.x, player.pos.z, null, prevFoot + 0.25);
       // never let a fall run away if a cell has nothing walkable at all
       if (!land && player.pos.y - EYE < -3) {
         player.pos.y = EYE; player.lev = 0; player.falling = false; player.vy = 0;

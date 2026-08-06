@@ -104,6 +104,19 @@ fluted pilasters down the halls, moulded reveals around every doorway — about 
 pieces. It is what your torch actually rakes across as you walk, because a flat wall
 gives a moving beam nothing to find.
 
+**Somebody decorated, and never took it down.** Eight rooms carry strings of fairy lights,
+624 bulbs across three runs each. They are chosen a floor at a time after the furnish
+sweep rather than first-come — room order is ground floor first, so a first-come cap put
+every string on the one floor that already had plenty to look at — and they come up with
+the room's switch.
+
+Five other rooms are strung with Japanese lanterns instead: round paper globes and square
+ones alternating along a sagging cord, two runs to a room. They follow the switch the same
+way but burn steadily rather than twinkling — paper over a flame, with a slow breath in
+it. Cream, vermilion and amber sit in the material, which makes the lanterns the third
+sanctioned exception to the grey rule after the crystals and the bulbs. No room gets both
+kinds, and warehouses get neither: the pallet racking stands taller than the cord hangs.
+
 **Two banquet halls are lit by chandelier** rather than by strip light, which makes them
 the only rooms in the building that were ever meant to be beautiful. Cut glass and
 steel, no gilt — nothing here carries colour in its material, so their warmth is in
@@ -189,6 +202,26 @@ is, the space stays open. A single roof caps every column that is open to the sk
 atrium reads as a tall interior room rather than a shaft into nothing. Walkways that meet
 a drop get a parapet, a coping course and corbels — except at two balconies, where the
 parapet has a gap and you can step off and fall to the ground floor.
+
+**Balconies you can stand out on.** Forty-eight small decks hang off the walkways that
+ring the atriums upstairs, four feet out and six wide — barely two paces, which is the
+point: you step out over three storeys of nothing with the building at your back. They
+are the first ground in the game that is not a grid cell. Everything else stands on whole
+three-metre squares, so a deck needs its own support, its own edges and its own rule
+about who may use it. Only the player: an Anti-player asks the same ground question
+through the same function and the decks are invisible to it, so the drop is a way out
+that only you have.
+
+Half are railed on three sides. On the other half the outer rail is missing — two stubs
+where it broke off — and stepping through is a real fall to the atrium floor, which costs
+nothing but the climb back, since nothing in this building has ever hurt you by landing.
+
+**Alcoves.** Three small rooms on the second floor and five on the third, carved into the
+corner of a block the plan left empty rather than filling it — a block interior is seven
+cells across at its narrowest and would read as another room. An alcove is three by three
+inside its own wall ring, tucked where two halls meet, with one door on each of them: two
+doors, so it stays a through-route and the no-dead-ends rule holds. It is a corner you
+can cut as much as a recess you can duck into.
 
 **The tubes are fluorescent, and they behave like it.** A light does not simply come
 on. Each one strikes at its own rate after its own delay, stuttering and catching and
@@ -313,8 +346,26 @@ a bullet takes you. They douse any lit switch they pass (and leave it off, becau
 prefer the dark and the dark eats your map). They cannot enter the crystal vaults: a shut
 gate stops them exactly as it stops you. Lit rooms and the hub are sanctuary from the gun.
 
-Being shot sends every crystal home to its vault and you back to the hub — demoted to a
-bare pistol, the weapon ladder restarted from the bottom.
+**Being shot costs you the gun and the walk back, not the game.** Work you finished stays
+finished: anything already seated on a pedestal stays seated. Only the crystal in your
+hands goes back to its vault, and the weapon ladder restarts from the bare pistol.
+
+And it is not a cut to black. You get a beat on the floor to see what found you, then the
+building takes you back itself — the walls streak past, the view closes to a tunnel, and
+you are set down by the heap. The flight runs after movement and gravity for the frame and
+overwrites both, so there is no collision to fight with, and the vignette is shut far
+enough by then that a wall passing through you is never visible.
+
+**The aim thickens near a walker.** The kill window is narrow at range — the shot tests a
+0.9 m radius, a hair over two and a half degrees at twenty metres — while the arrow keys
+turn at a fixed rate, so one tap used to step straight over somebody at the far end of a
+hall. Inside a cone about three times the width of that window the keys now slow, hardest
+at the middle: a tap that turns 17° in the open turns 8.6° near a target, and the
+crosshair thickens so the drag reads as the controls doing it rather than the game
+stuttering. It is friction, not aim-assist — nothing is ever pulled anywhere, and the
+mouse is untouched, because it is already precise and easing it reads as lag. Each axis
+is measured against its own tolerance, since the shot is 0.9 m across but 1.27 m up and
+down, and only walkers you could actually hit count: same floor, clear line.
 
 **Killing one breaks the light apart.** Fifty-six shards along the spectrum, red through
 violet, spinning and fading. They fan by colour — red slowest, violet fastest — so the
@@ -356,19 +407,29 @@ beats what you carry.
 **The chart says which gun and which floor.** Each gun is a ring with its tier inside —
 2 is the shotgun, 5 the laser — bright on your storey and faint on another, with a caret
 above it pointing the way to go. One better than what you carry pulses; one weaker sits
-still. Ammunition is a plus, and the lower left names the next gun worth crossing the
-building for, with its distance and its floor.
+still. A vending machine is a small cabinet, filled while it is stocked and hollow while
+it is not. The lower left names the next gun worth crossing the building for, with its
+distance and its floor.
 
 These were plain diamond outlines, which was wrong twice over: the six crystal slots
 along the foot of the screen are diamonds too, so one shape meant two things, and an
 outline said a gun was somewhere without saying which gun or which storey.
 
-**Ammunition floats through the labyrinth**, on all three floors, under the same rule as
-the guns: dark until the room is lit or your beam finds it. One always turns under the
-clock in the hub, so home is never empty. Taking one fills whatever you carry, and they
-return after half a minute so the building never runs dry. Walking into the hub also
-rearms you outright — walking home for every magazine was the whole cost of firing, and
-it was too much of one.
+**Vending machines, not floating clips.** Twelve light-green cabinets stand against walls
+across the three floors, and the strip inside each is still burning, so the sweets and the
+cans on its three shelves are lit from within and the whole front glows pale orange. That
+makes a machine the one thing in the building exempt from the rule that you cannot see
+what your torch has not found — it is a lamp, so you spot it across a dark room and walk
+to it, which is the point of them. Take a magazine and the strip goes dark for thirty
+seconds while it restocks, the only tell that a machine is spent. The chart keeps any
+machine you have laid eyes on, since it does not move and knowing where the nearest one
+is is the whole of its value.
+
+In the hub, somebody emptied every machine in the building into one pile on the floor
+under the clock. The heap is the whole of the hub's supply: standing anywhere inside the
+hub used to rearm you, which meant coming home was enough and walking to the middle was
+not worth doing. It is a child of the hub floor, because the hub floor is a lift and a
+scene-parented heap would be left on the ground when the platform climbs.
 
 **Ceilings, floors and furniture all take fire.** The ray only tested walls, so shooting up
 or down sent the round into the next storey and nothing marked it. Worse, the first
