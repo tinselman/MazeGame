@@ -163,6 +163,16 @@
     position: absolute; inset: 0; pointer-events: none; opacity: 0;
     background: radial-gradient(circle at 50% 45%, rgba(255,255,255,.92), rgba(255,90,60,.55) 55%, rgba(120,0,0,.7));
   }
+  /* the swoosh: radial streaks and a closing vignette while the hub drags you
+     back through the building */
+  #swoosh {
+    position: absolute; inset: -25%; pointer-events: none; opacity: 0;
+    transform-origin: 50% 50%;
+    background:
+      repeating-conic-gradient(from 0deg at 50% 50%,
+        rgba(255,255,255,0) 0deg, rgba(214,232,255,.20) .8deg, rgba(255,255,255,0) 2.4deg),
+      radial-gradient(circle at 50% 50%, rgba(4,6,10,0) 12%, rgba(4,6,10,.92) 68%);
+  }
 
   /* start / end overlays ------------------------------------------------ */
   .overlay {
@@ -207,6 +217,7 @@
   <div id="message"></div>
   <div id="banner"></div>
   <div id="hitflash"></div>
+  <div id="swoosh"></div>
   <div id="hudclockwrap"><canvas id="hudclock"></canvas></div>
   <div id="gunhud"></div>
   <canvas id="powers"></canvas>
@@ -4168,6 +4179,7 @@ const el = {
   message: document.getElementById('message'),
   banner: document.getElementById('banner'),
   hitflash: document.getElementById('hitflash'),
+  swoosh: document.getElementById('swoosh'),
   hudclockwrap: document.getElementById('hudclockwrap'),
   gunhud: document.getElementById('gunhud'),
   powers: document.getElementById('powers'),
@@ -4940,6 +4952,7 @@ function caughtBy(how) {
   // a crowd is what eventually turns into something worse.
   for (const a of antis) if (a.live) a.aimT = 0;
 
+  // What you were carrying never made it home: it goes back to its vault.
   if (player.carrying) {
     const c = player.carrying;
     c.taken = false; c.mesh.visible = true; c.emitter.on = true;
@@ -4947,16 +4960,10 @@ function caughtBy(how) {
     carriedMesh.visible = false; carriedEmitter.on = false;
     el.carried.classList.remove('on');
   }
-  for (const p of props.pedestals) {
-    if (!p.filled) continue;
-    const c = p.filled;
-    c.taken = false; c.mesh.visible = true; c.emitter.on = true;
-    p.filled = null; p.gem.visible = false; p.emitter.on = false;
-    const i = CRYSTALS.findIndex((x) => x.id === c.id);
-    slots[i].classList.remove('set');
-    slots[i].style.background = ''; slots[i].style.boxShadow = '';
-  }
-  player.placed = 0;
+  // Everything already seated STAYS seated. Work you finished is finished —
+  // being shot costs you the gun and the walk back, not the whole game. The
+  // pedestal loop and player.placed were a matched pair, so both are gone
+  // together: beginEnding fires on player.placed === 6 and nothing else.
   for (const d of props.doors) d.open = false;
   for (const b of props.buttons) {
     if (b.mesh.userData.knob) b.mesh.userData.knob.material.emissiveIntensity = 0.25;
@@ -4966,19 +4973,59 @@ function caughtBy(how) {
   placeNextGun(2);
   rebuildReveal();
   sfx.caught();
+  beginSwoosh();
   announce('SHOT DOWN', '#ff4a35', 5.4);
-  say('back at the centre with a pistol, and everything to do again', 6);
+  say(player.placed
+    ? `the hub keeps what you set down — ${player.placed} of 6 still standing`
+    : 'back at the centre with a pistol', 6);
+}
+
+/* ---- the swoosh ----------------------------------------------------------
+   Being shot does not cut to the hub. You get a beat on the floor to see what
+   found you, and then the building takes you back itself: the walls streak
+   past, the view closes to a tunnel, and you are set down by the heap. It is
+   the same 1.9 seconds the old blackout used, spent on something to watch.
+
+   The player is flown straight home through whatever is in the way, so it
+   runs after the movement and gravity for the frame and simply overwrites
+   them — there is no collision to fight with, and the vignette is closed far
+   enough by then that you never see a wall pass through you.                */
+let swoosh = null;
+function beginSwoosh() {
+  swoosh = { t: 0, dur: 1.9, from: player.pos.clone(),
+             to: new THREE.Vector3(hubCentre.x, EYE, hubCentre.z + 4) };
+}
+function updateSwoosh(dt) {
+  if (!swoosh) return;
+  swoosh.t += dt;
+  const u = Math.min(1, swoosh.t / swoosh.dur);
+  const HOLD = 0.3;                       // the beat before it takes you
+  const v = u <= HOLD ? 0 : (u - HOLD) / (1 - HOLD);
+  const e = v * v * v;                    // accelerating the whole way in
+  player.pos.lerpVectors(swoosh.from, swoosh.to, e);
+  player.pos.y += Math.sin(e * Math.PI) * 3.2;      // lifted clear as it drags
+  player.vel.set(0, 0, 0);
+  player.falling = false;
+  if (e >= 0.999) player.lev = 0;
+  const k = Math.sin(Math.min(1, v * 1.15) * Math.PI);
+  el.swoosh.style.opacity = String(Math.min(1, k * 1.4));
+  el.swoosh.style.transform = `scale(${1 + v * 0.55}) rotate(${v * 26}deg)`;
 }
 
 // The delayed return: you get to see the torch that found you, then the hub.
 function sendHome() {
+  swoosh = null;
+  el.swoosh.style.opacity = '0';
+  el.swoosh.style.transform = 'scale(1)';
   player.pos.set(hubCentre.x, EYE, hubCentre.z + 4);
   player.lev = 0;
   player.vel.set(0, 0, 0);
   player.falling = false;
   player.pitch = 0;
   sfx.warp();
-  say('every crystal is back where it was, and so are you', 6);
+  say(player.placed
+    ? 'the crystals are where you left them. the gun is not.'
+    : 'back at the centre, and everything to do again', 6);
 }
 
 /* The wander. Not smart, and not meant to be: pick the nearest gun on the
@@ -6873,6 +6920,7 @@ function frame(dt) {
   texWater.offset.x = now * 0.014;
   texWater.offset.y = now * 0.009;
 
+  updateSwoosh(dt);              // after movement and gravity: it overrides both
   camera.position.copy(player.pos);
   if (ending >= 3) camera.position.y = EYE + riseY;
   camera.position.y += landJolt;                  // the knees
