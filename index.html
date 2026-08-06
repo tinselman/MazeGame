@@ -2672,19 +2672,48 @@ const furniture = [];
      Chosen from rooms the fairy lights did NOT take, a floor at a time, so the
      two kinds of decoration never share a room and both reach the top.        */
   {
-    const LANT_HUES = [0xfff0d2, 0xe8462a, 0xf2b13c, 0xfff0d2, 0xd8452e];
-    // round: a squat paper globe with a dark cap top and bottom
-    const roundGeo = mergeGeos([
-      at3(new THREE.SphereGeometry(0.23, 12, 9), 0, 0, 0, 0, 0, 0, 1, 0.82, 1),
-      at3(Cyl(0.075, 0.075, 0.035, 8), 0, 0.19, 0),
-      at3(Cyl(0.06, 0.06, 0.03, 8), 0, -0.185, 0),
-    ]);
-    // square: a boxed paper lantern, slightly tapered, with the same caps
-    const squareGeo = mergeGeos([
-      at3(new THREE.CylinderGeometry(0.185, 0.185, 0.40, 4), 0, 0, 0, 0, Math.PI / 4, 0),
-      at3(Cyl(0.075, 0.075, 0.035, 8), 0, 0.21, 0),
-      at3(Cyl(0.06, 0.06, 0.03, 8), 0, -0.205, 0),
-    ]);
+    // Red and white, the way festival lanterns actually come. The paper is the
+    // OUTER shell; a second, brighter core sits inside it, so the lantern reads
+    // as lit from within rather than as a coloured object somebody is shining a
+    // torch at.
+    const LANT_HUES = [0xd8352a, 0xf4efe4, 0xd8352a, 0xf4efe4, 0xc42a22, 0xf4efe4];
+    // A paper lantern is a stack of hoops: ribs around the belly, a lacquered
+    // cap top and bottom, a wire hanger above and a tassel below. Built once
+    // and instanced; the inner core is the same silhouette a shade smaller.
+    const ribbedRound = (scale) => {
+      const parts = [at3(new THREE.SphereGeometry(0.23 * scale, 14, 10), 0, 0, 0, 0, 0, 0, 1, 0.82, 1)];
+      if (scale === 1) {
+        for (const [y, r] of [[-0.13, 0.150], [-0.045, 0.216], [0.045, 0.216], [0.13, 0.150]]) {
+          parts.push(at3(new THREE.TorusGeometry(r, 0.009, 4, 16), 0, y, 0, Math.PI / 2, 0, 0));
+        }
+        parts.push(at3(Cyl(0.075, 0.062, 0.042, 10), 0, 0.192, 0));      // top cap
+        parts.push(at3(Cyl(0.055, 0.068, 0.034, 10), 0, -0.188, 0));     // bottom cap
+        parts.push(at3(new THREE.TorusGeometry(0.03, 0.006, 4, 10), 0, 0.228, 0));   // hanger
+        parts.push(at3(Cyl(0.012, 0.012, 0.10, 6), 0, -0.255, 0));       // tassel cord
+        parts.push(at3(Cyl(0.030, 0.008, 0.075, 8), 0, -0.335, 0));      // tassel
+      }
+      return mergeGeos(parts);
+    };
+    const ribbedSquare = (scale) => {
+      const parts = [at3(new THREE.CylinderGeometry(0.185 * scale, 0.185 * scale, 0.40 * scale, 4),
+                         0, 0, 0, 0, Math.PI / 4, 0)];
+      if (scale === 1) {
+        for (const y of [-0.14, -0.048, 0.048, 0.14]) {
+          parts.push(at3(new THREE.CylinderGeometry(0.191, 0.191, 0.014, 4), 0, y, 0, 0, Math.PI / 4, 0));
+        }
+        for (const [x, z] of [[0.131, 0.131], [-0.131, 0.131], [0.131, -0.131], [-0.131, -0.131]]) {
+          parts.push(at3(Box(0.016, 0.40, 0.016), x, 0, z));             // corner stiles
+        }
+        parts.push(at3(Cyl(0.075, 0.062, 0.042, 10), 0, 0.222, 0));
+        parts.push(at3(Cyl(0.055, 0.068, 0.034, 10), 0, -0.216, 0));
+        parts.push(at3(new THREE.TorusGeometry(0.03, 0.006, 4, 10), 0, 0.256, 0));
+        parts.push(at3(Cyl(0.012, 0.012, 0.10, 6), 0, -0.28, 0));
+        parts.push(at3(Cyl(0.030, 0.008, 0.075, 8), 0, -0.36, 0));
+      }
+      return mergeGeos(parts);
+    };
+    const roundGeo = ribbedRound(1), squareGeo = ribbedSquare(1);
+    const roundCore = ribbedRound(0.82), squareCore = ribbedSquare(0.82);
     const taken = new Set(xmasRooms);
     const cands = [[], [], []];
     for (const meta of ROOM_META) {
@@ -2729,7 +2758,7 @@ const furniture = [];
         const mx = longX ? (x0 + x1) / 2 : x0 + f * (x1 - x0);
         const mz = longX ? z0 + f * (z1 - z0) : (z0 + z1) / 2;
         const em = { pos: new THREE.Vector3(mx, y - 1.3, mz),
-                     color: new THREE.Color(0xffd9a0), intensity: 0, on: false };
+                     color: new THREE.Color(0xffc9a4), intensity: 0, on: false };
         emitters.push(em);
         roomEmitters.push(em);
       }
@@ -2739,27 +2768,43 @@ const furniture = [];
     }
 
     if (lanterns.length) {
-      const build = (wantRound, geo) => {
+      // Two shells per lantern. The outer is the paper, which takes the red or
+      // the white; the inner core is a shade smaller and burns near-white, so
+      // the light appears to come from inside the paper instead of landing on
+      // it. MeshBasic for both — the file's own note at the xmas bulbs records
+      // that a Phong face meant to look self-lit just saturates to flat white
+      // the moment the torch reaches it.
+      const build = (wantRound, geo, core) => {
         const idx = lanterns.map((l, i) => i).filter((i) => lanterns[i].round === wantRound);
-        const mesh = new THREE.InstancedMesh(geo,
-          new THREE.MeshBasicMaterial({ fog: true }), Math.max(1, idx.length));
+        const n = Math.max(1, idx.length);
+        const shell = new THREE.InstancedMesh(geo, new THREE.MeshBasicMaterial({ fog: true }), n);
+        const glow = new THREE.InstancedMesh(core, new THREE.MeshBasicMaterial({
+          fog: true, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending,
+          depthWrite: false }), n);
+        glow.renderOrder = 3;
         const m3 = new THREE.Matrix4(), q3 = new THREE.Quaternion(), s3 = new THREE.Vector3(1, 1, 1);
         const c3 = new THREE.Color();
         idx.forEach((li, k) => {
           const l = lanterns[li];
           m3.compose(new THREE.Vector3(l.x, l.y, l.z), q3, s3);
-          mesh.setMatrixAt(k, m3);
-          mesh.setColorAt(k, c3.setHex(l.hue));
-          l.slot = k;                          // where it lives in its own mesh
+          shell.setMatrixAt(k, m3);
+          glow.setMatrixAt(k, m3);
+          shell.setColorAt(k, c3.setHex(l.hue));
+          glow.setColorAt(k, c3.setHex(0x000000));
+          l.slot = k;                          // where it lives in its own pair
         });
-        mesh.instanceMatrix.needsUpdate = true;
-        mesh.userData.detail = 1;
-        scene.add(mesh);
-        return mesh;
+        shell.instanceMatrix.needsUpdate = true;
+        glow.instanceMatrix.needsUpdate = true;
+        shell.userData.detail = 1;
+        glow.userData.detail = 1;
+        scene.add(shell, glow);
+        return { shell, glow };
       };
-      const meshRound = build(true, roundGeo);
-      const meshSquare = build(false, squareGeo);
-      window.__lanterns = { meshRound, meshSquare, lanterns, strings };
+      const R = build(true, roundGeo, roundCore);
+      const S = build(false, squareGeo, squareCore);
+      window.__lanterns = { meshRound: R.shell, glowRound: R.glow,
+                            meshSquare: S.shell, glowSquare: S.glow,
+                            lanterns, strings };
     }
   }
 
@@ -6214,19 +6259,32 @@ function updateXmas(now) {
   if (touched) col.needsUpdate = true;
 }
 
-// The lanterns follow their room's switch the same way, but they burn steadily
-// rather than twinkling — paper over a flame, with only a slow breath in it —
-// and each shape lives in its own instanced mesh, so a lantern's slot is an
-// index into that mesh rather than into the flat list.
-function updateLanterns(now) {
+/* The lanterns follow their room's switch, but they burn steadily rather than
+   twinkling — paper over a flame, with only a slow breath in it. Two shells
+   apiece: the paper takes the red or the white and stays dim, while the core
+   inside it carries the flame, so the colour reads as light coming through
+   paper rather than as paint.
+
+   And they swing when they are first lit. A cord that has hung still for years
+   does not start moving on its own, so the wobble is struck by the switch and
+   dies away over about five seconds — each lantern on its own phase, so the
+   run ripples rather than swinging as one board. That means writing instance
+   matrices every frame while it lasts, which is why this now takes dt.        */
+const _lantM = new THREE.Matrix4(), _lantQ = new THREE.Quaternion();
+const _lantE = new THREE.Euler(), _lantV = new THREE.Vector3(), _lantS = new THREE.Vector3(1, 1, 1);
+function updateLanterns(dt, now) {
   const L = window.__lanterns;
   if (!L) return;
   const cR = L.meshRound.instanceColor, cS = L.meshSquare.instanceColor;
-  if (!cR || !cS) return;
+  const gR = L.glowRound.instanceColor, gS = L.glowSquare.instanceColor;
+  if (!cR || !cS || !gR || !gS) return;
   const c = new THREE.Color();
-  let touched = false;
+  let touched = false, moved = false;
   for (const st of L.strings) {
     const on = st.room ? st.room.on : false;
+    if (on && !st.wasOn) st.swing = 1;                 // the switch strikes it
+    st.wasOn = on;
+    if (st.swing > 0) st.swing = Math.max(0, st.swing - dt / 5);
     for (const em of st.emitters) {
       em.on = on;
       em.intensity = on ? 6.5 + Math.sin(now * 0.9 + em.pos.x) * 1.1 : 0;
@@ -6234,13 +6292,34 @@ function updateLanterns(now) {
     for (let i = st.from; i < st.to; i++) {
       const l = L.lanterns[i];
       if (l.slot === undefined) continue;
-      const k = on ? 0.72 + 0.28 * Math.sin(now * 1.35 + l.phase) : 0.05;
-      c.setHex(l.hue).multiplyScalar(k);
+      const breath = 0.86 + 0.14 * Math.sin(now * 1.15 + l.phase);
+      // paper: dim and coloured. core: the flame, near-white and much brighter.
+      c.setHex(l.hue).multiplyScalar(on ? 0.5 * breath : 0.05);
       (l.round ? cR : cS).setXYZ(l.slot, c.r, c.g, c.b);
+      c.setHex(l.hue).lerp(new THREE.Color(0xfff2dc), 0.55)
+        .multiplyScalar(on ? 0.95 * breath : 0);
+      (l.round ? gR : gS).setXYZ(l.slot, c.r, c.g, c.b);
       touched = true;
+
+      if (st.swing > 0) {
+        const a = st.swing * st.swing * 0.30;          // eases out, not linear
+        const t = now * 3.1 + l.phase;
+        _lantE.set(Math.sin(t) * a, 0, Math.cos(t * 0.83) * a);
+        _lantQ.setFromEuler(_lantE);
+        // swung from the cord above, so the body also shifts sideways
+        _lantV.set(l.x + Math.cos(t * 0.83) * a * 0.34, l.y, l.z + Math.sin(t) * a * 0.34);
+        _lantM.compose(_lantV, _lantQ, _lantS);
+        (l.round ? L.meshRound : L.meshSquare).setMatrixAt(l.slot, _lantM);
+        (l.round ? L.glowRound : L.glowSquare).setMatrixAt(l.slot, _lantM);
+        moved = true;
+      }
     }
   }
-  if (touched) { cR.needsUpdate = true; cS.needsUpdate = true; }
+  if (touched) { cR.needsUpdate = true; cS.needsUpdate = true; gR.needsUpdate = true; gS.needsUpdate = true; }
+  if (moved) {
+    L.meshRound.instanceMatrix.needsUpdate = true; L.meshSquare.instanceMatrix.needsUpdate = true;
+    L.glowRound.instanceMatrix.needsUpdate = true; L.glowSquare.instanceMatrix.needsUpdate = true;
+  }
 }
 
 function updateChandeliers(dt, now) {
@@ -7199,7 +7278,7 @@ function frame(dt) {
   }
   updateChandeliers(dt, now);
   updateXmas(now);
-  updateLanterns(now);
+  updateLanterns(dt, now);
 
   texWater.offset.x = now * 0.014;
   texWater.offset.y = now * 0.009;
