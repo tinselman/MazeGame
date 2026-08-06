@@ -3323,6 +3323,99 @@ const hubLamp = new THREE.PointLight(0xdfe6f2, 11, 34, 1.1);
 hubLamp.position.set(hubCentre.x, WALL_H - 0.5, hubCentre.z);
 hubFloor.add(hubLamp);         // ditto, so the platform stays lit as it climbs
 
+/* ---- the wrapper atlas ---------------------------------------------------
+   Confectionery is the one thing in this building that was ever meant to be
+   read. A 4x4 sheet of printed labels — bars on the top rows, cans below —
+   drawn once and shared by the vending machines and the heap under the clock,
+   so a bar in the pile carries the same brand as the bar behind the glass.
+
+   Names are set with a heavy dark stroke under the fill, the trick tagTex uses
+   for the walker numerals: at this size a glyph is a few pixels across and
+   needs an outline to survive against whatever colour the wrapper is. The
+   texture is tagged sRGB, because canvases are sampled linear otherwise and
+   every wrapper comes out washed against the material hexes beside it.       */
+const CANDY_TILE = 4;                       // 4x4 grid
+const candyAtlas = (() => {
+  const S = 1024, T = S / CANDY_TILE;
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = S;
+  const g = cv.getContext('2d');
+  const BARS = [
+    { n: 'NOUGAT',  bg: '#c0392b', fg: '#fff3d0' },
+    { n: 'CARAMEL', bg: '#e0a53c', fg: '#4a2c0a' },
+    { n: 'COCOA',   bg: '#6b4226', fg: '#f0dcc0' },
+    { n: 'MINT',    bg: '#3f9a6a', fg: '#f2fff6' },
+    { n: 'PEANUT',  bg: '#d9773a', fg: '#3a1d06' },
+    { n: 'WAFER',   bg: '#4f6fbf', fg: '#eef3ff' },
+    { n: 'TOFFEE',  bg: '#8a5a34', fg: '#ffe9c4' },
+    { n: 'CRISP',   bg: '#c95ea8', fg: '#fff0fa' },
+  ];
+  const CANS = [
+    { n: 'COLA',   bg: '#b3271f', fg: '#fff0e6' },
+    { n: 'LEMON',  bg: '#d8c93a', fg: '#38340a' },
+    { n: 'ORANGE', bg: '#e07a22', fg: '#fff2e0' },
+    { n: 'SODA',   bg: '#2f6bb0', fg: '#eaf3ff' },
+    { n: 'LIME',   bg: '#4aa653', fg: '#f0fff2' },
+    { n: 'CHERRY', bg: '#a8243f', fg: '#ffe8ee' },
+    { n: 'ROOT',   bg: '#5a3a22', fg: '#f2e2cc' },
+    { n: 'FIZZ',   bg: '#7a52b0', fg: '#f4ecff' },
+  ];
+  const all = BARS.concat(CANS);
+  all.forEach((item, i) => {
+    const tx = (i % CANDY_TILE) * T, ty = Math.floor(i / CANDY_TILE) * T;
+    g.fillStyle = item.bg;
+    g.fillRect(tx, ty, T, T);
+    // a band across the middle, the way a wrapper is printed
+    g.fillStyle = 'rgba(0,0,0,.16)';
+    g.fillRect(tx, ty + T * 0.30, T, T * 0.40);
+    g.fillStyle = 'rgba(255,255,255,.13)';
+    g.fillRect(tx, ty + T * 0.30, T, T * 0.055);
+    // the name, along the tile, stroked so it reads at a couple of metres
+    g.save();
+    g.translate(tx + T / 2, ty + T / 2);
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    const size = Math.floor(T * (item.n.length > 6 ? 0.16 : 0.19));
+    g.font = `bold ${size}px ui-monospace, Menlo, monospace`;
+    g.lineWidth = Math.max(3, size * 0.22);
+    g.strokeStyle = 'rgba(0,0,0,.75)';
+    g.strokeText(item.n, 0, 0);
+    g.fillStyle = item.fg;
+    g.fillText(item.n, 0, 0);
+    // a little rule under it
+    g.fillStyle = item.fg;
+    g.globalAlpha = 0.8;
+    g.fillRect(-T * 0.22, T * 0.16, T * 0.44, Math.max(2, T * 0.012));
+    g.restore();
+  });
+  const tex = new THREE.CanvasTexture(cv);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  return tex;
+})();
+// Remap a merged geometry's UVs so each part lands on its own atlas tile.
+// tiles[i] is the tile index for parts[i]; -1 leaves that part's UVs alone but
+// parks them on a blank corner so it takes the flat colour instead.
+function bakeAtlasUVs(geo, parts, tiles) {
+  const uv = geo.attributes.uv;
+  if (!uv) return;
+  const inv = 1 / CANDY_TILE;
+  let o = 0;
+  parts.forEach((p, i) => {
+    const n = p.geo.attributes.position.count;
+    const t = tiles[i];
+    if (t >= 0) {
+      const ox = (t % CANDY_TILE) * inv, oy = 1 - inv - Math.floor(t / CANDY_TILE) * inv;
+      for (let k = 0; k < n; k++) {
+        uv.setXY(o + k, ox + uv.getX(o + k) * inv, oy + uv.getY(o + k) * inv);
+      }
+    } else {
+      for (let k = 0; k < n; k++) uv.setXY(o + k, 0.999, 0.999);
+    }
+    o += n;
+  });
+  uv.needsUpdate = true;
+}
+
 /* ---- the heap ------------------------------------------------------------
    Somebody emptied every machine in the building into one pile on the floor
    under the clock: chocolate bars and cans of drink, knee deep. It is the only
@@ -3332,12 +3425,10 @@ hubFloor.add(hubLamp);         // ditto, so the platform stays lit as it climbs
    A child of the hub floor, because the hub floor is a lift: scene-parented,
    the heap would be left on the ground when the platform climbs at the end.  */
 const hubHeap = (() => {
-  const parts = [], cols = [];
-  const BAR = [0x8a5a34, 0xc9483a, 0xe0a53c, 0x4f6fbf, 0x4f9a5c, 0xd8c94a, 0xbf5aa8];
-  const CAN = [0xcf3b34, 0x3f7fc4, 0x4aa653, 0xdcae3c, 0xd8d8d8];
+  const parts = [], cols = [], tiles = [];
   const rnd = (n) => ((Math.sin(n * 91.7 + 13.1) * 43758.5453) % 1 + 1) % 1;
-  const R = 2.3;
-  for (let i = 0; i < 420; i++) {
+  const R = 2.55;
+  for (let i = 0; i < 900; i++) {
     // packed toward the middle, so it heaps rather than scattering
     const a = rnd(i) * Math.PI * 2;
     const rr = R * Math.pow(rnd(i + 200), 0.58);
@@ -3347,10 +3438,10 @@ const hubHeap = (() => {
     const tip = (rnd(i + 600) - 0.5) * 1.5;
     if (i % 5 < 3) {
       parts.push(at3(Box(0.21, 0.055, 0.095), x, y, z, tip * 0.5, rnd(i + 700) * 6.28, tip));
-      cols.push(BAR[i % BAR.length]);
+      cols.push(0xffffff); tiles.push(i % 8);              // a printed bar
     } else {
       parts.push(at3(Cyl(0.042, 0.042, 0.125, 8), x, y, z, 1.57 + tip * 0.7, rnd(i + 800) * 6.28, tip));
-      cols.push(CAN[i % CAN.length]);
+      cols.push(0xffffff); tiles.push(8 + (i % 8));        // a printed can
     }
   }
   const geo = mergeGeos(parts);
@@ -3365,8 +3456,9 @@ const hubHeap = (() => {
     o += n;
   });
   geo.setAttribute('color', new THREE.BufferAttribute(carr, 3));
+  bakeAtlasUVs(geo, parts, tiles);
   const mesh = new THREE.Mesh(geo, new THREE.MeshPhongMaterial({
-    vertexColors: true, specular: 0x555555, shininess: 44 }));
+    vertexColors: true, map: candyAtlas, specular: 0x555555, shininess: 44 }));
   mesh.position.set(hubCentre.x, 0, hubCentre.z);
   mesh.castShadow = mesh.receiveShadow = true;
   hubFloor.add(mesh);
@@ -4347,7 +4439,7 @@ function drawMinimap() {
   // cabinet, hollow while it restocks — distinct from the crystal diamonds and
   // the gun rings.
   for (const v of vendors) {
-    if (!v.spotted) continue;
+    if (!v.awake) continue;              // a dead machine is not worth charting
     const ax = mmX(v.pos.x / CELL), ay = mmY(v.pos.z / CELL);
     const here = v.lev === player.lev;
     g.save();
@@ -4526,6 +4618,7 @@ function nearestTarget() {
     for (const e of s.extras || []) consider({ ...s, pos: e.pos }, e.pos, 'switch');
   }
   for (const b of props.buttons) consider(b, b.pos, 'button');   // toggles, so always offered
+  for (const v of vendors) if (!v.awake) consider(v, v.pos, 'vendor');
   for (const c of props.crystals) if (!c.taken) consider(c, c.pos, 'crystal');
   for (const c of props.crystals) {
     for (const lk of c.links || []) if (lk.live) consider(lk, lk.pos, 'link');
@@ -4575,6 +4668,13 @@ function interact() {
     sfx.hum();
     rebuildReveal();
     say(turnOn ? 'the lights come up, floor by floor' : 'the lights die');
+  }
+
+  else if (t.kind === 'vendor') {
+    t.obj.awake = true;
+    t.obj.spotted = true;
+    sfx.hum();
+    say('the strip inside stutters, catches, and the machine is awake', 4);
   }
 
   else if (t.kind === 'button') {
@@ -6503,7 +6603,7 @@ const matVendTrim  = new THREE.MeshPhongMaterial({ color: 0x6d6d6d, specular: 0x
 const matVendGlass = new THREE.MeshPhongMaterial({ color: 0x1b2430, specular: 0xffffff, shininess: 110,
                                                    transparent: true, opacity: 0.34 });
 const matVendGlow  = new THREE.MeshBasicMaterial({ color: 0xffb765, fog: true });
-const matVendStock = new THREE.MeshBasicMaterial({ vertexColors: true, fog: true });
+const matVendStock = new THREE.MeshBasicMaterial({ vertexColors: true, map: candyAtlas, fog: true });
 const VEND_W = 0.94, VEND_H = 1.92, VEND_D = 0.6;
 // The carcass is a shell, not a block: a solid box seals the lit interior
 // inside itself and the machine reads as a green wardrobe. Back, two sides,
@@ -6527,21 +6627,20 @@ const vendTrimGeo = mergeGeos([
 const vendGlowGeo = mergeGeos([at3(Box(VG_W - 0.02, VG_H - 0.04, 0.02), VG_X, VG_Y, -VEND_D / 2 + 0.07)]);
 const vendGlassGeo = mergeGeos([at3(Box(VG_W, VG_H, 0.02), VG_X, VG_Y, VEND_D / 2 - 0.03)]);
 const vendStockGeo = (() => {
-  const parts = [], cols = [];
-  const SWEET = [0xd94f3d, 0xe8a33d, 0x4f7fd6, 0x54a85e, 0xd8d24a, 0xc95ea8];
-  const CAN   = [0xcf3b34, 0x3f7fc4, 0x4aa653, 0xdcae3c];
+  const parts = [], cols = [], tiles = [];
   for (let s = 0; s < 3; s++) {
     const sy = 0.52 + s * 0.44;
-    parts.push(at3(Box(VG_W - 0.06, 0.03, VEND_D - 0.24), VG_X, sy - 0.02, 0)); cols.push(0x8a8a8a);
+    parts.push(at3(Box(VG_W - 0.06, 0.03, VEND_D - 0.24), VG_X, sy - 0.02, 0));
+    cols.push(0x8a8a8a); tiles.push(-1);          // the shelf itself is unprinted
     if (s < 2) {                                  // sweets stand on edge in rows
       for (let i = 0; i < 6; i++) {
-        parts.push(at3(Box(0.07, 0.28, 0.13), VG_X - 0.245 + i * 0.098, sy + 0.15, 0));
-        cols.push(SWEET[(i + s * 2) % SWEET.length]);
+        parts.push(at3(Box(0.075, 0.28, 0.135), VG_X - 0.245 + i * 0.098, sy + 0.15, 0));
+        cols.push(0xffffff); tiles.push((i + s * 3) % 8);
       }
     } else {                                      // the top shelf is cans
       for (let i = 0; i < 5; i++) {
-        parts.push(at3(Cyl(0.05, 0.05, 0.22, 10), VG_X - 0.22 + i * 0.11, sy + 0.12, 0));
-        cols.push(CAN[(i + s) % CAN.length]);
+        parts.push(at3(Cyl(0.052, 0.052, 0.22, 12), VG_X - 0.22 + i * 0.11, sy + 0.12, 0));
+        cols.push(0xffffff); tiles.push(8 + (i % 8));
       }
     }
   }
@@ -6557,6 +6656,7 @@ const vendStockGeo = (() => {
     o += n;
   });
   geo.setAttribute('color', new THREE.BufferAttribute(carr, 3));
+  bakeAtlasUVs(geo, parts, tiles);
   return geo;
 })();
 
@@ -6564,12 +6664,17 @@ const vendors = [];
 {
   // Against a wall, facing out of it. A machine in open floor reads as a crate.
   const spots = [];
-  for (let tries = 0; tries < 4000 && spots.length < 12; tries++) {
+  for (let tries = 0; tries < 6000 && spots.length < 12; tries++) {
     const l = Math.floor(Math.random() * NLEV);
     const r = 2 + Math.floor(Math.random() * (ROWS - 4));
     const c = 2 + Math.floor(Math.random() * (COLS - 4));
-    if (!isWalkableChar(at(l, r, c)) || isSolid(l, r, c) || inHub(l, r, c)) continue;
+    // Hallways only. A machine in a room competes with the furniture and with
+    // whatever else that room is for; standing in a corridor it is a landmark,
+    // and corridors are where you actually run dry.
+    if (at(l, r, c) !== '.') continue;
+    if (isSolid(l, r, c) || inHub(l, r, c)) continue;
     if (vaultCells.has(`${l},${r},${c}`)) continue;
+    if (stairAt.has(`${l},${r},${c}`)) continue;
     const side = wallSide(l, r, c);
     if (!side) continue;
     const p = cellCentre(r, c);
@@ -6602,31 +6707,46 @@ const vendors = [];
     const emitter = { pos: new THREE.Vector3(px - dc * 0.4, y + 1.15, pz - dr * 0.4),
                       color: new THREE.Color(0xffa64d), intensity: 6.5, on: true };
     emitters.push(emitter);
+    emitter.on = false; emitter.intensity = 0;      // dead until somebody wakes it
     vendors.push({ lev: sp.lev, pos: new THREE.Vector3(px, y + 1.0, pz),
-                   emitter, cool: 0, spotted: false, i });
+                   emitter, cool: 0, spotted: false, awake: false, wake: 0, i });
   });
   for (const m of [bodies, trims, glows, stocks, glass]) m.instanceMatrix.needsUpdate = true;
   window.__vendors = { bodies, trims, glows, stocks, glass, list: vendors };
 }
 
+/* A machine is dead when you find it — dark, silent, one more grey cabinet in
+   a corridor. Press E and it wakes: the strip inside stutters on over about a
+   second and a half, and from then on it is a lamp in that hall and it serves
+   you whenever you come back. Finding one is the moment; after that it is
+   yours, and the chart keeps it. */
 function updateVendors(dt, t) {
   const spec = curGun();
   const V = window.__vendors;
   const c = new THREE.Color();
   for (const v of vendors) {
     if (v.cool > 0) v.cool -= dt;
-    const live = v.cool <= 0;
-    // the strip inside dims while it restocks, and comes back when it is ready
-    const k = live ? 0.86 + 0.14 * Math.sin(t * 2.3 + v.i) : 0.08;
+    if (v.awake && v.wake < 1) v.wake = Math.min(1, v.wake + dt / 1.5);
+    const live = v.awake && v.cool <= 0;
+
+    // dark asleep; a stuttering strike as it wakes; then a steady burn that
+    // dips while it restocks
+    let k;
+    if (!v.awake) k = 0;
+    else if (v.wake < 1) {
+      const flick = Math.sin(v.wake * 47 + v.i) > 0.1 ? 1 : 0.18;   // striking
+      k = v.wake * v.wake * flick;
+    } else k = live ? 0.86 + 0.14 * Math.sin(t * 2.3 + v.i) : 0.08;
+
     if (V) {
       V.glows.setColorAt(v.i, c.setScalar(k));
-      V.stocks.setColorAt(v.i, c.setScalar(live ? 1 : 0.12));
+      V.stocks.setColorAt(v.i, c.setScalar(v.awake ? Math.max(0.06, k) : 0.03));
       if (V.glows.instanceColor) V.glows.instanceColor.needsUpdate = true;
       if (V.stocks.instanceColor) V.stocks.instanceColor.needsUpdate = true;
     }
-    v.emitter.intensity = live ? 6.0 + Math.sin(t * 2.3 + v.i) * 0.9 : 0.6;
-    if (!v.spotted && v.lev === player.lev
-        && player.pos.distanceToSquared(v.pos) < 30 * 30) v.spotted = true;
+    v.emitter.on = v.awake;
+    v.emitter.intensity = v.awake ? Math.max(0.4, k * 6.6) : 0;
+
     if (!live || v.lev !== player.lev) continue;
     if ((v.pos.x - player.pos.x) ** 2 + (v.pos.z - player.pos.z) ** 2 > 2.6) continue;
     const full = spec.laser ? gunState.charge >= spec.charge : gunState.ammo >= spec.mag;
@@ -6636,6 +6756,14 @@ function updateVendors(dt, t) {
     sfx.reloadSfx();
     say('the machine hums and drops a fresh magazine', 2.6);
   }
+}
+// the nearest sleeping machine you could reach, for the prompt and for E
+function vendorAhead() {
+  for (const v of vendors) {
+    if (v.awake || v.lev !== player.lev) continue;
+    if ((v.pos.x - player.pos.x) ** 2 + (v.pos.z - player.pos.z) ** 2 < REACH * REACH) return v;
+  }
+  return null;
 }
 
 function dropGunAt(g, x, z, lev) {
@@ -7192,6 +7320,7 @@ function frame(dt) {
       const verb = t2.kind === 'switch' ? 'turn on the lights'
         : t2.kind === 'button'
           ? (props.doors.find((d) => d.id === t2.obj.id)?.open ? 'close the gate' : 'open the gate')
+        : t2.kind === 'vendor' ? 'wake the machine'
         : t2.kind === 'crystal' ? `take the ${t2.obj.name.toLowerCase()} crystal`
         : t2.kind === 'link' ? `cross to the ${t2.obj.to.name.toLowerCase()} chamber`
         : t2.kind === 'pedestal'
