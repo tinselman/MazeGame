@@ -3168,6 +3168,56 @@ const hubLamp = new THREE.PointLight(0xdfe6f2, 11, 34, 1.1);
 hubLamp.position.set(hubCentre.x, WALL_H - 0.5, hubCentre.z);
 hubFloor.add(hubLamp);         // ditto, so the platform stays lit as it climbs
 
+/* ---- the heap ------------------------------------------------------------
+   Somebody emptied every machine in the building into one pile on the floor
+   under the clock: chocolate bars and cans of drink, knee deep. It is the only
+   thing in the hub that rearms you now — the whole floor used to, which meant
+   coming home was enough and walking to the middle was not worth doing.
+
+   A child of the hub floor, because the hub floor is a lift: scene-parented,
+   the heap would be left on the ground when the platform climbs at the end.  */
+const hubHeap = (() => {
+  const parts = [], cols = [];
+  const BAR = [0x8a5a34, 0xc9483a, 0xe0a53c, 0x4f6fbf, 0x4f9a5c, 0xd8c94a, 0xbf5aa8];
+  const CAN = [0xcf3b34, 0x3f7fc4, 0x4aa653, 0xdcae3c, 0xd8d8d8];
+  const rnd = (n) => ((Math.sin(n * 91.7 + 13.1) * 43758.5453) % 1 + 1) % 1;
+  const R = 2.3;
+  for (let i = 0; i < 420; i++) {
+    // packed toward the middle, so it heaps rather than scattering
+    const a = rnd(i) * Math.PI * 2;
+    const rr = R * Math.pow(rnd(i + 200), 0.58);
+    const x = Math.cos(a) * rr, z = Math.sin(a) * rr;
+    const h = 1.05 * Math.pow(1 - rr / R, 0.85) + 0.06;   // taller in the centre
+    const y = 0.04 + rnd(i + 400) * h;
+    const tip = (rnd(i + 600) - 0.5) * 1.5;
+    if (i % 5 < 3) {
+      parts.push(at3(Box(0.21, 0.055, 0.095), x, y, z, tip * 0.5, rnd(i + 700) * 6.28, tip));
+      cols.push(BAR[i % BAR.length]);
+    } else {
+      parts.push(at3(Cyl(0.042, 0.042, 0.125, 8), x, y, z, 1.57 + tip * 0.7, rnd(i + 800) * 6.28, tip));
+      cols.push(CAN[i % CAN.length]);
+    }
+  }
+  const geo = mergeGeos(parts);
+  const total = geo.attributes.position.count;
+  const carr = new Float32Array(total * 3);
+  const c = new THREE.Color();
+  let o = 0;
+  parts.forEach((p, i) => {
+    c.setHex(cols[i]);
+    const n = p.geo.attributes.position.count;
+    for (let k = 0; k < n; k++) { carr[(o + k) * 3] = c.r; carr[(o + k) * 3 + 1] = c.g; carr[(o + k) * 3 + 2] = c.b; }
+    o += n;
+  });
+  geo.setAttribute('color', new THREE.BufferAttribute(carr, 3));
+  const mesh = new THREE.Mesh(geo, new THREE.MeshPhongMaterial({
+    vertexColors: true, specular: 0x555555, shininess: 44 }));
+  mesh.position.set(hubCentre.x, 0, hubCentre.z);
+  mesh.castShadow = mesh.receiveShadow = true;
+  hubFloor.add(mesh);
+  return { mesh, pos: new THREE.Vector3(hubCentre.x, 0, hubCentre.z) };
+})();
+
 /* ============================================================ AUDIO
 
    Everything is synthesised — no files, so nothing to load and nothing to go
@@ -4004,18 +4054,22 @@ function drawMinimap() {
     g.stroke();
   };
 
-  for (const q of ammoPacks) {
-    if (q.taken > 0) continue;
-    const ax = mmX(q.pos.x / CELL), ay = mmY(q.pos.z / CELL);
-    const here = q.lev === player.lev;
+  // A machine you have laid eyes on stays on the chart: it does not move, and
+  // knowing where the nearest one is is the whole of its value. A small filled
+  // cabinet, hollow while it restocks — distinct from the crystal diamonds and
+  // the gun rings.
+  for (const v of vendors) {
+    if (!v.spotted) continue;
+    const ax = mmX(v.pos.x / CELL), ay = mmY(v.pos.z / CELL);
+    const here = v.lev === player.lev;
     g.save();
-    g.globalAlpha = here ? 0.9 : 0.32;
-    g.strokeStyle = '#d8e6ff';
-    g.lineWidth = here ? 2 : 1.2;
+    g.globalAlpha = here ? 0.92 : 0.32;
+    g.strokeStyle = '#ffb765';
+    g.fillStyle = '#ffb765';
+    g.lineWidth = here ? 1.8 : 1.2;
     g.beginPath();
-    g.moveTo(ax - 3.2, ay); g.lineTo(ax + 3.2, ay);
-    g.moveTo(ax, ay - 3.2); g.lineTo(ax, ay + 3.2);
-    g.stroke();
+    g.rect(ax - 2.6, ay - 3.4, 5.2, 6.8);
+    if (v.cool > 0) g.stroke(); else g.fill();
     g.restore();
   }
 
@@ -6072,66 +6126,156 @@ const worldGuns = [];
 }
 const placeNextGun = window.__placeNextGun;
 
-/* ---- ammunition ---------------------------------------------------------
-   Walking home for every magazine was the whole cost of firing, and it was too
-   much of one. Clips float through the labyrinth on all three floors under the
-   same rule as the guns — dark until the room is lit or your beam finds them —
-   and one always turns under the clock in the hub, so home is never empty.
-   Taking one fills whatever you are carrying. They come back after a while,
-   so the building never runs dry.                                            */
-const AMMO_RESPAWN = 34;
-const ammoGeo = mergeGeos([
-  at3(Box(0.13, 0.20, 0.07), 0, 0, 0),
-  at3(Box(0.16, 0.05, 0.10), 0, 0.12, 0),
-  ...[-0.05, 0.0, 0.05].map((y) => at3(Box(0.15, 0.015, 0.09), 0, y, 0)),
+/* ---- vending machines ----------------------------------------------------
+   The clips that used to float through the labyrinth are gone; what restocks
+   you now is a vending machine, standing against a wall where somebody left it
+   plugged in. Light green cabinets, and the strip inside is still burning — so
+   the sweets and the cans on the shelves are lit from within and the whole
+   front glows pale orange.
+
+   That makes them the one thing in the building exempt from the rule that you
+   cannot see what your torch has not found: a machine is a lamp, and you spot
+   it across a dark room and walk to it. That is the point of them. Take a
+   drink and the strip goes dark for a while as it restocks, which is the only
+   tell that a machine is spent.                                              */
+const VEND_RESPAWN = 30;
+const matVendBody  = new THREE.MeshPhongMaterial({ color: 0x8fc492, specular: 0x2c2c2c, shininess: 26 });
+const matVendTrim  = new THREE.MeshPhongMaterial({ color: 0x6d6d6d, specular: 0x333333, shininess: 30 });
+const matVendGlass = new THREE.MeshPhongMaterial({ color: 0x1b2430, specular: 0xffffff, shininess: 110,
+                                                   transparent: true, opacity: 0.34 });
+const matVendGlow  = new THREE.MeshBasicMaterial({ color: 0xffb765, fog: true });
+const matVendStock = new THREE.MeshBasicMaterial({ vertexColors: true, fog: true });
+const VEND_W = 0.94, VEND_H = 1.92, VEND_D = 0.6;
+// The carcass is a shell, not a block: a solid box seals the lit interior
+// inside itself and the machine reads as a green wardrobe. Back, two sides,
+// a deep base for the delivery tray, and a frame around the window.
+const VG_X = -0.09, VG_W = 0.64;         // the window: centre and width
+const VG_Y = 1.07,  VG_H = 1.54;
+const vendBodyGeo = mergeGeos([
+  at3(Box(VEND_W, VEND_H, 0.05), 0, VEND_H / 2, -VEND_D / 2 + 0.02),        // back
+  at3(Box(0.06, VEND_H, VEND_D), -VEND_W / 2 + 0.03, VEND_H / 2, 0),        // left jamb
+  at3(Box(0.24, VEND_H, VEND_D), VEND_W / 2 - 0.12, VEND_H / 2, 0),         // right column
+  at3(Box(VEND_W, 0.08, VEND_D), 0, VEND_H - 0.04, 0),                      // head
+  at3(Box(VEND_W, 0.30, VEND_D), 0, 0.15, 0),                               // base
+  at3(Box(VEND_W + 0.05, 0.09, VEND_D + 0.05), 0, VEND_H - 0.05, 0),        // cornice
+  at3(Box(VEND_W, 0.1, VEND_D + 0.04), 0, 0.05, 0),                         // plinth
 ]);
-const matAmmo = new THREE.MeshPhongMaterial({ color: 0xb9b39c, specular: 0xdddddd, shininess: 40 });
-const ammoPacks = [];
-{
-  const place = (x, z, lev, fixed) => {
-    const mesh = new THREE.Mesh(ammoGeo, matAmmo);
-    mesh.castShadow = true;
-    mesh.visible = false;
-    scene.add(mesh);
-    ammoPacks.push({ mesh, pos: new THREE.Vector3(x, levelY(lev) + 1.1, z),
-                     lev, taken: 0, bob: Math.random() * 6, fixed });
-  };
-  // one under the clock, always
-  place(hubCentre.x, hubCentre.z - 2.2, 0, true);
-  // and fourteen through the building, rooms and halls alike
-  for (let i = 0; i < 14; i++) {
-    for (let tries = 0; tries < 200; tries++) {
-      const l = Math.floor(Math.random() * NLEV);
-      const r = 2 + Math.floor(Math.random() * (ROWS - 4));
-      const c = 2 + Math.floor(Math.random() * (COLS - 4));
-      if (!isWalkableChar(at(l, r, c)) || isSolid(l, r, c) || inHub(l, r, c)) continue;
-      const p = cellCentre(r, c);
-      if (ammoPacks.some((q) => Math.hypot(q.pos.x - p.x, q.pos.z - p.z) < 11)) continue;
-      place(p.x, p.z, l, false);
-      break;
+const vendTrimGeo = mergeGeos([
+  at3(Box(0.16, 0.5, 0.05), VEND_W / 2 - 0.13, 1.2, VEND_D / 2 + 0.01),     // keypad
+  at3(Box(0.34, 0.13, 0.06), VG_X, 0.2, VEND_D / 2 + 0.01),                 // delivery flap
+]);
+// the lit interior: a backlit panel behind the stock, glass in front of it
+const vendGlowGeo = mergeGeos([at3(Box(VG_W - 0.02, VG_H - 0.04, 0.02), VG_X, VG_Y, -VEND_D / 2 + 0.07)]);
+const vendGlassGeo = mergeGeos([at3(Box(VG_W, VG_H, 0.02), VG_X, VG_Y, VEND_D / 2 - 0.03)]);
+const vendStockGeo = (() => {
+  const parts = [], cols = [];
+  const SWEET = [0xd94f3d, 0xe8a33d, 0x4f7fd6, 0x54a85e, 0xd8d24a, 0xc95ea8];
+  const CAN   = [0xcf3b34, 0x3f7fc4, 0x4aa653, 0xdcae3c];
+  for (let s = 0; s < 3; s++) {
+    const sy = 0.52 + s * 0.44;
+    parts.push(at3(Box(VG_W - 0.06, 0.03, VEND_D - 0.24), VG_X, sy - 0.02, 0)); cols.push(0x8a8a8a);
+    if (s < 2) {                                  // sweets stand on edge in rows
+      for (let i = 0; i < 6; i++) {
+        parts.push(at3(Box(0.07, 0.28, 0.13), VG_X - 0.245 + i * 0.098, sy + 0.15, 0));
+        cols.push(SWEET[(i + s * 2) % SWEET.length]);
+      }
+    } else {                                      // the top shelf is cans
+      for (let i = 0; i < 5; i++) {
+        parts.push(at3(Cyl(0.05, 0.05, 0.22, 10), VG_X - 0.22 + i * 0.11, sy + 0.12, 0));
+        cols.push(CAN[(i + s) % CAN.length]);
+      }
     }
   }
+  const geo = mergeGeos(parts);
+  const total = geo.attributes.position.count;
+  const carr = new Float32Array(total * 3);
+  const c = new THREE.Color();
+  let o = 0;
+  parts.forEach((p, i) => {
+    c.setHex(cols[i]);
+    const n = p.geo.attributes.position.count;
+    for (let k = 0; k < n; k++) { carr[(o + k) * 3] = c.r; carr[(o + k) * 3 + 1] = c.g; carr[(o + k) * 3 + 2] = c.b; }
+    o += n;
+  });
+  geo.setAttribute('color', new THREE.BufferAttribute(carr, 3));
+  return geo;
+})();
+
+const vendors = [];
+{
+  // Against a wall, facing out of it. A machine in open floor reads as a crate.
+  const spots = [];
+  for (let tries = 0; tries < 4000 && spots.length < 12; tries++) {
+    const l = Math.floor(Math.random() * NLEV);
+    const r = 2 + Math.floor(Math.random() * (ROWS - 4));
+    const c = 2 + Math.floor(Math.random() * (COLS - 4));
+    if (!isWalkableChar(at(l, r, c)) || isSolid(l, r, c) || inHub(l, r, c)) continue;
+    if (vaultCells.has(`${l},${r},${c}`)) continue;
+    const side = wallSide(l, r, c);
+    if (!side) continue;
+    const p = cellCentre(r, c);
+    if (spots.some((q) => q.lev === l && Math.hypot(q.p.x - p.x, q.p.z - p.z) < 13)) continue;
+    spots.push({ lev: l, r, c, p, side });
+  }
+  const N = Math.max(1, spots.length);
+  const mk = (geo, mat) => {
+    const m = new THREE.InstancedMesh(geo, mat, N);
+    m.frustumCulled = false;
+    scene.add(m);
+    return m;
+  };
+  const bodies = mk(vendBodyGeo, matVendBody);
+  const trims  = mk(vendTrimGeo, matVendTrim);
+  const glows  = mk(vendGlowGeo, matVendGlow);
+  const stocks = mk(vendStockGeo, matVendStock);
+  const glass  = mk(vendGlassGeo, matVendGlass);
+  bodies.castShadow = true;
+  const m4 = new THREE.Matrix4(), q4 = new THREE.Quaternion(), e4 = new THREE.Euler(), s4 = new THREE.Vector3(1, 1, 1);
+  spots.forEach((sp, i) => {
+    const [dr, dc] = sp.side;                    // the wall is this way; face the other
+    const yaw = Math.atan2(-dc, -dr);
+    const px = sp.p.x + dc * (CELL / 2 - VEND_D / 2 - 0.06);
+    const pz = sp.p.z + dr * (CELL / 2 - VEND_D / 2 - 0.06);
+    const y = levelY(sp.lev);
+    e4.set(0, yaw, 0); q4.setFromEuler(e4);
+    m4.compose(new THREE.Vector3(px, y, pz), q4, s4);
+    for (const m of [bodies, trims, glows, stocks, glass]) m.setMatrixAt(i, m4);
+    const emitter = { pos: new THREE.Vector3(px - dc * 0.4, y + 1.15, pz - dr * 0.4),
+                      color: new THREE.Color(0xffa64d), intensity: 6.5, on: true };
+    emitters.push(emitter);
+    vendors.push({ lev: sp.lev, pos: new THREE.Vector3(px, y + 1.0, pz),
+                   emitter, cool: 0, spotted: false, i });
+  });
+  for (const m of [bodies, trims, glows, stocks, glass]) m.instanceMatrix.needsUpdate = true;
+  window.__vendors = { bodies, trims, glows, stocks, glass, list: vendors };
 }
 
-function updateAmmo(dt, t) {
+function updateVendors(dt, t) {
   const spec = curGun();
-  for (const q of ammoPacks) {
-    if (q.taken > 0) {
-      q.taken -= dt;
-      if (q.taken > 0) { q.mesh.visible = false; continue; }
+  const V = window.__vendors;
+  const c = new THREE.Color();
+  for (const v of vendors) {
+    if (v.cool > 0) v.cool -= dt;
+    const live = v.cool <= 0;
+    // the strip inside dims while it restocks, and comes back when it is ready
+    const k = live ? 0.86 + 0.14 * Math.sin(t * 2.3 + v.i) : 0.08;
+    if (V) {
+      V.glows.setColorAt(v.i, c.setScalar(k));
+      V.stocks.setColorAt(v.i, c.setScalar(live ? 1 : 0.12));
+      if (V.glows.instanceColor) V.glows.instanceColor.needsUpdate = true;
+      if (V.stocks.instanceColor) V.stocks.instanceColor.needsUpdate = true;
     }
-    q.mesh.visible = seenNow(q.lev, q.pos.x, q.pos.y, q.pos.z);
-    q.mesh.position.set(q.pos.x, q.pos.y + Math.sin(t * 1.7 + q.bob) * 0.09, q.pos.z);
-    q.mesh.rotation.y = t * 1.3 + q.bob;
-    if (q.lev !== player.lev) continue;
-    if ((q.pos.x - player.pos.x) ** 2 + (q.pos.z - player.pos.z) ** 2 > 1.7) continue;
+    v.emitter.intensity = live ? 6.0 + Math.sin(t * 2.3 + v.i) * 0.9 : 0.6;
+    if (!v.spotted && v.lev === player.lev
+        && player.pos.distanceToSquared(v.pos) < 30 * 30) v.spotted = true;
+    if (!live || v.lev !== player.lev) continue;
+    if ((v.pos.x - player.pos.x) ** 2 + (v.pos.z - player.pos.z) ** 2 > 2.6) continue;
     const full = spec.laser ? gunState.charge >= spec.charge : gunState.ammo >= spec.mag;
     if (full) continue;
     if (spec.laser) gunState.charge = spec.charge; else gunState.ammo = spec.mag;
-    q.taken = AMMO_RESPAWN;
-    q.mesh.visible = false;
+    v.cool = VEND_RESPAWN;
     sfx.reloadSfx();
-    say('reloaded', 2);
+    say('the machine hums and drops a fresh magazine', 2.6);
   }
 }
 
@@ -6269,7 +6413,7 @@ function restFloorUnder(x, y, z, lev) {
 function fireOnce() {
   const spec = curGun();
   if (spec.laser) return;                        // the laser is held, not clicked
-  if (gunState.ammo <= 0) { sfx.dry(); say('empty — reload at the centre', 3); gunState.cool = 0.4; return; }
+  if (gunState.ammo <= 0) { sfx.dry(); say('empty — find a machine, or the heap at the centre', 3.4); gunState.cool = 0.4; return; }
   gunState.ammo--;
   gunState.cool = spec.rate;
   if (spec.blast) {
@@ -6328,7 +6472,7 @@ function updateGuns(dt) {
 
   // the world guns hang and turn; walking into a better one takes it
   const t = clock.elapsedTime;
-  updateAmmo(dt, t);
+  updateVendors(dt, t);
 
   /* A detector for the nearest gun worth having. It clicks, and the closer you
      are the faster it clicks — the same read a metal detector gives, so you can
@@ -6369,16 +6513,17 @@ function updateGuns(dt) {
     }
   }
 
-  // the hub is the only armoury
-  {
-    const [r, c] = cellOf(player.pos);
-    if (player.lev === 0 && inHub(0, r, c)) {
+  // The hub used to rearm you anywhere inside it. Now the whole of its supply
+  // is the heap under the clock, so coming home means walking to the middle.
+  if (player.lev === 0 && hubHeap) {
+    const dx = player.pos.x - hubHeap.pos.x, dz = player.pos.z - hubHeap.pos.z;
+    if (dx * dx + dz * dz < 9) {
       const needed = spec.laser ? gunState.charge < spec.charge : gunState.ammo < spec.mag;
       if (needed) {
         gunState.ammo = spec.mag || 0;
         gunState.charge = spec.charge || 0;
         sfx.reloadSfx();
-        say('rearmed', 2.2);
+        say('rearmed from the heap', 2.2);
       }
     }
   }
@@ -6436,7 +6581,7 @@ function updateGuns(dt) {
           spectrumBurst(a.pos.clone().setY(a.pos.y + 1.12)); killAnti(a);
         }
       }
-      if (gunState.charge <= 0) say('the laser is spent — it recharges at the centre', 4);
+      if (gunState.charge <= 0) say('the laser is spent — a machine or the heap will recharge it', 4);
     }
   } else if (started && !ending && gunState.cool <= 0 && (spec.auto ? gunState.trigger : pressed)) {
     fireOnce();
@@ -6776,7 +6921,7 @@ window.__maze = {
   antis, spawnAnti, killAnti, clearLine, safeInLight,
   music, startMusic, metal, drip, retune, legatoStep, CHORDS, DESCENTS, scaleWalk,
   shards, spectrumBurst, SPECTRUM, clearSight,
-  worldGuns, GUNS, gunState, dropGunAt, fireOnce, ammoPacks, seenNow, litAt, torchFallsOn,
+  worldGuns, GUNS, gunState, dropGunAt, fireOnce, vendors, seenNow, litAt, torchFallsOn,
   vaultCells, isVaultWall, isVaultSlab, breachSlab, wanderGoal,
   chunks, debrisMesh, rimMesh, burstWall, blowFurnitureOver, furniture, punchHole,
   getBus: () => bus, CHORD_SECS, LEG_STEPS,
