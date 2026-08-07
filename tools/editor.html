@@ -148,6 +148,7 @@ const COL = {
 };
 
 let L = null, lev = 0, view = { x: 0, y: 0, s: 11 }, sel = null, hover = null, ghost = false;
+let hot = null, grabbing = null;   // the hall edge under the pointer, and the one being dragged
 const cv = document.getElementById('cv'), g = cv.getContext('2d');
 
 /* ---- geometry, derived exactly the way genmaze.js derives it ------------ */
@@ -201,8 +202,12 @@ function buildGrid() {
       rect(p.lev, R.r1 + 1, R.c1 + 1, R.r2 - 1, R.c2 - 1, 'V');
       continue;
     }
-    rect(p.lev, R.r1, R.c1, R.r2, R.c2, '#');
-    rect(p.lev, R.r1 + 1, R.c1 + 1, R.r2 - 1, R.c2 - 1, '+');
+    if (p.enclosed === false) {
+      rect(p.lev, R.r1, R.c1, R.r2, R.c2, '+');       // open: no ring
+    } else {
+      rect(p.lev, R.r1, R.c1, R.r2, R.c2, '#');
+      rect(p.lev, R.r1 + 1, R.c1 + 1, R.r2 - 1, R.c2 - 1, '+');
+    }
   }
   // hub
   rect(0, HUB.r1, HUB.c1, HUB.r2, HUB.c2, '#');
@@ -251,6 +256,69 @@ function buildGrid() {
 }
 
 let GRID = null, FLIGHTS = [];
+
+/* ---- growing the grid ---------------------------------------------------
+   You can drag a hall past the edge of the building. When that happens the
+   grid itself grows: every absolute coordinate in the level shifts, and the
+   size grows with it, so the thing you dragged ends up where you put it and
+   nothing else moves relative to it. Blocks and alcoves are addressed by band
+   index rather than by cell, so they need no shifting at all — they follow
+   their hall lines automatically, which is the whole point of the band model. */
+function shiftAll(d) {
+  for (const ln of L.lines) ln[0] += d;
+  for (const e of L.hubExits) e.at += d;
+  for (const st of L.stairs) for (const c of st.cells) { c[0] += d; c[1] += d; }
+  for (const o of L.overpasses) { o.at += d; o.a += d; o.b += d; }
+  for (const dr of L.drops) { dr.at[0] += d; dr.at[1] += d; dr.into[0] += d; dr.into[1] += d; }
+  for (const b of L.buttonPrefs) { b.at[0] += d; b.at[1] += d; }
+  const G = L.galleries;
+  G.row += d; G.west += d; G.east += d; G.stairCol += d;
+}
+function growLow(d)  { shiftAll(d); L.size += d; view.x -= d * view.s; view.y -= d * view.s; }
+function growHigh(d) { L.size += d; }
+
+/* ---- hall handles -------------------------------------------------------
+   A room is the gap between hall lines, so the way you resize a room is by
+   moving the hall that bounds it. Each line has two draggable edges. Note that
+   a line drives BOTH a horizontal corridor and a vertical one — the plan is a
+   symmetric street grid — so moving one handle moves the matching corridor on
+   the other axis too. That is what keeps the loop network intact.            */
+const MIN_BAND = 5;          // a band must still hold a room with a 3x3 interior
+const MIN_HALL = 1, MAX_HALL = 10;   // a corridor, not a plaza
+function handles() {
+  const out = [];
+  for (let i = 0; i < L.lines.length; i++) {
+    if (!L.levelLines[lev].includes(i)) continue;
+    const [s0, w] = L.lines[i];
+    out.push({ i, edge: 'lo', at: s0 });
+    out.push({ i, edge: 'hi', at: s0 + w });
+  }
+  return out;
+}
+function moveHandle(h, to) {
+  const ln = L.lines[h.i];
+  const prev = h.i > 0 ? L.lines[h.i - 1] : null;
+  const next = h.i < L.lines.length - 1 ? L.lines[h.i + 1] : null;
+  if (h.edge === 'lo') {
+    const far = ln[0] + ln[1];
+    let lo = Math.round(to);
+    if (prev) lo = Math.max(lo, prev[0] + prev[1] + MIN_BAND);
+    lo = Math.min(lo, far - MIN_HALL);
+    lo = Math.max(lo, far - MAX_HALL);
+    ln[1] = far - lo; ln[0] = lo;
+  } else {
+    let hi = Math.round(to);
+    if (next) hi = Math.min(hi, next[0] - MIN_BAND);
+    hi = Math.max(hi, ln[0] + MIN_HALL);
+    hi = Math.min(hi, ln[0] + MAX_HALL);
+    ln[1] = hi - ln[0];
+  }
+  // and if that pushed the plan outside the building, make the building bigger
+  const lo = L.lines[0][0], hi = L.lines[L.lines.length - 1][0] + L.lines[L.lines.length - 1][1] - 1;
+  if (lo - 1 < L.pad) growLow(L.pad - (lo - 1));
+  if (hi + 1 > L.size - 1 - L.pad) growHigh((hi + 1) - (L.size - 1 - L.pad));
+  rebuild(); dirty();
+}
 
 /* ---- drawing ------------------------------------------------------------ */
 function cellColour(ch) {
@@ -336,6 +404,21 @@ function draw() {
     g.fillRect(px(s0), py(B0()), ww * S, (B1() - B0() + 1) * S);
   }
 
+  // the hall handles: grab an edge to resize the rooms either side of it
+  for (const h of handles()) {
+    const isHot = hot && hot.i === h.i && hot.edge === h.edge;
+    g.fillStyle = isHot ? COL.sel : '#ffb76599';
+    // the horizontal corridor's edge, and the vertical one's
+    g.fillRect(px(B0()), py(h.at) - 2, (B1() - B0() + 1) * S, 4);
+    g.fillRect(px(h.at) - 2, py(B0()), 4, (B1() - B0() + 1) * S);
+    if (isHot) {
+      g.fillStyle = COL.sel;
+      g.fillRect(px(B0()) - 26, py(h.at) - 9, 24, 18);
+      g.fillStyle = '#08121a';
+      g.fillText(String(h.at), px(B0()) - 14, py(h.at));
+    }
+  }
+
   // stairs
   for (const f of FLIGHTS) {
     if (f.lo !== lev && f.lo + 1 !== lev) continue;
@@ -372,6 +455,20 @@ function draw() {
 }
 
 /* ---- what is under the pointer ------------------------------------------ */
+// Handles are tested in SCREEN space with a fixed 6px reach, so they stay
+// grabbable at any zoom rather than shrinking with the cells.
+function pickHandle(mx, my) {
+  let best = null, bestD = 7;
+  for (const h of handles()) {
+    const hy = view.y + h.at * view.s, hx = view.x + h.at * view.s;
+    const inRow = mx >= view.x + B0() * view.s && mx <= view.x + (B1() + 1) * view.s;
+    const inCol = my >= view.y + B0() * view.s && my <= view.y + (B1() + 1) * view.s;
+    if (inRow && Math.abs(my - hy) < bestD) { bestD = Math.abs(my - hy); best = h; }
+    if (inCol && Math.abs(mx - hx) < bestD) { bestD = Math.abs(mx - hx); best = h; }
+  }
+  return best;
+}
+
 function pick(mx, my) {
   const c = Math.floor((mx - view.x) / view.s), r = Math.floor((my - view.y) / view.s);
   if (r < 0 || c < 0 || r >= L.size || c >= L.size) return null;
@@ -428,6 +525,12 @@ function renderInspector() {
     <div class="row"><span class="k">interior</span><span>${R.r2 - R.r1 - 1} × ${R.c2 - R.c1 - 1} cells</span></div>
     <div class="row"><span class="k">floor area</span><span>${(cells * 9).toLocaleString()} m²</span></div>
     <div class="sect">type</div><select id="ty">${opts}</select>
+    <div class="sect">walls</div>
+    <select id="enc">
+      <option value="1"${p.enclosed === false ? '' : ' selected'}>enclosed — a wall ring with doorways</option>
+      <option value="0"${p.enclosed === false ? ' selected' : ''}>open — the floor runs out to the halls</option>
+    </select>
+    <p class="hint">An open block has no wall ring and needs no doorways: every edge is one. It reads as a bay off the corridor rather than a room you go into.</p>
     <p class="hint">The type furnishes the room. Its contents below come from that type — edit them to make this room specific.</p>
     <div class="sect">contents</div>`;
 
@@ -451,6 +554,10 @@ function renderInspector() {
   el.innerHTML = html;
 
   document.getElementById('ty').onchange = (e) => { p.t = e.target.value; rebuild(); dirty(); };
+  document.getElementById('enc').onchange = (e) => {
+    if (e.target.value === '0') p.enclosed = false; else delete p.enclosed;
+    rebuild(); dirty();
+  };
   document.getElementById('addsel').onchange = (e) => {
     if (!e.target.value) return;
     const v = e.target.value;
@@ -484,9 +591,21 @@ function fit() {
 }
 
 cv.addEventListener('mousemove', (e) => {
+  if (grabbing) {
+    // vertical drag moves a row edge, horizontal drag moves the column edge —
+    // it is the same line either way, so whichever axis you pull, it follows
+    const useRow = grabbing.axis === 'row';
+    const to = useRow ? (e.offsetY - view.y) / view.s : (e.offsetX - view.x) / view.s;
+    moveHandle(grabbing, to);
+    return;
+  }
   if (drag) {
     view.x += e.movementX; view.y += e.movementY; draw(); return;
   }
+  const hh = pickHandle(e.offsetX, e.offsetY);
+  if ((hh && (!hot || hot.i !== hh.i || hot.edge !== hh.edge)) || (!hh && hot)) { hot = hh; draw(); }
+  cv.style.cursor = hh ? 'move' : (drag ? 'grabbing' : 'grab');
+  if (hh) return;
   const h = pick(e.offsetX, e.offsetY);
   const changed = JSON.stringify(h && h.kind === 'block' ? key(h.p) : h && h.kind) !==
                   JSON.stringify(hover && hover.kind === 'block' ? key(hover.p) : hover && hover.kind);
@@ -494,9 +613,18 @@ cv.addEventListener('mousemove', (e) => {
   if (changed) draw();
 });
 let drag = false, moved = 0;
-cv.addEventListener('mousedown', () => { drag = true; moved = 0; cv.classList.add('dragging'); });
+cv.addEventListener('mousedown', (e) => {
+  const hh = pickHandle(e.offsetX, e.offsetY);
+  if (hh) {
+    const hy = view.y + hh.at * view.s;
+    grabbing = { ...hh, axis: Math.abs(e.offsetY - hy) < 7 ? 'row' : 'col' };
+    return;
+  }
+  drag = true; moved = 0; cv.classList.add('dragging');
+});
 addEventListener('mousemove', (e) => { if (drag) moved += Math.abs(e.movementX) + Math.abs(e.movementY); });
 addEventListener('mouseup', (e) => {
+  if (grabbing) { grabbing = null; return; }
   if (drag && moved < 4 && e.target === cv) { sel = pick(e.offsetX, e.offsetY); renderInspector(); draw(); }
   drag = false; cv.classList.remove('dragging');
 });

@@ -266,9 +266,20 @@ for (const p of PLAN) {
   const R = blockRect(p.br, p.bc);
   if (p.t === 'atrium') { atriumBlocks.push({ ...R, lev: p.lev }); continue; }
   if (p.t === 'chamber') { chamberSlots.push({ ...R, lev: p.lev, br: p.br, bc: p.bc }); continue; }
-  rect(p.lev, R.r1, R.c1, R.r2, R.c2, WALL);
-  rect(p.lev, R.r1 + 1, R.c1 + 1, R.r2 - 1, R.c2 - 1, p.t === 'water' ? '~' : '+');
-  rooms.push({ lev: p.lev, r1: R.r1 + 1, c1: R.c1 + 1, r2: R.r2 - 1, c2: R.c2 - 1, type: p.t });
+  /* Enclosed or open. An enclosed room is the normal case: a wall ring with
+     doorways punched through it, so the room is a place you go INTO. An open
+     one has no ring at all — its floor runs straight out to the halls that
+     bound it, so it reads as a bay off the corridor rather than a room, and it
+     needs no doorways because every edge is one. */
+  const open = p.enclosed === false;
+  if (open) {
+    rect(p.lev, R.r1, R.c1, R.r2, R.c2, p.t === 'water' ? '~' : '+');
+    rooms.push({ lev: p.lev, r1: R.r1, c1: R.c1, r2: R.r2, c2: R.c2, type: p.t, open: true });
+  } else {
+    rect(p.lev, R.r1, R.c1, R.r2, R.c2, WALL);
+    rect(p.lev, R.r1 + 1, R.c1 + 1, R.r2 - 1, R.c2 - 1, p.t === 'water' ? '~' : '+');
+    rooms.push({ lev: p.lev, r1: R.r1 + 1, c1: R.c1 + 1, r2: R.r2 - 1, c2: R.c2 - 1, type: p.t });
+  }
 }
 
 // Atriums: floor on the ground, cut through above. The surrounding halls become
@@ -294,6 +305,7 @@ function punch(lev, room, side, at) {
 }
 for (const rm of rooms) {
   const midR = Math.floor((rm.r1 + rm.r2) / 2), midC = Math.floor((rm.c1 + rm.c2) / 2);
+  if (rm.open) continue;                   // no ring to punch through
   // two opposite sides always, so the room is a through-route
   const horizontal = (rm.c2 - rm.c1) >= (rm.r2 - rm.r1);
   if (horizontal) { punch(rm.lev, rm, 'W', midR); punch(rm.lev, rm, 'E', midR); }
@@ -322,10 +334,29 @@ chamberSlots.forEach((slot, i) => {
   const door = [slot.r1, cc];
   G[slot.lev][slot.r1][cc] = DOORCH[i];
   G[slot.lev][cr][cc] = String(i + 1);
-  // portal beside the crystal, wherever there is room for it
-  const pc = cc + 2 <= ic2 ? cc + 2 : cc - 2 >= ic1 ? cc - 2 : cc;
-  const pr = pc === cc ? (cr + 2 <= ir2 ? cr + 2 : cr - 2) : cr;
-  G[slot.lev][pr][pc] = 'P';
+  /* The portal, beside the crystal — but INSIDE the vault, always. This used
+     to step two cells out and only bounds-check some of the ways it could go:
+     with a three-cell interior the fallback landed on the wall ring, and since
+     the door sits on that same ring the portal overwrote it and left the vault
+     standing open. A sealed vault is the whole reason its button matters, so
+     the search now stays in the interior by construction and takes the
+     furthest free cell from the crystal, whatever the shape of the room. */
+  const inside = (r, c) => r >= ir1 && r <= ir2 && c >= ic1 && c <= ic2 && !(r === cr && c === cc);
+  let pr = -1, pc = -1;
+  // two cells to a side, the way it has always been placed...
+  for (const [dr, dc] of [[0, 2], [0, -2], [2, 0], [-2, 0]]) {
+    if (inside(cr + dr, cc + dc)) { pr = cr + dr; pc = cc + dc; break; }
+  }
+  // ...and if the vault is too small for that, the nearest cell that is inside
+  if (pr < 0) {
+    let best = 1e9;
+    for (let r = ir1; r <= ir2; r++) for (let c = ic1; c <= ic2; c++) {
+      if (!inside(r, c)) continue;
+      const d = Math.abs(r - cr) + Math.abs(c - cc);
+      if (d < best) { best = d; pr = r; pc = c; }
+    }
+  }
+  if (pr >= 0) G[slot.lev][pr][pc] = 'P';
   CHAMBERS.push({ id: i + 1, lev: slot.lev, cr, cc, door });
 });
 
@@ -455,7 +486,8 @@ if (process.argv.includes('--dump')) {
     lines: LINES,
     levelLines: LEVEL_LINES,
     hubExits: HUB_EXITS.map((e) => ({ side: e.side, at: e.at })),
-    plan: PLAN.map((p) => ({ lev: p.lev, br: p.br, bc: p.bc, t: p.t })),
+    plan: PLAN.map((p) => ({ lev: p.lev, br: p.br, bc: p.bc, t: p.t,
+                             ...(p.enclosed === false ? { enclosed: false } : {}) })),
     alcoves: ALCOVES,
     alcoveInterior: ALC_IN,
     stairs: AUTHORED_STAIRS,
