@@ -27,8 +27,22 @@ const path = require('path');
 // wall on the upper floors with nothing beneath them. Everything the plan
 // authors by hand in absolute coordinates is shifted by PAD immediately after
 // it is declared, so the plan itself is still written in building coordinates.
-const PAD = 6;
-const SIZE = 66 + 2 * PAD, NLEV = 3;
+/* The level is a FILE, not a constant. tools/level.json holds every decision a
+   person makes about what this building is — where the halls run, which block
+   is which kind of room, where the stairs and the galleries go — and this
+   script is the machine that turns those decisions into a map. Run with
+   --dump to write the file back out from the values below, which is how it was
+   first made; the editor reads and rewrites the same file.
+
+   If the file is missing, the built-in values below stand in, so the generator
+   still runs from a bare checkout. */
+const LEVEL = (() => {
+  try { return JSON.parse(fs.readFileSync(path.join(__dirname, 'level.json'), 'utf8')); }
+  catch (e) { return null; }
+})();
+const PAD = LEVEL ? LEVEL.pad : 6;
+const SIZE = LEVEL ? LEVEL.size : 66 + 2 * PAD;
+const NLEV = LEVEL ? LEVEL.levels : 3;
 const B0 = PAD, B1 = SIZE - 1 - PAD;      // the building's own extent
 const VOID = ' ', WALL = '#';
 const DOORCH = 'abcdef';
@@ -48,7 +62,7 @@ const rng = mulberry32(20260719);
 // Halls, as [start, width]. Spacing and width are both deliberately uneven —
 // a regular grid reads as graph paper. Blocks therefore come out at a range of
 // sizes, from cramped service rooms to long galleries.
-const LINES = [
+const LINES = LEVEL ? LEVEL.lines : [
   [1, 3], [11, 2], [21, 4], [41, 3], [50, 2], [62, 3],
 ].map(([s0, w]) => [s0 + PAD, w]);
 // -> bands 7, 8, 16, 6, 10 cells wide. Nothing so small it cannot hold a room
@@ -65,7 +79,7 @@ const HUB = { r1: BANDS[MID][0], c1: BANDS[MID][0], r2: BANDS[MID][1], c2: BANDS
 const START = [HUB.r1 + 2, HUB.c1 + 2];
 
 // Six ways out of the centre, all onto the ring halls that bound it.
-const HUB_EXITS = [
+const HUB_EXITS = LEVEL ? LEVEL.hubExits : [
   { side: 'N', at: 29 }, { side: 'N', at: 36 },
   { side: 'S', at: 29 }, { side: 'S', at: 36 },
   { side: 'W', at: 32 }, { side: 'E', at: 32 },
@@ -74,7 +88,7 @@ const HUB_EXITS = [
 // Which halls exist on each level. Level 1 carries the whole grid, so its
 // walkways ring every atrium; level 2 keeps only the inner loop, so the
 // building thins as it rises.
-const LEVEL_LINES = [
+const LEVEL_LINES = LEVEL ? LEVEL.levelLines : [
   [0, 1, 2, 3, 4, 5],
   [0, 1, 2, 3, 4, 5],
   [1, 2, 3, 4],
@@ -83,7 +97,7 @@ const LEVEL_LINES = [
 // Blocks are addressed [bandRow][bandCol]. `t` is the room type, which drives
 // the props; `atrium` cuts the block through every floor.
 const B = (r, c) => ({ br: r, bc: c });
-const PLAN = [
+const PLAN = LEVEL ? LEVEL.plan : [
   // ---- level 0: the ground floor, deliberately open
   { lev: 0, ...B(0, 0), t: 'warehouse' },
   { lev: 0, ...B(0, 1), t: 'atrium' },
@@ -147,6 +161,10 @@ const STAIRS = [
   { lo: 1, cells: [[45, 22], [46, 22], [47, 22], [48, 22]] },
   { lo: 1, cells: [[18, 42], [17, 42], [16, 42], [15, 42]] },
 ].map((st) => ({ ...st, cells: st.cells.map(([r, c]) => [r + PAD, c + PAD]) }));
+if (LEVEL) { STAIRS.length = 0; for (const st of LEVEL.stairs) STAIRS.push({ lo: st.lo, cells: st.cells.map((c) => c.slice()) }); }
+// Kept separate because OVERPASSES and the exterior galleries both append their
+// own flights to STAIRS below, and the level file wants only what was authored.
+const AUTHORED_STAIRS = STAIRS.map((s2) => ({ lo: s2.lo, cells: s2.cells.map((c) => c.slice()) }));
 
 /* Over-and-back bridges. Each climbs off an atrium floor, crosses above that
    same floor on a narrow span, and descends again on the far side — so the
@@ -159,6 +177,7 @@ const OVERPASSES = [
   { lo: 0, axis: 'c', at: 7,  a: 13, b: 20, rise: 3 },   // over the north-west atrium
   { lo: 0, axis: 'r', at: 56, a: 13, b: 20, rise: 3 },   // over the east atrium
 ].map((o) => ({ ...o, at: o.at + PAD, a: o.a + PAD, b: o.b + PAD }));
+if (LEVEL) { OVERPASSES.length = 0; for (const o of LEVEL.overpasses) OVERPASSES.push({ ...o }); }
 for (const o of OVERPASSES) {
   const cell = (i) => (o.axis === 'c' ? [o.at, i] : [i, o.at]);
   const up = [], down = [];
@@ -175,6 +194,7 @@ const DROPS = [
   { lev: 1, at: [11, 16], into: [10, 16] },
   { lev: 1, at: [51, 32], into: [52, 32] },
 ].map((d) => ({ ...d, at: [d.at[0] + PAD, d.at[1] + PAD], into: [d.into[0] + PAD, d.into[1] + PAD] }));
+if (LEVEL) { DROPS.length = 0; for (const d of LEVEL.drops) DROPS.push({ ...d }); }
 
 /* ---------------------------------------------------------- pre-flight
    Two rules about the third dimension, both of which are silent disasters if
@@ -321,7 +341,7 @@ chamberSlots.forEach((slot, i) => {
    Every one sits on a block that is empty on its own level, is not under an
    atrium, and has a room beneath it — the same three conditions the pre-flight
    enforces for whole rooms.                                                  */
-const ALCOVES = [
+const ALCOVES = LEVEL ? LEVEL.alcoves : [
   // second floor
   { lev: 1, br: 0, bc: 3, v: 'S', h: 'W' },
   { lev: 1, br: 1, bc: 0, v: 'N', h: 'E' },
@@ -333,7 +353,7 @@ const ALCOVES = [
   { lev: 2, br: 4, bc: 0, v: 'N', h: 'E' },
   { lev: 2, br: 4, bc: 3, v: 'N', h: 'W' },
 ];
-const ALC_IN = 3;                        // interior is ALC_IN x ALC_IN
+const ALC_IN = LEVEL ? LEVEL.alcoveInterior : 3;                        // interior is ALC_IN x ALC_IN
 for (const a of ALCOVES) {
   const R = blockRect(a.br, a.bc);
   const span = ALC_IN + 1;               // wall ring is the interior plus one each side
@@ -373,11 +393,12 @@ for (const s of STAIRS) {
    Carved as plain hall cells rather than PLAN blocks, which is what keeps
    them out of the support pre-flight: a cantilever has nothing beneath it by
    definition, and the pre-flight only ever sees blocks.                      */
-const GALLERY_ROW = B0 - 3;                 // three cells clear of the wall
+const GALLERIES = LEVEL ? LEVEL.galleries : { row: B0 - 3, west: B0 + 18, east: B0 + 46, stairCol: B0 + 30 };
+const GALLERY_ROW = GALLERIES.row;          // three cells clear of the wall
 {
   const nHall = LINES[0][0];                // the level-1 hall it leaves from
   const l2Hall = LINES[1][0] + LINES[1][1] - 1;
-  const WEST = B0 + 18, EAST = B0 + 46;
+  const WEST = GALLERIES.west, EAST = GALLERIES.east;
 
   // level 1: out, along, and back in
   rect(1, GALLERY_ROW, WEST, GALLERY_ROW, EAST, '.');
@@ -387,7 +408,7 @@ const GALLERY_ROW = B0 - 3;                 // three cells clear of the wall
   // Level two: a short run from the head of the stair to the bridge. Both ends
   // have to go somewhere — the west end onto the flight (a stair cell counts as
   // an exit, because it continues vertically), the east end onto the bridge.
-  const sc = B0 + 30;                       // the flight, cols sc..sc+3
+  const sc = GALLERIES.stairCol;            // the flight, cols sc..sc+3
   const W2 = sc + 4, E2 = W2 + 4;
   rect(2, GALLERY_ROW, W2, GALLERY_ROW, E2, '.');
   // the bridge back over the north hall, onto the level-two loop
@@ -415,6 +436,39 @@ const BUTTON_PREFS = [
   { lev: 1, at: [12, 12] }, { lev: 0, at: [52, 52] }, { lev: 2, at: [23, 40] },
   { lev: 0, at: [12, 52] }, { lev: 1, at: [52, 23] }, { lev: 0, at: [23, 12] },
 ].map((b) => ({ ...b, at: [b.at[0] + PAD, b.at[1] + PAD] }));
+if (LEVEL) { BUTTON_PREFS.length = 0; for (const b of LEVEL.buttonPrefs) BUTTON_PREFS.push({ ...b }); }
+
+/* ---------------------------------------------------------------- --dump
+   Everything above this line is the level: the decisions a person makes about
+   what the building is. Everything below is the machine that turns those
+   decisions into a map. `--dump` writes the first half out as JSON so an
+   editor can read and rewrite it, and `loadLevel` below reads it back.
+
+   Coordinates here are FINAL grid coordinates, padding already applied, so a
+   plan editor and the generated map agree cell for cell with no arithmetic in
+   between. */
+if (process.argv.includes('--dump')) {
+  const authoredStairs = STAIRS.slice(0, STAIRS.length - OVERPASSES.length * 2);
+  const level = {
+    note: 'Crystal Maze level. Coordinates are final grid cells (padding applied).',
+    size: SIZE, pad: PAD, levels: NLEV,
+    lines: LINES,
+    levelLines: LEVEL_LINES,
+    hubExits: HUB_EXITS.map((e) => ({ side: e.side, at: e.at })),
+    plan: PLAN.map((p) => ({ lev: p.lev, br: p.br, bc: p.bc, t: p.t })),
+    alcoves: ALCOVES,
+    alcoveInterior: ALC_IN,
+    stairs: AUTHORED_STAIRS,
+    galleries: GALLERIES,
+    overpasses: OVERPASSES.map((o) => ({ lo: o.lo, axis: o.axis, at: o.at, a: o.a, b: o.b, rise: o.rise })),
+    drops: DROPS.map((d) => ({ lev: d.lev, at: d.at, into: d.into })),
+    buttonPrefs: BUTTON_PREFS.map((b) => ({ lev: b.lev, at: b.at })),
+    roomItems: {},          // per-room content overrides; the editor fills this
+  };
+  fs.writeFileSync(path.join(__dirname, 'level.json'), JSON.stringify(level, null, 2));
+  console.log('wrote tools/level.json');
+  process.exit(0);
+}
 const BUTTONS = [];
 BUTTON_PREFS.forEach((b, i) => {
   const seen = new Set([b.at.join(',')]), q = [b.at];
