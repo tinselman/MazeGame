@@ -571,12 +571,6 @@ const FLUOR     = 0xffc844;
 const DOORCH    = 'abcdef';
 const DOOR_SWING= 1.54;
 
-// Each door and the button that opens it share a colour, in the world and on
-// the chart. Chosen clear of the crystal hues so the two systems never read as
-// the same thing.
-const DOOR_COLORS = [0xff6b4a, 0xffd23f, 0x5fe08a, 0x4ec3ff, 0xc07bff, 0xff7ec1];
-const doorHex = (id) => '#' + DOOR_COLORS[id - 1].toString(16).padStart(6, '0');
-
 const CRYSTALS = [
   { id: 1, name: 'ROSE',    color: 0xff4fa3 },
   { id: 2, name: 'AMBER',   color: 0xff8a1f },
@@ -585,6 +579,16 @@ const CRYSTALS = [
   { id: 5, name: 'VIOLET',  color: 0xa259ff },
   { id: 6, name: 'CYAN',    color: 0x22dbdb },
 ];
+
+// Each door and the button that opens it share a colour, in the world and on
+// the chart — and it is the colour of the crystal that gate is holding. These
+// used to be a separate palette, deliberately clear of the crystal hues so the
+// two systems could never be confused for one another. That was backwards: the
+// button and the crystal are two ends of the SAME errand, and reading a blue
+// button as "this opens the blue one" is the whole of what you want from it.
+// Gate n has always held crystal n; now it says so.
+const DOOR_COLORS = CRYSTALS.map((c) => c.color);
+const doorHex = (id) => '#' + DOOR_COLORS[id - 1].toString(16).padStart(6, '0');
 
 const levelY   = (l) => l * LEVEL_H;
 const cellCentre = (r, c) => new THREE.Vector3((c + 0.5) * CELL, 0, (r + 0.5) * CELL);
