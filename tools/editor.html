@@ -1,0 +1,556 @@
+<meta charset="utf-8">
+<title>Crystal Maze — construction kit</title>
+<!--
+  A plan editor for tools/level.json.
+
+  The level file holds every decision about what the building is; this page is
+  the place to make those decisions with a mouse instead of a text editor. It
+  reads the same file genmaze.js reads, derives the same geometry from it by
+  the same rules, and writes it back out.
+
+  The one rule that shapes everything here: a room is not a rectangle you draw,
+  it is the GAP BETWEEN HALL LINES. Halls run the full width of the building on
+  a street grid, which is what makes the floor a loop network and dead ends
+  structurally impossible. So resizing a room means moving the hall that bounds
+  it, and its neighbour across that hall resizes with it. That constraint is the
+  reason the building always works.
+
+  Serve this over http (the same server as the game) — it fetches level.json,
+  which a file:// page is not allowed to do.
+-->
+<style>
+  :root {
+    --bg: #0d0f13; --panel: #14171d; --line: #262b34; --ink: #d8dde6;
+    --dim: #7c8595; --accent: #ffb765; --sel: #6fd3ff;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink);
+               font: 13px/1.5 ui-monospace, Menlo, Consolas, monospace; }
+  #app { display: flex; height: 100%; }
+  #stage { flex: 1; position: relative; overflow: hidden; }
+  /* Pinned to the stage. Without an explicit width/height the canvas took its
+     size from the width attribute draw() sets, which then fed back into the
+     next draw and doubled it every frame. */
+  canvas { position: absolute; inset: 0; width: 100%; height: 100%; cursor: grab; }
+  canvas.dragging { cursor: grabbing; }
+
+  #bar {
+    position: absolute; top: 0; left: 0; right: 0; z-index: 5;
+    display: flex; gap: 14px; align-items: center; padding: 9px 14px;
+    background: linear-gradient(#0d0f13ee, #0d0f13aa); border-bottom: 1px solid var(--line);
+  }
+  #bar .grp { display: flex; gap: 5px; align-items: center; }
+  .btn {
+    background: #1a1e26; border: 1px solid var(--line); color: var(--ink);
+    padding: 4px 11px; border-radius: 4px; cursor: pointer; font: inherit;
+  }
+  .btn:hover { border-color: #3b4250; background: #222732; }
+  .btn.on { background: var(--accent); border-color: var(--accent); color: #17120a; font-weight: 700; }
+  .btn.ghost { opacity: .62; }
+  .lab { color: var(--dim); }
+
+  #side {
+    width: 335px; background: var(--panel); border-left: 1px solid var(--line);
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  #side h2 { margin: 0; padding: 11px 14px; font-size: 12px; letter-spacing: .09em;
+             text-transform: uppercase; color: var(--dim); border-bottom: 1px solid var(--line); }
+  #insp { flex: 1; overflow-y: auto; padding: 13px 14px 26px; }
+  .row { display: flex; justify-content: space-between; gap: 10px; padding: 3px 0; }
+  .row .k { color: var(--dim); }
+  .sect { margin: 16px 0 7px; color: var(--accent); font-size: 11px;
+          letter-spacing: .09em; text-transform: uppercase; }
+  select, input[type=number] {
+    background: #1a1e26; border: 1px solid var(--line); color: var(--ink);
+    padding: 4px 7px; border-radius: 4px; font: inherit; width: 100%;
+  }
+  .item {
+    display: flex; align-items: center; gap: 8px; padding: 3px 6px; margin: 2px 0;
+    background: #191d25; border: 1px solid var(--line); border-radius: 4px;
+  }
+  .item.def { opacity: .58; border-style: dashed; }
+  .item .nm { flex: 1; }
+  .item .x { cursor: pointer; color: var(--dim); padding: 0 3px; }
+  .item .x:hover { color: #ff7a5c; }
+  .hint { color: var(--dim); font-size: 12px; margin: 9px 0; }
+  #legend { position: absolute; left: 14px; bottom: 12px; z-index: 5;
+            background: #0d0f13cc; border: 1px solid var(--line); border-radius: 6px;
+            padding: 9px 12px; display: grid; grid-template-columns: auto auto; gap: 3px 10px; }
+  #legend i { width: 11px; height: 11px; display: inline-block; border-radius: 2px;
+              vertical-align: -1px; margin-right: 6px; }
+  #status { position: absolute; right: 14px; bottom: 12px; z-index: 5; color: var(--dim); }
+</style>
+
+<div id="app">
+  <div id="stage">
+    <canvas id="cv"></canvas>
+    <div id="bar">
+      <div class="grp"><span class="lab">floor</span>
+        <button class="btn" data-lev="0">0</button>
+        <button class="btn" data-lev="1">1</button>
+        <button class="btn" data-lev="2">2</button>
+      </div>
+      <div class="grp"><span class="lab">below</span>
+        <button class="btn ghost" id="ghost">show</button>
+      </div>
+      <div class="grp"><span class="lab">zoom</span>
+        <button class="btn" id="zout">&minus;</button>
+        <button class="btn" id="zin">+</button>
+        <button class="btn" id="zfit">fit</button>
+      </div>
+      <div class="grp" style="margin-left:auto">
+        <button class="btn" id="save">export level.json</button>
+      </div>
+    </div>
+    <div id="legend"></div>
+    <div id="status">loading…</div>
+  </div>
+  <div id="side">
+    <h2>inspector</h2>
+    <div id="insp"><p class="hint">Click a room, a vault, an atrium or a corridor.</p></div>
+  </div>
+</div>
+
+<script>
+/* ---- what a room of each kind contains ---------------------------------
+   These mirror what furnish() actually places in the game, so the list you
+   see is the list that exists. A room's contents are its type's defaults plus
+   whatever you add, minus whatever you remove — which is why the defaults show
+   dashed and greyed: they are not stored, they are what the type means.     */
+const DEFAULTS = {
+  restaurant: ['banquetTable', 'chair', 'hearth', 'chandelier', 'fairyLights'],
+  living:     ['sofa', 'armchair', 'lowTable', 'shelfUnit', 'hearth', 'fairyLights'],
+  museum:     ['vitrine', 'plinth', 'chandelier'],
+  gallery:    ['plinth', 'hungPanel', 'bench', 'fairyLights'],
+  warehouse:  ['rackBay', 'pallet', 'crate'],
+  office:     ['desk', 'chair', 'monitor', 'keyboard'],
+  cubicles:   ['partition', 'desk', 'chair', 'monitor', 'keyboard', 'terminals'],
+  hall:       ['column', 'chandelier', 'fairyLights'],
+  alcove:     ['bench', 'lowTable', 'shelfUnit'],
+  atrium:     ['fountain'],
+  chamber:    ['crystal', 'portal'],
+};
+const PALETTE = {
+  'furniture': ['chair', 'banquetTable', 'lowTable', 'sofa', 'armchair', 'shelfUnit',
+                'plinth', 'vitrine', 'crate', 'pallet', 'rackBay', 'desk', 'monitor',
+                'keyboard', 'partition', 'column', 'bench', 'hungPanel', 'fountain'],
+  'fittings':  ['chandelier', 'fairyLights', 'paperLanterns', 'hearth', 'terminals'],
+  'playable':  ['vendingMachine', 'gun', 'crystal', 'gateButton', 'portal'],
+};
+const PLAYABLE = new Set(PALETTE.playable);
+const TYPES = ['warehouse', 'gallery', 'cubicles', 'restaurant', 'hall', 'museum',
+               'living', 'office', 'atrium', 'chamber', '(empty)'];
+
+const COL = {
+  hall: '#2a303b', room: '#39414f', hub: '#5d4a2a', atrium: '#1b2028',
+  chamber: '#4a3050', alcove: '#3a4a44', stair: '#7a6a3a', gallery: '#2f4a52',
+  wall: '#171a20', outside: '#0b0d10',
+};
+
+let L = null, lev = 0, view = { x: 0, y: 0, s: 11 }, sel = null, hover = null, ghost = false;
+const cv = document.getElementById('cv'), g = cv.getContext('2d');
+
+/* ---- geometry, derived exactly the way genmaze.js derives it ------------ */
+let BANDS = [], HUB = null;
+function derive() {
+  BANDS = [];
+  for (let i = 0; i < L.lines.length - 1; i++) {
+    BANDS.push([L.lines[i][0] + L.lines[i][1], L.lines[i + 1][0] - 1]);
+  }
+  const MID = 2;
+  HUB = { r1: BANDS[MID][0], c1: BANDS[MID][0], r2: BANDS[MID][1], c2: BANDS[MID][1] };
+}
+const blockRect = (br, bc) => ({ r1: BANDS[br][0], c1: BANDS[bc][0], r2: BANDS[br][1], c2: BANDS[bc][1] });
+const B0 = () => L.pad, B1 = () => L.size - 1 - L.pad;
+const key = (p) => `${p.lev}:${p.br},${p.bc}`;
+
+/* ---- the cell grid, so the drawing shows what the map will actually be -- */
+function buildGrid() {
+  const N = L.size;
+  const grid = [];
+  for (let l = 0; l < L.levels; l++) {
+    grid.push(Array.from({ length: N }, () => Array(N).fill(' ')));
+  }
+  const rect = (l, r1, c1, r2, c2, ch) => {
+    for (let r = Math.max(0, r1); r <= Math.min(N - 1, r2); r++)
+      for (let c = Math.max(0, c1); c <= Math.min(N - 1, c2); c++) grid[l][r][c] = ch;
+  };
+  const b0 = B0(), b1 = B1();
+  for (let l = 0; l < L.levels; l++) {
+    if (l === 0) rect(0, b0, b0, b1, b1, '#');
+    for (const li of L.levelLines[l]) {
+      const [s, w] = L.lines[li];
+      rect(l, s, b0, s + w - 1, b1, '.');
+      rect(l, b0, s, b1, s + w - 1, '.');
+    }
+    rect(l, b0, b0, b0, b1, l === 0 ? '#' : ' ');
+    rect(l, b1, b0, b1, b1, l === 0 ? '#' : ' ');
+    rect(l, b0, b0, b1, b0, l === 0 ? '#' : ' ');
+    rect(l, b0, b1, b1, b1, l === 0 ? '#' : ' ');
+  }
+  // blocks
+  for (const p of L.plan) {
+    const R = blockRect(p.br, p.bc);
+    if (p.t === 'atrium') {
+      rect(0, R.r1, R.c1, R.r2, R.c2, '.');
+      for (let l = 1; l < L.levels; l++) rect(l, R.r1, R.c1, R.r2, R.c2, ' ');
+      continue;
+    }
+    if (p.t === 'chamber') {
+      rect(p.lev, R.r1, R.c1, R.r2, R.c2, '#');
+      rect(p.lev, R.r1 + 1, R.c1 + 1, R.r2 - 1, R.c2 - 1, 'V');
+      continue;
+    }
+    rect(p.lev, R.r1, R.c1, R.r2, R.c2, '#');
+    rect(p.lev, R.r1 + 1, R.c1 + 1, R.r2 - 1, R.c2 - 1, '+');
+  }
+  // hub
+  rect(0, HUB.r1, HUB.c1, HUB.r2, HUB.c2, '#');
+  rect(0, HUB.r1 + 1, HUB.c1 + 1, HUB.r2 - 1, HUB.c2 - 1, 'H');
+  for (let l = 1; l < L.levels; l++) rect(l, HUB.r1, HUB.c1, HUB.r2, HUB.c2, ' ');
+  for (const e of L.hubExits) {
+    if (e.side === 'N') rect(0, HUB.r1, e.at, HUB.r1, e.at + 1, '.');
+    if (e.side === 'S') rect(0, HUB.r2, e.at, HUB.r2, e.at + 1, '.');
+    if (e.side === 'W') rect(0, e.at, HUB.c1, e.at + 1, HUB.c1, '.');
+    if (e.side === 'E') rect(0, e.at, HUB.c2, e.at + 1, HUB.c2, '.');
+  }
+  // alcoves
+  const AI = L.alcoveInterior;
+  for (const a of L.alcoves) {
+    const R = blockRect(a.br, a.bc), span = AI + 1;
+    const wr1 = a.v === 'N' ? R.r1 : R.r2 - span, wr2 = wr1 + span;
+    const wc1 = a.h === 'W' ? R.c1 : R.c2 - span, wc2 = wc1 + span;
+    rect(a.lev, wr1, wc1, wr2, wc2, '#');
+    rect(a.lev, wr1 + 1, wc1 + 1, wr2 - 1, wc2 - 1, 'A');
+  }
+  // exterior galleries
+  const G = L.galleries, nHall = L.lines[0][0], l2Hall = L.lines[1][0] + L.lines[1][1] - 1;
+  rect(1, G.row, G.west, G.row, G.east, 'g');
+  rect(1, G.row, G.west, nHall, G.west, 'g');
+  rect(1, G.row, G.east, nHall, G.east, 'g');
+  const W2 = G.stairCol + 4, E2 = W2 + 4;
+  rect(2, G.row, W2, G.row, E2, 'g');
+  rect(2, G.row, E2, l2Hall, E2, 'g');
+  for (let k = 0; k < 4; k++) { grid[1][G.row][G.stairCol + k] = '/'; grid[2][G.row][G.stairCol + k] = '/'; }
+  // stairs and overpass flights
+  const flights = L.stairs.map((s) => ({ lo: s.lo, cells: s.cells }));
+  for (const o of L.overpasses) {
+    const cell = (i) => (o.axis === 'c' ? [o.at, i] : [i, o.at]);
+    const up = [], down = [];
+    for (let k = 0; k < o.rise; k++) up.push(cell(o.a + k));
+    for (let k = 0; k < o.rise; k++) down.push(cell(o.b - k));
+    flights.push({ lo: o.lo, cells: up }, { lo: o.lo, cells: down });
+    for (let i = o.a + o.rise; i <= o.b - o.rise; i++) {
+      const [r, c] = cell(i); grid[o.lo + 1][r][c] = '.';
+    }
+  }
+  for (const s of flights) for (const [r, c] of s.cells) {
+    grid[s.lo][r][c] = '/'; grid[s.lo + 1][r][c] = '/';
+  }
+  return { grid, flights };
+}
+
+let GRID = null, FLIGHTS = [];
+
+/* ---- drawing ------------------------------------------------------------ */
+function cellColour(ch) {
+  switch (ch) {
+    case '.': return COL.hall;
+    case '+': return COL.room;
+    case 'H': return COL.hub;
+    case 'V': return COL.chamber;
+    case 'A': return COL.alcove;
+    case 'g': return COL.gallery;
+    case '/': return COL.stair;
+    case '#': return COL.wall;
+    default:  return null;
+  }
+}
+function draw() {
+  const w = cv.width = cv.clientWidth * devicePixelRatio;
+  const h = cv.height = cv.clientHeight * devicePixelRatio;
+  g.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+  g.fillStyle = COL.outside;
+  g.fillRect(0, 0, w, h);
+  const S = view.s, N = L.size;
+
+  const px = (c) => view.x + c * S, py = (r) => view.y + r * S;
+
+  // the floor below, as a faint ghost, so you can see what you are standing on
+  if (ghost && lev > 0) {
+    g.globalAlpha = 0.3;
+    for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) {
+      const col = cellColour(GRID[lev - 1][r][c]);
+      if (!col) continue;
+      g.fillStyle = col; g.fillRect(px(c), py(r), S, S);
+    }
+    g.globalAlpha = 1;
+  }
+
+  for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) {
+    const col = cellColour(GRID[lev][r][c]);
+    if (!col) continue;
+    g.fillStyle = col;
+    g.fillRect(px(c), py(r), S, S);
+  }
+
+  // the building's own edge
+  g.strokeStyle = '#39414f'; g.lineWidth = 1;
+  g.strokeRect(px(B0()) + .5, py(B0()) + .5, (B1() - B0() + 1) * S, (B1() - B0() + 1) * S);
+
+  // block outlines and labels
+  g.font = `${Math.max(9, S * 0.75)}px ui-monospace, monospace`;
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  for (const p of L.plan) {
+    if (p.lev !== lev && !(p.t === 'atrium' && lev > 0)) continue;
+    const R = blockRect(p.br, p.bc);
+    const x = px(R.c1), y = py(R.r1), ww = (R.c2 - R.c1 + 1) * S, hh = (R.r2 - R.r1 + 1) * S;
+    const isSel = sel && sel.kind === 'block' && key(sel.p) === key(p);
+    const isHov = hover && hover.kind === 'block' && key(hover.p) === key(p);
+    g.strokeStyle = isSel ? COL.sel : isHov ? '#9aa6b8' : '#4b5567';
+    g.lineWidth = isSel ? 2.5 : 1;
+    g.strokeRect(x + .5, y + .5, ww, hh);
+    if (S >= 7) {
+      g.fillStyle = isSel ? COL.sel : '#c3ccda';
+      g.fillText(p.t, x + ww / 2, y + hh / 2);
+      g.fillStyle = '#7c8595';
+      g.fillText(`${p.br},${p.bc}`, x + ww / 2, y + hh / 2 + S * 1.1);
+    }
+  }
+
+  // the hub
+  if (lev === 0) {
+    const x = px(HUB.c1), y = py(HUB.r1);
+    g.strokeStyle = '#c39a4e'; g.lineWidth = 2;
+    g.strokeRect(x + .5, y + .5, (HUB.c2 - HUB.c1 + 1) * S, (HUB.r2 - HUB.r1 + 1) * S);
+    g.fillStyle = '#e0b76a';
+    g.fillText('HUB', x + (HUB.c2 - HUB.c1 + 1) * S / 2, y + (HUB.r2 - HUB.r1 + 1) * S / 2);
+  }
+
+  // hall lines — the handles that will resize rooms
+  for (let i = 0; i < L.lines.length; i++) {
+    if (!L.levelLines[lev].includes(i)) continue;
+    const [s0, ww] = L.lines[i];
+    g.fillStyle = '#ffb76522';
+    g.fillRect(px(B0()), py(s0), (B1() - B0() + 1) * S, ww * S);
+    g.fillRect(px(s0), py(B0()), ww * S, (B1() - B0() + 1) * S);
+  }
+
+  // stairs
+  for (const f of FLIGHTS) {
+    if (f.lo !== lev && f.lo + 1 !== lev) continue;
+    const up = f.lo === lev;
+    g.strokeStyle = up ? '#ffd88a' : '#8fa8c8';
+    g.lineWidth = 2;
+    const a = f.cells[0], b = f.cells[f.cells.length - 1];
+    g.beginPath();
+    g.moveTo(px(a[1] + .5), py(a[0] + .5));
+    g.lineTo(px(b[1] + .5), py(b[0] + .5));
+    g.stroke();
+    g.fillStyle = up ? '#ffd88a' : '#8fa8c8';
+    g.fillText(up ? '▲' : '▼', px(b[1] + .5), py(b[0] + .5));
+  }
+
+  // drops
+  for (const d of L.drops) {
+    if (d.lev !== lev) continue;
+    g.strokeStyle = '#ff7a5c'; g.lineWidth = 2;
+    g.strokeRect(px(d.into[1]) + .5, py(d.into[0]) + .5, S, S);
+  }
+  // gate buttons
+  for (let i = 0; i < L.buttonPrefs.length; i++) {
+    const b = L.buttonPrefs[i];
+    if (b.lev !== lev) continue;
+    g.fillStyle = '#6fd3ff';
+    g.beginPath(); g.arc(px(b.at[1] + .5), py(b.at[0] + .5), Math.max(3, S * .35), 0, 7); g.fill();
+    g.fillStyle = '#08121a';
+    g.fillText('ABCDEF'[i], px(b.at[1] + .5), py(b.at[0] + .5));
+  }
+
+  document.getElementById('status').textContent =
+    `${L.size}×${L.size} · floor ${lev} · ${L.plan.filter(p => p.lev === lev).length} blocks · zoom ${S}px/cell`;
+}
+
+/* ---- what is under the pointer ------------------------------------------ */
+function pick(mx, my) {
+  const c = Math.floor((mx - view.x) / view.s), r = Math.floor((my - view.y) / view.s);
+  if (r < 0 || c < 0 || r >= L.size || c >= L.size) return null;
+  for (const p of L.plan) {
+    if (p.lev !== lev && !(p.t === 'atrium' && lev > 0)) continue;
+    const R = blockRect(p.br, p.bc);
+    if (r >= R.r1 && r <= R.r2 && c >= R.c1 && c <= R.c2) return { kind: 'block', p, r, c };
+  }
+  if (lev === 0 && r >= HUB.r1 && r <= HUB.r2 && c >= HUB.c1 && c <= HUB.c2) return { kind: 'hub', r, c };
+  return { kind: 'cell', r, c, ch: GRID[lev][r][c] };
+}
+
+/* ---- the inspector ------------------------------------------------------ */
+function itemsFor(p) {
+  const k = key(p);
+  const ov = L.roomItems[k] || { add: [], remove: [] };
+  const base = DEFAULTS[p.t] || [];
+  return { base, add: ov.add || [], remove: ov.remove || [] };
+}
+function setOverride(p, fn) {
+  const k = key(p);
+  L.roomItems[k] = L.roomItems[k] || { add: [], remove: [] };
+  fn(L.roomItems[k]);
+  if (!L.roomItems[k].add.length && !L.roomItems[k].remove.length) delete L.roomItems[k];
+  renderInspector(); draw(); dirty();
+}
+function renderInspector() {
+  const el = document.getElementById('insp');
+  if (!sel) { el.innerHTML = '<p class="hint">Click a room, a vault, an atrium or a corridor.</p>'; return; }
+
+  if (sel.kind === 'hub') {
+    el.innerHTML = `<div class="sect">the hub</div>
+      <div class="row"><span class="k">extent</span><span>${HUB.r1}–${HUB.r2} × ${HUB.c1}–${HUB.c2}</span></div>
+      <div class="row"><span class="k">exits</span><span>${L.hubExits.length}</span></div>
+      <p class="hint">The hub is derived from the middle band, so it resizes when you move the hall lines that bound it.</p>`;
+    return;
+  }
+  if (sel.kind === 'cell') {
+    const nm = { '.': 'corridor', '#': 'wall', ' ': 'outside / void', '/': 'stair flight',
+                 'g': 'exterior gallery', 'A': 'alcove', 'V': 'vault', 'H': 'hub', '+': 'room floor' }[sel.ch] || sel.ch;
+    el.innerHTML = `<div class="sect">cell</div>
+      <div class="row"><span class="k">at</span><span>row ${sel.r}, col ${sel.c}</span></div>
+      <div class="row"><span class="k">is</span><span>${nm}</span></div>`;
+    return;
+  }
+
+  const p = sel.p, R = blockRect(p.br, p.bc);
+  const cells = (R.r2 - R.r1 - 1) * (R.c2 - R.c1 - 1);
+  const { base, add, remove } = itemsFor(p);
+  const opts = TYPES.map(t => `<option${t === p.t ? ' selected' : ''}>${t}</option>`).join('');
+  let html = `<div class="sect">block ${p.br},${p.bc} · floor ${p.lev}</div>
+    <div class="row"><span class="k">rows</span><span>${R.r1}–${R.r2}</span></div>
+    <div class="row"><span class="k">cols</span><span>${R.c1}–${R.c2}</span></div>
+    <div class="row"><span class="k">interior</span><span>${R.r2 - R.r1 - 1} × ${R.c2 - R.c1 - 1} cells</span></div>
+    <div class="row"><span class="k">floor area</span><span>${(cells * 9).toLocaleString()} m²</span></div>
+    <div class="sect">type</div><select id="ty">${opts}</select>
+    <p class="hint">The type furnishes the room. Its contents below come from that type — edit them to make this room specific.</p>
+    <div class="sect">contents</div>`;
+
+  for (const it of base) {
+    if (remove.includes(it)) continue;
+    html += `<div class="item def"><span class="nm">${it}</span>
+      <span class="x" data-rm="${it}" title="remove from this room">✕</span></div>`;
+  }
+  for (const it of add) {
+    html += `<div class="item"><span class="nm">${it}${PLAYABLE.has(it) ? ' ◆' : ''}</span>
+      <span class="x" data-un="${it}" title="remove">✕</span></div>`;
+  }
+  for (const it of remove) {
+    html += `<div class="item" style="opacity:.4;text-decoration:line-through">
+      <span class="nm">${it}</span><span class="x" data-re="${it}" title="put back">↺</span></div>`;
+  }
+  const groups = Object.entries(PALETTE).map(([gname, list]) =>
+    `<optgroup label="${gname}">${list.map(i => `<option>${i}</option>`).join('')}</optgroup>`).join('');
+  html += `<div class="sect">add</div><select id="addsel"><option value="">choose…</option>${groups}</select>
+    <p class="hint">Dashed items are what the type gives you. ◆ marks something the game's rules use.</p>`;
+  el.innerHTML = html;
+
+  document.getElementById('ty').onchange = (e) => { p.t = e.target.value; rebuild(); dirty(); };
+  document.getElementById('addsel').onchange = (e) => {
+    if (!e.target.value) return;
+    const v = e.target.value;
+    setOverride(p, (o) => { if (!o.add.includes(v)) o.add.push(v); });
+  };
+  el.querySelectorAll('[data-rm]').forEach(n => n.onclick = () =>
+    setOverride(p, (o) => { if (!o.remove.includes(n.dataset.rm)) o.remove.push(n.dataset.rm); }));
+  el.querySelectorAll('[data-un]').forEach(n => n.onclick = () =>
+    setOverride(p, (o) => { o.add = o.add.filter(x => x !== n.dataset.un); }));
+  el.querySelectorAll('[data-re]').forEach(n => n.onclick = () =>
+    setOverride(p, (o) => { o.remove = o.remove.filter(x => x !== n.dataset.re); }));
+}
+
+/* ---- plumbing ----------------------------------------------------------- */
+let dirtyFlag = false;
+function dirty() {
+  dirtyFlag = true;
+  document.getElementById('save').classList.add('on');
+  localStorage.setItem('cm-level-draft', JSON.stringify(L));
+}
+function rebuild() { derive(); const b = buildGrid(); GRID = b.grid; FLIGHTS = b.flights; draw(); renderInspector(); }
+
+function fit() {
+  // The canvas already sits inside the stage, which excludes the side panel —
+  // subtracting it again here is what made the plan come up postage-stamp sized.
+  const w = cv.clientWidth - 30, h = cv.clientHeight - 76;
+  view.s = Math.max(4, Math.min(40, Math.floor(Math.min(w, h) / L.size)));
+  view.x = (cv.clientWidth - L.size * view.s) / 2;
+  view.y = (cv.clientHeight - L.size * view.s) / 2 + 20;
+  draw();
+}
+
+cv.addEventListener('mousemove', (e) => {
+  if (drag) {
+    view.x += e.movementX; view.y += e.movementY; draw(); return;
+  }
+  const h = pick(e.offsetX, e.offsetY);
+  const changed = JSON.stringify(h && h.kind === 'block' ? key(h.p) : h && h.kind) !==
+                  JSON.stringify(hover && hover.kind === 'block' ? key(hover.p) : hover && hover.kind);
+  hover = h;
+  if (changed) draw();
+});
+let drag = false, moved = 0;
+cv.addEventListener('mousedown', () => { drag = true; moved = 0; cv.classList.add('dragging'); });
+addEventListener('mousemove', (e) => { if (drag) moved += Math.abs(e.movementX) + Math.abs(e.movementY); });
+addEventListener('mouseup', (e) => {
+  if (drag && moved < 4 && e.target === cv) { sel = pick(e.offsetX, e.offsetY); renderInspector(); draw(); }
+  drag = false; cv.classList.remove('dragging');
+});
+cv.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  const before = { c: (e.offsetX - view.x) / view.s, r: (e.offsetY - view.y) / view.s };
+  view.s = Math.max(3, Math.min(40, view.s + (e.deltaY < 0 ? 1 : -1)));
+  view.x = e.offsetX - before.c * view.s;
+  view.y = e.offsetY - before.r * view.s;
+  draw();
+}, { passive: false });
+
+document.querySelectorAll('[data-lev]').forEach(b => b.onclick = () => {
+  lev = +b.dataset.lev;
+  document.querySelectorAll('[data-lev]').forEach(x => x.classList.toggle('on', x === b));
+  sel = null; rebuild();
+});
+document.getElementById('ghost').onclick = (e) => { ghost = !ghost; e.target.classList.toggle('on', ghost); draw(); };
+document.getElementById('zin').onclick = () => { view.s = Math.min(40, view.s + 2); draw(); };
+document.getElementById('zout').onclick = () => { view.s = Math.max(3, view.s - 2); draw(); };
+document.getElementById('zfit').onclick = fit;
+document.getElementById('save').onclick = () => {
+  const blob = new Blob([JSON.stringify(L, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = 'level.json'; a.click();
+  document.getElementById('save').classList.remove('on');
+};
+addEventListener('resize', () => { fit(); });
+addEventListener('keydown', (e) => {
+  if (e.key >= '0' && e.key <= '2') document.querySelector(`[data-lev="${e.key}"]`).click();
+  if (e.key === 'f') fit();
+  if (e.key === 'g') document.getElementById('ghost').click();
+});
+
+const LEGEND = [['room', COL.room], ['corridor', COL.hall], ['hub', COL.hub],
+                ['vault', COL.chamber], ['alcove', COL.alcove], ['gallery', COL.gallery],
+                ['stair', COL.stair], ['wall', COL.wall]];
+document.getElementById('legend').innerHTML = LEGEND.map(([n, c]) =>
+  `<span><i style="background:${c}"></i>${n}</span>`).join('');
+
+fetch('level.json')
+  .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+  .then(j => {
+    const draft = localStorage.getItem('cm-level-draft');
+    if (draft && confirm('An unsaved draft from last time was found. Load it?')) L = JSON.parse(draft);
+    else L = j;
+    L.roomItems = L.roomItems || {};
+    document.querySelector('[data-lev="0"]').classList.add('on');
+    rebuild(); fit();
+  })
+  .catch(err => {
+    document.getElementById('status').textContent = 'could not load level.json — ' + err.message;
+    document.getElementById('insp').innerHTML =
+      '<p class="hint">This page must be served over http, not opened as a file. ' +
+      'Run the game\'s server and open <code>/tools/editor.html</code>.</p>';
+  });
+</script>
