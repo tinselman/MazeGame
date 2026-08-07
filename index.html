@@ -2869,10 +2869,15 @@ const furniture = [];
       const build = (wantRound, geo, core) => {
         const idx = lanterns.map((l, i) => i).filter((i) => lanterns[i].round === wantRound);
         const n = Math.max(1, idx.length);
-        const shell = new THREE.InstancedMesh(geo, new THREE.MeshBasicMaterial({ fog: true, map: lanternPaper }), n);
+        // The paper itself is a single flat shade — unlit paper has no hot
+        // spot, and shading it made an unlit lantern read as a dark dented
+        // object. The gradient belongs to the flame INSIDE, so it lives on the
+        // core: when the room comes up, the centre brightens through the paper
+        // and that is the whole of the effect.
+        const shell = new THREE.InstancedMesh(geo, new THREE.MeshBasicMaterial({ fog: true }), n);
         const glow = new THREE.InstancedMesh(core, new THREE.MeshBasicMaterial({
-          fog: true, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending,
-          depthWrite: false }), n);
+          fog: true, map: lanternPaper, transparent: true, opacity: 0.9,
+          blending: THREE.AdditiveBlending, depthWrite: false }), n);
         glow.renderOrder = 3;
         const m3 = new THREE.Matrix4(), q3 = new THREE.Quaternion(), s3 = new THREE.Vector3(1, 1, 1);
         const c3 = new THREE.Color();
@@ -6511,7 +6516,7 @@ function updateLanterns(dt, now) {
       if (l.slot === undefined) continue;
       const breath = 0.86 + 0.14 * Math.sin(now * 1.15 + l.phase);
       // paper: dim and coloured. core: the flame, near-white and much brighter.
-      c.setHex(l.hue).multiplyScalar(on ? 0.5 * breath : 0.05);
+      c.setHex(l.hue).multiplyScalar(on ? 0.62 * breath : 0.42);
       (l.round ? cR : cS).setXYZ(l.slot, c.r, c.g, c.b);
       c.setHex(l.hue).lerp(new THREE.Color(0xfff2dc), 0.55)
         .multiplyScalar(on ? 0.95 * breath : 0);
@@ -6715,7 +6720,11 @@ const placeNextGun = window.__placeNextGun;
    drink and the strip goes dark for a while as it restocks, which is the only
    tell that a machine is spent.                                              */
 const VEND_RESPAWN = 30;
-const matVendBody  = new THREE.MeshPhongMaterial({ color: 0x8fc492, specular: 0x2c2c2c, shininess: 26 });
+// White, because the colour is carried per machine: a cabinet is grey painted
+// metal until somebody wakes it, and only then does the green come up.
+const matVendBody  = new THREE.MeshPhongMaterial({ color: 0xffffff, specular: 0x2c2c2c, shininess: 26 });
+const VEND_GREEN = new THREE.Color(0x8fc492);
+const VEND_GREY  = new THREE.Color(0x8a8a8a);
 const matVendTrim  = new THREE.MeshPhongMaterial({ color: 0x6d6d6d, specular: 0x333333, shininess: 30 });
 const matVendGlass = new THREE.MeshPhongMaterial({ color: 0x1b2430, specular: 0xffffff, shininess: 110,
                                                    transparent: true, opacity: 0.34 });
@@ -6902,13 +6911,18 @@ const vendors = [];
        through a carcass a pooled light cannot see. */
     const lamps = STRIP_Y.map((sy) => {
       const e = { pos: new THREE.Vector3(px - dc * 0.10, y + sy - 0.10, pz - dr * 0.10),
-                  color: new THREE.Color(0xffb877), intensity: 0, on: false, dist: 1.9 };
+                  color: new THREE.Color(0xffb877), intensity: 0, on: false, dist: 0.95 };
       emitters.push(e);
       return e;
     });
-    // and one weak lamp out in front, so a woken machine reads down the hall
+    /* No lamp out in front. A point light there has a seven-metre reach and no
+       idea the cabinet exists, so it lit the wall BEHIND the machine as hard as
+       the floor in front — a three-metre halo that read as light pouring out of
+       the back. What the machine throws forward is the shaped patch on the
+       floor, which is the only escape a glazed front can actually produce.
+       This one is kept purely as the position the chart and the spill use. */
     const emitter = { pos: new THREE.Vector3(px - dc * 0.55, y + 1.15, pz - dr * 0.55),
-                      color: new THREE.Color(0xffa64d), intensity: 0, on: false, dist: 7 };
+                      color: new THREE.Color(0xffa64d), intensity: 0, on: false, dist: 3 };
     emitters.push(emitter);
     vendors.push({ lev: sp.lev, pos: new THREE.Vector3(px, y + 1.0, pz),
                    emitter, lamps, cool: 0, spotted: false, awake: false, wake: 0, i });
@@ -6948,8 +6962,13 @@ function updateVendors(dt, t) {
       if (V.glows.instanceColor) V.glows.instanceColor.needsUpdate = true;
       if (V.stocks.instanceColor) V.stocks.instanceColor.needsUpdate = true;
     }
-    v.emitter.on = v.awake;
-    v.emitter.intensity = v.awake ? Math.max(0.3, k * 3.2) : 0;
+    v.emitter.on = false;                 // never a lamp; only a position
+    v.emitter.intensity = 0;
+    // grey while it sleeps, green once it is running
+    if (V) {
+      V.bodies.setColorAt(v.i, c.copy(VEND_GREY).lerp(VEND_GREEN, v.awake ? Math.min(1, v.wake * 1.6) : 0));
+      if (V.bodies.instanceColor) V.bodies.instanceColor.needsUpdate = true;
+    }
     // the three strips inside, each with its own flicker as it strikes
     for (let j = 0; j < v.lamps.length; j++) {
       const lag = v.wake < 1 ? Math.max(0, Math.min(1, (v.wake - j * 0.12) * 3)) : 1;
