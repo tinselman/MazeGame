@@ -4779,7 +4779,8 @@ function interact() {
     t.obj.awake = true;
     t.obj.spotted = true;
     sfx.hum();
-    say('the strip inside stutters, catches, and the machine is awake', 4);
+    announce("YOU'RE REFRESHED!", '#ffb765', 3.4);
+    say('the strips stutter, catch, and the machine is awake', 4);
   }
 
   else if (t.kind === 'button') {
@@ -5006,6 +5007,13 @@ function assignPool() {
       l.position.copy(e.pos);
       l.color.copy(e.color);
       l.intensity = e.intensity;
+      // A short-range emitter stays where it is meant to be. The strips inside
+      // a vending cabinet want to light the goods on the shelf and nothing
+      // else; at the default thirty metres they wash the whole corridor
+      // through the carcass, because a pooled light casts no shadow and has no
+      // idea the cabinet is there. `distance` is a uniform, not a define, so
+      // varying it per emitter costs no shader recompile.
+      l.distance = e.dist || 30;
     } else l.intensity = 0;
   }
 }
@@ -6712,7 +6720,16 @@ const matVendTrim  = new THREE.MeshPhongMaterial({ color: 0x6d6d6d, specular: 0x
 const matVendGlass = new THREE.MeshPhongMaterial({ color: 0x1b2430, specular: 0xffffff, shininess: 110,
                                                    transparent: true, opacity: 0.34 });
 const matVendGlow  = new THREE.MeshBasicMaterial({ color: 0xffb765, fog: true });
-const matVendStock = new THREE.MeshBasicMaterial({ vertexColors: true, map: candyAtlas, fog: true });
+// The interior surfaces, so the strips have something to bounce off and the
+// cabinet reads as a lined box rather than a hole.
+const matVendLiner = new THREE.MeshPhongMaterial({ color: 0xd8d2c4, specular: 0x222222, shininess: 12 });
+/* The goods are LIT, not self-lit. They were MeshBasic, which ignores every
+   light in the world — so the torch fell on a machine and the sweets did not
+   change at all, which is the single thing that made them look like stickers.
+   Phong means the strips inside light them when the machine is awake and your
+   beam lights them when it is not. */
+const matVendStock = new THREE.MeshPhongMaterial({
+  vertexColors: true, map: candyAtlas, specular: 0x3a3a3a, shininess: 26 });
 const VEND_W = 0.94, VEND_H = 1.92, VEND_D = 0.6;
 // The carcass is a shell, not a block: a solid box seals the lit interior
 // inside itself and the machine reads as a green wardrobe. Back, two sides,
@@ -6728,12 +6745,40 @@ const vendBodyGeo = mergeGeos([
   at3(Box(VEND_W + 0.05, 0.09, VEND_D + 0.05), 0, VEND_H - 0.05, 0),        // cornice
   at3(Box(VEND_W, 0.1, VEND_D + 0.04), 0, 0.05, 0),                         // plinth
 ]);
+const SHELF_Y = [0.52, 0.96, 1.40];        // the three shelves
+const STRIP_Y = [0.94, 1.38, 1.82];        // a strip over each one
 const vendTrimGeo = mergeGeos([
-  at3(Box(0.16, 0.5, 0.05), VEND_W / 2 - 0.13, 1.2, VEND_D / 2 + 0.01),     // keypad
-  at3(Box(0.34, 0.13, 0.06), VG_X, 0.2, VEND_D / 2 + 0.01),                 // delivery flap
+  // the keypad, with its rows of buttons
+  at3(Box(0.17, 0.52, 0.05), VEND_W / 2 - 0.13, 1.24, VEND_D / 2 + 0.01),
+  ...[0, 1, 2, 3].flatMap((r) => [0, 1].map((c) =>
+    at3(Box(0.045, 0.045, 0.03), VEND_W / 2 - 0.175 + c * 0.09, 1.44 - r * 0.10, VEND_D / 2 + 0.04))),
+  // the coin slot: a bezel with a milled mouth, and the return cup under it
+  at3(Box(0.12, 0.16, 0.04), VEND_W / 2 - 0.13, 1.62, VEND_D / 2 + 0.02),
+  at3(Box(0.012, 0.075, 0.05), VEND_W / 2 - 0.13, 1.63, VEND_D / 2 + 0.04),
+  at3(Box(0.10, 0.05, 0.04), VEND_W / 2 - 0.13, 0.86, VEND_D / 2 + 0.02),   // coin return
+  at3(Cyl(0.022, 0.022, 0.05, 8), VEND_W / 2 - 0.13, 0.96, VEND_D / 2 + 0.03,
+      Math.PI / 2, 0, 0),                                                   // the return button
+  // where the food comes out: a recessed well, a hinged flap and a lip
+  at3(Box(0.40, 0.20, 0.05), VG_X, 0.30, VEND_D / 2 - 0.06),                // the well behind
+  at3(Box(0.42, 0.015, 0.10), VG_X, 0.20, VEND_D / 2 - 0.02),               // its floor
+  at3(Box(0.40, 0.17, 0.025), VG_X, 0.315, VEND_D / 2 + 0.005, -0.30),      // the flap, ajar
+  at3(Box(0.44, 0.035, 0.045), VG_X, 0.215, VEND_D / 2 + 0.02),             // the lip you reach over
+]);
+// The inside of the box: back panel and two returns, so the strips have
+// something to land on and you can see it is a lined cabinet.
+const vendLinerGeo = mergeGeos([
+  at3(Box(VG_W, VG_H, 0.02), VG_X, VG_Y, -VEND_D / 2 + 0.06),
+  at3(Box(0.02, VG_H, VEND_D - 0.14), VG_X - VG_W / 2, VG_Y, 0),
+  at3(Box(0.02, VG_H, VEND_D - 0.14), VG_X + VG_W / 2, VG_Y, 0),
+  at3(Box(VG_W, 0.02, VEND_D - 0.14), VG_X, VG_Y + VG_H / 2, 0),            // the soffit
 ]);
 // the lit interior: a backlit panel behind the stock, glass in front of it
-const vendGlowGeo = mergeGeos([at3(Box(VG_W - 0.02, VG_H - 0.04, 0.02), VG_X, VG_Y, -VEND_D / 2 + 0.07)]);
+// Three separate tubes, one over each shelf, tucked under the shelf above so
+// you see the light and not the lamp.
+const vendGlowGeo = mergeGeos(STRIP_Y.flatMap((sy) => [
+  at3(Box(VG_W - 0.08, 0.022, 0.10), VG_X, sy, 0.02),                       // the tube
+  at3(Box(VG_W - 0.06, 0.02, 0.14), VG_X, sy + 0.03, 0.02),                 // its reflector
+]));
 const vendGlassGeo = mergeGeos([at3(Box(VG_W, VG_H, 0.02), VG_X, VG_Y, VEND_D / 2 - 0.03)]);
 const vendStockGeo = (() => {
   const parts = [], cols = [], tiles = [];
@@ -6833,6 +6878,7 @@ const vendors = [];
   const glows  = mk(vendGlowGeo, matVendGlow);
   const stocks = mk(vendStockGeo, matVendStock);
   const glass  = mk(vendGlassGeo, matVendGlass);
+  const liner  = mk(vendLinerGeo, matVendLiner);
   // the patch of light on the floor in front, lying just clear of it
   const spillGeo = new THREE.PlaneGeometry(1.5, 2.1);
   spillGeo.rotateX(-Math.PI / 2);
@@ -6849,16 +6895,26 @@ const vendors = [];
     const y = levelY(sp.lev);
     e4.set(0, yaw, 0); q4.setFromEuler(e4);
     m4.compose(new THREE.Vector3(px, y, pz), q4, s4);
-    for (const m of [bodies, trims, glows, stocks, glass, spills]) m.setMatrixAt(i, m4);
-    const emitter = { pos: new THREE.Vector3(px - dc * 0.4, y + 1.15, pz - dr * 0.4),
-                      color: new THREE.Color(0xffa64d), intensity: 6.5, on: true };
+    for (const m of [bodies, trims, glows, stocks, glass, spills, liner]) m.setMatrixAt(i, m4);
+    /* One lamp per shelf, sitting just inside the glass at the height of its
+       own strip, and each on a short leash — 1.9 m, enough to light the goods
+       in front of it and the liner behind, not enough to wash the corridor
+       through a carcass a pooled light cannot see. */
+    const lamps = STRIP_Y.map((sy) => {
+      const e = { pos: new THREE.Vector3(px - dc * 0.10, y + sy - 0.10, pz - dr * 0.10),
+                  color: new THREE.Color(0xffb877), intensity: 0, on: false, dist: 1.9 };
+      emitters.push(e);
+      return e;
+    });
+    // and one weak lamp out in front, so a woken machine reads down the hall
+    const emitter = { pos: new THREE.Vector3(px - dc * 0.55, y + 1.15, pz - dr * 0.55),
+                      color: new THREE.Color(0xffa64d), intensity: 0, on: false, dist: 7 };
     emitters.push(emitter);
-    emitter.on = false; emitter.intensity = 0;      // dead until somebody wakes it
     vendors.push({ lev: sp.lev, pos: new THREE.Vector3(px, y + 1.0, pz),
-                   emitter, cool: 0, spotted: false, awake: false, wake: 0, i });
+                   emitter, lamps, cool: 0, spotted: false, awake: false, wake: 0, i });
   });
-  for (const m of [bodies, trims, glows, stocks, glass, spills]) m.instanceMatrix.needsUpdate = true;
-  window.__vendors = { bodies, trims, glows, stocks, glass, spills, list: vendors };
+  for (const m of [bodies, trims, glows, stocks, glass, spills, liner]) m.instanceMatrix.needsUpdate = true;
+  window.__vendors = { bodies, trims, glows, stocks, glass, spills, liner, list: vendors };
 }
 
 /* A machine is dead when you find it — dark, silent, one more grey cabinet in
@@ -6893,7 +6949,14 @@ function updateVendors(dt, t) {
       if (V.stocks.instanceColor) V.stocks.instanceColor.needsUpdate = true;
     }
     v.emitter.on = v.awake;
-    v.emitter.intensity = v.awake ? Math.max(0.4, k * 6.6) : 0;
+    v.emitter.intensity = v.awake ? Math.max(0.3, k * 3.2) : 0;
+    // the three strips inside, each with its own flicker as it strikes
+    for (let j = 0; j < v.lamps.length; j++) {
+      const lag = v.wake < 1 ? Math.max(0, Math.min(1, (v.wake - j * 0.12) * 3)) : 1;
+      const kk = v.awake ? k * lag : 0;
+      v.lamps[j].on = kk > 0.02;
+      v.lamps[j].intensity = kk * 7.5;
+    }
 
     if (!live || v.lev !== player.lev) continue;
     if ((v.pos.x - player.pos.x) ** 2 + (v.pos.z - player.pos.z) ** 2 > 2.6) continue;
@@ -6902,6 +6965,7 @@ function updateVendors(dt, t) {
     if (spec.laser) gunState.charge = spec.charge; else gunState.ammo = spec.mag;
     v.cool = VEND_RESPAWN;
     sfx.reloadSfx();
+    announce("YOU'RE REFRESHED!", '#ffb765', 2.6);
     say('the machine hums and drops a fresh magazine', 2.6);
   }
 }
@@ -7048,7 +7112,13 @@ function restFloorUnder(x, y, z, lev) {
 function fireOnce() {
   const spec = curGun();
   if (spec.laser) return;                        // the laser is held, not clicked
-  if (gunState.ammo <= 0) { sfx.dry(); say('empty — find a machine, or the heap at the centre', 3.4); gunState.cool = 0.4; return; }
+  if (gunState.ammo <= 0) {
+    sfx.dry();
+    announce('OUT OF AMMO! YOU NEED REFRESHMENT!', '#ff8a3a', 3.4);
+    say('a machine in the halls, or the heap at the centre', 3.4);
+    gunState.cool = 0.4;
+    return;
+  }
   gunState.ammo--;
   gunState.cool = spec.rate;
   if (spec.blast) {
