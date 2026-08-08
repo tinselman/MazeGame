@@ -43,6 +43,17 @@
     border-radius:12px;padding:2px 9px;margin:2px 3px 2px 0;cursor:pointer}
   .chip.auto{border-style:dashed;color:var(--dim)}
   .chip:hover{border-color:var(--bad)}
+  /* a room's contents: dashed is what the type gives you, solid is yours */
+  .item{display:flex;align-items:center;gap:8px;padding:3px 7px;margin:3px 0;
+    border:1px solid var(--line);border-radius:5px;background:#151a22}
+  .item.def{border-style:dashed;background:none}
+  .item.gone{opacity:.45}
+  .item.gone .nm{text-decoration:line-through}
+  .item .nm{flex:1}
+  .item .dim{color:var(--dim);font-size:10px}
+  .item .x{cursor:pointer;color:var(--dim);padding:0 3px}
+  .item .x:hover{color:var(--bad)}
+  #insp select{margin-top:4px}
   #legend{position:absolute;left:12px;bottom:12px;z-index:5;background:#141922dd;
     border:1px solid var(--line);border-radius:7px;padding:9px 11px;
     display:grid;grid-template-columns:auto auto;gap:3px 14px;font-size:11px}
@@ -75,8 +86,10 @@
       <button class="btn" id="amach">machine</button>
       <button class="btn" id="agun">gun</button>
       <span class="gap"></span>
+      <button class="btn" id="open">open a plan…</button>
       <button class="btn" id="save">export level.json</button>
       <button class="btn" id="revert">revert</button>
+      <input type="file" id="file" accept=".json,application/json" hidden>
     </div>
     <canvas id="cv"></canvas>
     <div id="legend"></div>
@@ -133,18 +146,84 @@ const FIT = {
 };
 const GUNS = {1:'pistol',2:'shotgun',3:'machine gun',4:'blaster',5:'laser'};
 
+/* ---- what is in a room --------------------------------------------------
+   A room's type furnishes it. This is that furniture, written down: exactly
+   what index.html's furnish() places for each type, so what the panel says a
+   room contains is what the room contains. Two things it deliberately is NOT:
+   the strip lights, skirting, cornices, coffers and window arcades that every
+   room gets whatever its type — those are listed further down as things you
+   are told about rather than things you choose — and the guns and machines,
+   which you put on the plan yourself and which are not contents of a room. */
+const DEFAULTS = {
+  restaurant: ['banquetTable','chair','hearth','chandelier','fairyLights'],
+  living:     ['sofa','armchair','lowTable','shelfUnit','hearth','fairyLights'],
+  museum:     ['vitrine','bench','chandelier'],
+  gallery:    ['plinth','hungPanel','bench','fairyLights'],
+  warehouse:  ['rackBay','pallet','crate'],
+  office:     ['desk','chair','partition'],
+  cubicles:   ['partition','desk','chair','monitor','keyboard','terminals'],
+  hall:       ['column','chandelier','fairyLights'],
+  alcove:     ['bench','lowTable','shelfUnit'],
+};
+// grouped for the pulldown; the labels are what the game calls these things
+const PALETTE = {
+  'seating and tables': ['chair','bench','sofa','armchair','banquetTable','lowTable','desk'],
+  'standing about':     ['shelfUnit','plinth','vitrine','partition','column','rackBay','crate','pallet'],
+  'fittings':           ['chandelier','fairyLights','paperLanterns','hearth'],
+};
+// A fitting is not a prop but a membership: whether this room is one of the
+// ones lit that way. They are what most people mean by "put lights in here".
+const FITTINGS = new Set(['chandelier','fairyLights','paperLanterns','hearth','terminals']);
+/* Two kinds you can take away but not add, because adding them somewhere they
+   were not designed for produces nonsense rather than decor. */
+const NO_ADD = {
+  hungPanel: 'hangs on a solid wall, and only the gallery works out which of its walls those are',
+  terminals: 'the screen glow belongs to a cubicle desk, and is placed against one',
+  monitor:   'sits on a cubicle desk at the height of that desk',
+  keyboard:  'sits on a cubicle desk at the height of that desk',
+};
+// Removing one of these takes something with it, so the panel says so.
+const TOGETHER = {
+  vitrine: 'and its glass',
+  rackBay: 'and whatever is stacked on it — loose crates on the floor stay',
+};
+const NO_CONTENTS = {
+  chamber: 'A vault holds a crystal and its portal, and nothing else goes in.',
+  atrium:  'An atrium is a hole through the building, not a room — what you see in it is placed from the floor below.',
+  void:    'Void is the absence of floor. Nothing is in it.',
+};
+// everything the game gives a room no matter what it is
+const ALWAYS = [
+  'strip lights on the ceiling grid, some dead, some flickering',
+  'the wall switch that turns them on',
+  'skirting, cornice and a soffit over the doorways',
+  'coffered downstand beams',
+  'an arcade of windows along its longest solid wall',
+];
+function itemsOf(rm){
+  const ov = L.roomItems[rm.id] || {};
+  return { base: DEFAULTS[rm.t] || [], add: ov.add || [], remove: ov.remove || [] };
+}
+function setItems(rm, fn){
+  mark();
+  const o = L.roomItems[rm.id] || {add:[],remove:[]};
+  o.add = o.add || []; o.remove = o.remove || [];
+  fn(o);
+  if(o.add.length || o.remove.length) L.roomItems[rm.id] = o;
+  else delete L.roomItems[rm.id];
+  renderInsp(); draw(); dirty();
+}
+
 let L = null, lev = 0, view = {x:40,y:60,s:9};
 let sel = null, hover = null, GRID = null, BASE = null, problems = [];
 let drag = null;            // {kind, ...} whatever is being dragged
 let history = [], future = [];
 
 /* ---- loading ------------------------------------------------------------ */
-async function load(fresh) {
-  const draft = fresh ? null : localStorage.getItem('cm-draft');
-  if (draft) { L = JSON.parse(draft); }
-  else {
-    L = await (await fetch('level.json?' + Date.now())).json();
-  }
+// Fill in anything a plan may be missing, so an older or hand-written file
+// opens instead of throwing halfway through the first draw.
+function adopt(plan){
+  L = plan;
   L.corridors = L.corridors || [];
   // every rectangle needs a name of its own, so a drag that rebuilds the arrays
   // can find the same thing again afterwards
@@ -153,6 +232,18 @@ async function load(fresh) {
   L.placed = L.placed || {}; L.placed.vendors = L.placed.vendors || [];
   L.placed.guns = L.placed.guns || []; L.edits = L.edits || {};
   L.roomItems = L.roomItems || {};
+  L.stairs = L.stairs || []; L.drops = L.drops || [];
+  L.buttonPrefs = L.buttonPrefs || []; L.hubExits = L.hubExits || [];
+  sel = null;
+}
+// enough of a check that opening the wrong file says so instead of white-screening
+function looksLikeAPlan(o){
+  return o && typeof o === 'object' && Array.isArray(o.rooms)
+      && o.hub && typeof o.size === 'number' && typeof o.levels === 'number';
+}
+async function load(fresh) {
+  const draft = fresh ? null : localStorage.getItem('cm-draft');
+  adopt(draft ? JSON.parse(draft) : await (await fetch('level.json?' + Date.now())).json());
   rebuild(); fit();
 }
 function dirty(){ localStorage.setItem('cm-draft', JSON.stringify(L)); el('save').classList.add('on'); }
@@ -778,8 +869,10 @@ function renderInsp(){
         : 'Automatic: two opposite faces so the room is a through-route, and a third for choice. Click a pale square to place your own — the first click makes them all yours.'}</p>
       ${doors.map(d=>`<span class="chip${d.auto?' auto':''}">${d.side} at ${d.at}</span>`).join('')}
       ${rm.doors?'<div class="row"><button class="btn" id="dauto">back to automatic</button></div>':''}
+      ${contentsHTML(rm)}
       <div class="sect">remove</div>
       <button class="btn" id="del" style="width:100%">delete this room</button>`;
+    wireContents(rm);
     el('ty').onchange=e=>{mark(); rm.t=e.target.value; rebuild(); dirty();};
     el('enc').onchange=e=>{mark(); if(e.target.value==='0') rm.enclosed=false; else delete rm.enclosed; rebuild(); dirty();};
     const da=el('dauto'); if(da) da.onclick=()=>{mark(); delete rm.doors; rebuild(); dirty();};
@@ -790,6 +883,60 @@ function renderInsp(){
   n.innerHTML=`<div class="sect">cell ${sel.r},${sel.c}</div>
     <p class="hint">Nothing placed here. It is ${({'.':'corridor','#':'wall','+':'room floor','/':'stair',' ':'nothing','H':'hub floor','v':'vault'})[GRID[lev][sel.r]?.[sel.c]]||'nothing'}.</p>`
     + (gh?`<div class="sect">${gh.n}</div><p class="hint">Drawn dashed because the generator cuts it, not this page — it is not yours to move. Put a room through it and the walkway loses its landing.</p>`:'');
+}
+/* The contents of a room, and the two ways to change them: take away something
+   the type gives you, or add something it does not. Nothing is written into the
+   file unless you change it — the defaults stay where they belong, in the game,
+   so retyping a room re-furnishes it instead of leaving last type's furniture
+   behind under a new name. */
+function contentsHTML(rm){
+  if(NO_CONTENTS[rm.t])
+    return `<div class="sect">contents</div><p class="hint">${NO_CONTENTS[rm.t]}</p>`;
+  const {base, add, remove} = itemsOf(rm);
+  const nm=(k)=>k.replace(/([A-Z])/g,' $1').toLowerCase();
+  let h = `<div class="sect">contents</div>`;
+  if(!base.length && !add.length) h += `<p class="hint">A ${rm.t} is left bare.</p>`;
+  for(const it of base){
+    if(remove.includes(it)) continue;
+    h += `<div class="item def"><span class="nm">${nm(it)}${
+      FITTINGS.has(it)?' <span class="dim">· fitting</span>':''}${
+      TOGETHER[it]?` <span class="dim">${TOGETHER[it]}</span>`:''}</span>
+      <span class="x" data-rm="${it}" title="take it out">✕</span></div>`;
+  }
+  for(const it of add)
+    h += `<div class="item"><span class="nm">${nm(it)} <span class="dim">· added</span></span>
+      <span class="x" data-un="${it}" title="undo the addition">✕</span></div>`;
+  for(const it of remove)
+    h += `<div class="item gone"><span class="nm">${nm(it)}</span>
+      <span class="x" data-re="${it}" title="put it back">↺</span></div>`;
+  const have = new Set([...base.filter(i=>!remove.includes(i)), ...add]);
+  const groups = Object.entries(PALETTE).map(([g,list])=>{
+    const opts = list.filter(i=>!have.has(i) && !NO_ADD[i])
+      .map(i=>`<option value="${i}">${nm(i)}</option>`).join('');
+    return opts ? `<optgroup label="${g}">${opts}</optgroup>` : '';
+  }).join('');
+  h += `<select id="additem"><option value="">add something…</option>${groups}</select>`;
+  const blocked = base.filter(i=>NO_ADD[i] && !remove.includes(i));
+  if(blocked.length) h += `<p class="hint">${blocked.map(i=>
+    `<b>${nm(i)}</b> ${NO_ADD[i]}`).join('; ')} — so ${blocked.length>1?'those are':'that is'} yours to take away but not to put elsewhere.</p>`;
+  h += `<p class="hint">Added things are set down clear of the middle. They are not
+    arranged the way the type lays out its own furniture, because only the type knows that plan.</p>`;
+  h += `<div class="sect">it also gets</div><p class="hint">${ALWAYS.join('; ')} — none of
+    that is per-room, so there is nothing here to change.</p>`;
+  return h;
+}
+function wireContents(rm){
+  const sel2=el('additem');
+  if(sel2) sel2.onchange=(e)=>{ const v=e.target.value; if(!v) return;
+    setItems(rm,(o)=>{ const i=o.remove.indexOf(v);
+      // putting back something you took out is not the same as adding it
+      if(i>=0) o.remove.splice(i,1); else if(!o.add.includes(v)) o.add.push(v); }); };
+  el('insp').querySelectorAll('[data-rm]').forEach(n=>n.onclick=()=>
+    setItems(rm,(o)=>{ if(!o.remove.includes(n.dataset.rm)) o.remove.push(n.dataset.rm); }));
+  el('insp').querySelectorAll('[data-un]').forEach(n=>n.onclick=()=>
+    setItems(rm,(o)=>{ o.add=o.add.filter(x=>x!==n.dataset.un); }));
+  el('insp').querySelectorAll('[data-re]').forEach(n=>n.onclick=()=>
+    setItems(rm,(o)=>{ o.remove=o.remove.filter(x=>x!==n.dataset.re); }));
 }
 function delFitting(){
   mark();
@@ -917,6 +1064,29 @@ el('agun').onclick=()=>{ mark(); const [r,c]=centreCell();
   sel={kind:'gun',i:L.placed.guns.length-1,o:L.placed.guns[L.placed.guns.length-1]}; rebuild(); dirty(); };
 el('revert').onclick=()=>{ if(!confirm('Throw away your changes and reload the saved level?')) return;
   localStorage.removeItem('cm-draft'); location.reload(); };
+
+/* Open a level.json you exported earlier. The draft in this browser is only
+   ever one browser's worth of memory — clear the site data, change machine, and
+   it is gone — so the exported file has to be a way back in and not just a way
+   out. Undoable, because opening the wrong file should cost one keystroke. */
+el('open').onclick=()=>el('file').click();
+el('file').onchange=async(e)=>{
+  const f=e.target.files&&e.target.files[0]; if(!f) return;
+  e.target.value='';                                   // so the same file re-opens
+  let plan;
+  try { plan=JSON.parse(await f.text()); }
+  catch(err){ alert(`${f.name} is not JSON.\n\n${err.message}`); return; }
+  if(!looksLikeAPlan(plan)){
+    alert(`${f.name} does not look like a Crystal Maze plan — a plan has rooms, a hub, a size and a level count.`);
+    return;
+  }
+  if(el('save').classList.contains('on') &&
+     !confirm('You have unsaved changes. Open this plan over them?')) return;
+  mark();
+  adopt(plan); rebuild(); fit(); dirty();
+  el('insp').innerHTML=`<div class="sect">opened ${f.name}</div>
+    <p class="hint">${L.rooms.length} rooms across ${L.levels} floors. Undo puts back what was here before.</p>`;
+};
 el('save').onclick=()=>{
   const bad=problems.filter(p=>p.sev==='bad').length;
   if(bad && !confirm(`${bad} problem${bad>1?'s':''} the generator will refuse. Export anyway?`)) return;
@@ -924,9 +1094,12 @@ el('save').onclick=()=>{
   const a=document.createElement('a'); a.href=URL.createObjectURL(b); a.download='level.json'; a.click();
   el('save').classList.remove('on');
   el('insp').innerHTML=`<div class="sect">exported</div>
-    <p class="hint">Save it over <b>tools/level.json</b>, then:</p>
+    <p class="hint">It is in your downloads as <b>level.json</b>. To put it in the game, save it
+    over <b>tools/level.json</b> and run:</p>
     <p class="hint"><code>node tools/genmaze.js</code> — check it<br>
     <code>node tools/genmaze.js --write</code> — build the game</p>
+    <p class="hint">Keep the file. <b>open a plan…</b> reads it back, which is the only way in
+    if this browser loses its draft.</p>
     <p class="hint">The generator has the last word: it checks vault gating and stair footings, which this page leaves to it.</p>`;
 };
 

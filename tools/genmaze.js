@@ -296,17 +296,26 @@ if (ROOMS_FIRST) {
   }
   for (const rm of LEVEL.rooms) {
     const R = { r1: rm.r1, c1: rm.c1, r2: rm.r2, c2: rm.c2 };
+    /* What the construction kit was told this particular room should and
+       should not contain. Resolved here, against the room's own id, so nothing
+       downstream has to carry the id or know the kit exists. A room nobody
+       touched has none, and the splice comes out byte-identical. */
+    const ov = (LEVEL.roomItems || {})[rm.id];
+    const items = ov && ((ov.add || []).length || (ov.remove || []).length)
+      ? { ...(ov.add && ov.add.length ? { add: ov.add } : {}),
+          ...(ov.remove && ov.remove.length ? { remove: ov.remove } : {}) }
+      : null;
     if (rm.t === 'atrium') { atriumBlocks.push({ ...R, lev: rm.lev }); continue; }
     if (rm.t === 'chamber') { chamberSlots.push({ ...R, lev: rm.lev }); continue; }
     // a hole in the floor: no room, and no corridor either
     if (rm.t === 'void') { rect(rm.lev, R.r1, R.c1, R.r2, R.c2, VOID); continue; }
     if (rm.enclosed === false) {
       rect(rm.lev, R.r1, R.c1, R.r2, R.c2, rm.t === 'water' ? '~' : '+');
-      rooms.push({ lev: rm.lev, r1: R.r1, c1: R.c1, r2: R.r2, c2: R.c2, type: rm.t, open: true });
+      rooms.push({ lev: rm.lev, r1: R.r1, c1: R.c1, r2: R.r2, c2: R.c2, type: rm.t, open: true, ...(items ? { items } : {}) });
     } else {
       rect(rm.lev, R.r1, R.c1, R.r2, R.c2, WALL);
       rect(rm.lev, R.r1 + 1, R.c1 + 1, R.r2 - 1, R.c2 - 1, rm.t === 'water' ? '~' : '+');
-      rooms.push({ lev: rm.lev, r1: R.r1 + 1, c1: R.c1 + 1, r2: R.r2 - 1, c2: R.c2 - 1, type: rm.t });
+      rooms.push({ lev: rm.lev, r1: R.r1 + 1, c1: R.c1 + 1, r2: R.r2 - 1, c2: R.c2 - 1, type: rm.t, ...(items ? { items } : {}) });
     }
   }
 }
@@ -758,7 +767,7 @@ for (const s of STAIRS) {
 const levelText = (l) => G[l].map((row) => row.join('')).join('\n');
 const mapBlock = [0, 1, 2].map((l) => '`\n' + levelText(l) + '\n`').join(',\n');
 const src = `const MAPS = [\n${mapBlock}\n].map((s) => s.replace(/^\\n/, '').replace(/\\n$/, '').split('\\n'));
-const ROOM_META = ${JSON.stringify(rooms.map((r) => ({ lev: r.lev, r1: r.r1, c1: r.c1, r2: r.r2, c2: r.c2, type: r.type })))};
+const ROOM_META = ${JSON.stringify(rooms.map((r) => ({ lev: r.lev, r1: r.r1, c1: r.c1, r2: r.r2, c2: r.c2, type: r.type, ...(r.items ? { items: r.items } : {}) })))};
 const DROP_POINTS = ${JSON.stringify(DROPS)};
 /* Hand-placed fittings. Empty means "scatter them the way you always did" —
    the game falls back to its own rules — so a level that says nothing about

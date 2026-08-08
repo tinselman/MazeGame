@@ -2237,6 +2237,24 @@ const furniture = [];
   // ground floor.
   const xmasCands = [], XMAS_MAX = 8;
   let xmasRooms = [];
+  // rooms the construction kit asked for lanterns by name, which skip the
+  // draw further down and the exclusions it applies
+  const lanternAsked = [];
+
+  /* Which fittings each kind of room asks for. Lifted out of the branches so
+     that one list decides it and the construction kit has something to argue
+     with — before this, a chandelier was a push buried in the middle of the
+     restaurant branch and there was no way to want one anywhere else. */
+  const FITTINGS = {
+    restaurant: ['hearth', 'chandelier', 'fairyLights'],
+    living:     ['hearth', 'fairyLights'],
+    museum:     ['chandelier'],
+    gallery:    ['fairyLights'],
+    hall:       ['chandelier', 'fairyLights'],
+    cubicles:   ['terminals'],
+  };
+  const FITTING_KINDS = new Set(
+    ['hearth', 'chandelier', 'fairyLights', 'paperLanterns', 'terminals']);
 
   // A hearth stands against the inside face of a wall, facing in. The first
   // version placed it at the wall cell itself — its offset into the room was
@@ -2273,6 +2291,22 @@ const furniture = [];
     const t = rm.type;
     const g = (n) => grey(rm.r1, rm.c1, n);
 
+    /* What this room was told to go without. The construction kit writes it
+       per room; a room nobody has touched has none and every branch below
+       behaves exactly as it always did.
+
+       One kind cannot leave alone: a vitrine without its glass is a plinth.
+       The load on a rack bay is handled where it is placed instead, because
+       the same crate kind is also stacked loose on the floor, and those stand
+       up perfectly well once the racking has gone. */
+    const TOGETHER = { vitrine: ['vitrineGlass'] };
+    const off = new Set();
+    for (const k of (rm.items && rm.items.remove) || []) {
+      off.add(k); for (const also of TOGETHER[k] || []) off.add(also);
+    }
+    const has = (k) => !off.has(k);
+    const put = (kind, ...rest) => { if (!off.has(kind)) place(kind, ...rest); };
+
     if (t === 'restaurant') {
       // banquet tables down the long axis, chairs either side
       const n = Math.max(2, Math.floor((longX ? d : w) / 6));
@@ -2284,43 +2318,38 @@ const furniture = [];
         const rot = longX ? 0 : Math.PI / 2;
         for (let k = 0; k < runs; k++) {
           const so = ((k + 0.5) / runs - 0.5) * span;
-          place('banquetTable', longX ? tx + so : tx, y, longX ? tz : tz + so, rot, g(k));
+          put('banquetTable', longX ? tx + so : tx, y, longX ? tz : tz + so, rot, g(k));
           for (let c2 = 0; c2 < 3; c2++) {
             const co = (c2 - 1) * 1.0;
             for (const side of [-1, 1]) {
               const jx = (wobble(rm.r1, rm.c1, i * 31 + k * 7 + c2) - 0.5) * 0.22;
               const chx = longX ? tx + so + co : tx + side * 1.15;
               const chz = longX ? tz + side * 1.15 : tz + so + co;
-              place('chair', chx, y, chz, Math.atan2(0, 0) + (longX ? (side > 0 ? Math.PI : 0) : (side > 0 ? -Math.PI / 2 : Math.PI / 2)) + jx,
+              put('chair', chx, y, chz, Math.atan2(0, 0) + (longX ? (side > 0 ? Math.PI : 0) : (side > 0 ? -Math.PI / 2 : Math.PI / 2)) + jx,
                     g(c2 + side));
             }
           }
         }
       }
-      tryHearth(rm, y, g);
-      chandelierRooms.push(rm);
-      xmasCands.push(rm);
 
     } else if (t === 'living') {
       for (const q of [[-1, -1], [1, 1]]) {
         const gx = cx + q[0] * w * 0.22, gz = cz + q[1] * d * 0.22;
-        place('sofa', gx, y, gz - 1.2, 0, g(1));
-        place('armchair', gx - 2.1, y, gz + 0.5, -0.9, g(2));
-        place('armchair', gx + 2.1, y, gz + 0.5, 0.9, g(3));
-        place('lowTable', gx, y, gz + 0.7, 0, g(4));
+        put('sofa', gx, y, gz - 1.2, 0, g(1));
+        put('armchair', gx - 2.1, y, gz + 0.5, -0.9, g(2));
+        put('armchair', gx + 2.1, y, gz + 0.5, 0.9, g(3));
+        put('lowTable', gx, y, gz + 0.7, 0, g(4));
       }
-      xmasCands.push(rm);
-      place('shelfUnit', cx, y, z0 + 0.5, 0, g(5));
-      place('shelfUnit', cx - 3.2, y, z0 + 0.5, 0, g(6));
-      tryHearth(rm, y, g);
+      put('shelfUnit', cx, y, z0 + 0.5, 0, g(5));
+      put('shelfUnit', cx - 3.2, y, z0 + 0.5, 0, g(6));
 
     } else if (t === 'museum') {
       const cols = Math.max(2, Math.floor(w / 6)), rows = Math.max(2, Math.floor(d / 6));
       for (let i = 0; i < cols; i++) for (let j = 0; j < rows; j++) {
         const px = x0 + ((i + 0.5) / cols) * w, pz = z0 + ((j + 0.5) / rows) * d;
         if (Math.abs(px - cx) < 2.4 && Math.abs(pz - cz) < 2.4) continue;
-        place('vitrine', px, y, pz, wobble(rm.r1, rm.c1, i * 3 + j) * 0.2 - 0.1, g(i + j));
-        place('vitrineGlass', px, y, pz, 0, 0xffffff);
+        put('vitrine', px, y, pz, wobble(rm.r1, rm.c1, i * 3 + j) * 0.2 - 0.1, g(i + j));
+        put('vitrineGlass', px, y, pz, 0, 0xffffff);
       }
       // These two used to land on the same spot in any room longer than it is
       // deep, which read as one bench lying through another.
@@ -2328,15 +2357,14 @@ const furniture = [];
       const sep = Math.max(1.7, (longX ? w : d) * 0.18);
       const bo = longX ? [[-sep, 0], [sep, 0]] : [[0, -sep], [0, sep]];
       for (let bi = 0; bi < 2; bi++) {
-        place('bench', cx + bo[bi][0], y, cz + bo[bi][1], longX ? 0 : Math.PI / 2, g(7 + bi));
+        put('bench', cx + bo[bi][0], y, cz + bo[bi][1], longX ? 0 : Math.PI / 2, g(7 + bi));
       }
-      chandelierRooms.push(rm);
 
     } else if (t === 'gallery') {
       const n = Math.max(3, Math.floor((w + d) / 7));
       for (let i = 0; i < n; i++) {
         const a = (i / n) * Math.PI * 2;
-        place('plinth', cx + Math.cos(a) * w * 0.3, y, cz + Math.sin(a) * d * 0.3, a, g(i));
+        put('plinth', cx + Math.cos(a) * w * 0.3, y, cz + Math.sin(a) * d * 0.3, a, g(i));
       }
       // Hang panels only where there is actually a wall behind them. A gallery
       // opens onto halls on at least two sides, so a third of them used to be
@@ -2344,17 +2372,16 @@ const furniture = [];
       for (let i = 0; i < 4; i++) {
         const fz = z0 + ((i + 0.7) / 4.4) * d;
         const rr = Math.floor(fz / CELL);
-        if (at(rm.lev, rr, rm.c1 - 1) === '#') place('hungPanel', x0 + 0.32, y + 1.9, fz, 0, g(i + 2));
-        if (at(rm.lev, rr, rm.c2 + 1) === '#') place('hungPanel', x1 - 0.32, y + 1.9, fz, Math.PI, g(i + 5));
+        if (at(rm.lev, rr, rm.c1 - 1) === '#') put('hungPanel', x0 + 0.32, y + 1.9, fz, 0, g(i + 2));
+        if (at(rm.lev, rr, rm.c2 + 1) === '#') put('hungPanel', x1 - 0.32, y + 1.9, fz, Math.PI, g(i + 5));
       }
       for (let i = 0; i < 4; i++) {
         const fx = x0 + ((i + 0.7) / 4.4) * w;
         const cc = Math.floor(fx / CELL);
-        if (at(rm.lev, rm.r1 - 1, cc) === '#') place('hungPanel', fx, y + 1.9, z0 + 0.32, -Math.PI / 2, g(i + 8));
-        if (at(rm.lev, rm.r2 + 1, cc) === '#') place('hungPanel', fx, y + 1.9, z1 - 0.32, Math.PI / 2, g(i + 11));
+        if (at(rm.lev, rm.r1 - 1, cc) === '#') put('hungPanel', fx, y + 1.9, z0 + 0.32, -Math.PI / 2, g(i + 8));
+        if (at(rm.lev, rm.r2 + 1, cc) === '#') put('hungPanel', fx, y + 1.9, z1 - 0.32, Math.PI / 2, g(i + 11));
       }
-      place('bench', cx, y, cz, longX ? 0 : Math.PI / 2, g(9));
-      xmasCands.push(rm);
+      put('bench', cx, y, cz, longX ? 0 : Math.PI / 2, g(9));
 
     } else if (t === 'warehouse') {
       const aisles = Math.max(2, Math.floor((longX ? d : w) / 5));
@@ -2366,20 +2393,22 @@ const furniture = [];
         const rot = longX ? 0 : Math.PI / 2;
         for (let k = 0; k < bays; k++) {
           const so = ((k + 0.5) / bays - 0.5) * span;
-          place('rackBay', longX ? rx + so : rx, y, longX ? rz : rz + so, rot, g(k));
-          if (wobble(rm.r1, rm.c1, i * 11 + k) > 0.35) {
-            place('pallet', longX ? rx + so : rx, y + 1.02, longX ? rz : rz + so, rot, g(k + 1));
-            place('crate', longX ? rx + so : rx, y + 1.24, longX ? rz : rz + so, rot, g(k + 2));
+          put('rackBay', longX ? rx + so : rx, y, longX ? rz : rz + so, rot, g(k));
+          // the shelf load sits ON the racking, so it goes when the racking does —
+          // unlike the loose stacks on the floor further down, which stand alone
+          if (has('rackBay') && wobble(rm.r1, rm.c1, i * 11 + k) > 0.35) {
+            put('pallet', longX ? rx + so : rx, y + 1.02, longX ? rz : rz + so, rot, g(k + 1));
+            put('crate', longX ? rx + so : rx, y + 1.24, longX ? rz : rz + so, rot, g(k + 2));
           }
-          if (wobble(rm.r1, rm.c1, i * 13 + k) > 0.5) {
-            place('crate', longX ? rx + so : rx, y + 2.12, longX ? rz : rz + so, rot, g(k + 3));
+          if (has('rackBay') && wobble(rm.r1, rm.c1, i * 13 + k) > 0.5) {
+            put('crate', longX ? rx + so : rx, y + 2.12, longX ? rz : rz + so, rot, g(k + 3));
           }
         }
         for (let k = 0; k < 3; k++) {
           const po = (wobble(rm.r1, rm.c1, i * 5 + k) - 0.5) * span;
           const stack = 1 + Math.floor(wobble(rm.r1, rm.c1, i * 17 + k) * 2);
           for (let sIdx = 0; sIdx < stack; sIdx++) {
-            place('crate', longX ? rx + po : rx + 1.9, y + sIdx * 0.9,
+            put('crate', longX ? rx + po : rx + 1.9, y + sIdx * 0.9,
                   longX ? rz + 1.9 : rz + po,
                   wobble(rm.r1, rm.c1, i * 7 + k + sIdx) * 0.5 - 0.25, g(k + sIdx));
           }
@@ -2390,9 +2419,9 @@ const furniture = [];
       const cols = Math.max(2, Math.floor(w / 5)), rows = Math.max(2, Math.floor(d / 5));
       for (let i = 0; i < cols; i++) for (let j = 0; j < rows; j++) {
         const px = x0 + ((i + 0.5) / cols) * w, pz = z0 + ((j + 0.5) / rows) * d;
-        place('desk', px, y, pz, 0, g(i + j));
-        place('chair', px, y, pz + 0.95, Math.PI, g(i + j + 1));
-        place('partition', px, y, pz - 0.95, 0, g(i + j + 2));
+        put('desk', px, y, pz, 0, g(i + j));
+        put('chair', px, y, pz + 0.95, Math.PI, g(i + j + 1));
+        put('partition', px, y, pz - 0.95, 0, g(i + j + 2));
       }
 
     } else if (t === 'cubicles') {
@@ -2402,33 +2431,55 @@ const furniture = [];
       for (let i = 0; i < cols; i++) for (let j = 0; j < rows; j++) {
         const px = x0 + ((i + 0.5) / cols) * w, pz = z0 + ((j + 0.5) / rows) * d;
         const cw = (w / cols) * 0.82, cd = (d / rows) * 0.82;
-        place('partition', px, y, pz - cd / 2, 0, g(i + j), cw / 1.66);
-        place('partition', px - cw / 2, y, pz, Math.PI / 2, g(i + j + 1), cd / 1.66);
-        place('partition', px + cw / 2, y, pz, Math.PI / 2, g(i + j + 2), cd / 1.66);
-        place('desk', px, y, pz - cd / 4, 0, g(i + j + 3));
-        place('chair', px, y, pz + cd / 5, Math.PI, g(i + j + 4));
-        place('monitor', px, y + 0.76, pz - cd / 4 - 0.1, 0, g(i + j + 5));
-        place('keyboard', px + 0.42, y + 0.78, pz - cd / 4 + 0.16, 0.2, g(i + j + 6));
-        screens.push({ x: px, y: y + 1.12, z: pz - cd / 4 + 0.05, lev: rm.lev });
+        put('partition', px, y, pz - cd / 2, 0, g(i + j), cw / 1.66);
+        put('partition', px - cw / 2, y, pz, Math.PI / 2, g(i + j + 1), cd / 1.66);
+        put('partition', px + cw / 2, y, pz, Math.PI / 2, g(i + j + 2), cd / 1.66);
+        put('desk', px, y, pz - cd / 4, 0, g(i + j + 3));
+        put('chair', px, y, pz + cd / 5, Math.PI, g(i + j + 4));
+        put('monitor', px, y + 0.76, pz - cd / 4 - 0.1, 0, g(i + j + 5));
+        put('keyboard', px + 0.42, y + 0.78, pz - cd / 4 + 0.16, 0.2, g(i + j + 6));
+        if (has('terminals')) screens.push({ x: px, y: y + 1.12, z: pz - cd / 4 + 0.05, lev: rm.lev });
       }
 
     } else if (t === 'hall') {
       const cols = Math.max(2, Math.floor(w / 7)), rows = Math.max(2, Math.floor(d / 7));
       for (let i = 0; i < cols; i++) for (let j = 0; j < rows; j++) {
-        place('column', x0 + ((i + 0.5) / cols) * w, y, z0 + ((j + 0.5) / rows) * d, 0, g(i + j));
+        put('column', x0 + ((i + 0.5) / cols) * w, y, z0 + ((j + 0.5) / rows) * d, 0, g(i + j));
       }
-      chandelierRooms.push(rm);
-      xmasCands.push(rm);
 
     } else if (t === 'alcove') {
       // A recess off the hall with somewhere to sit. Three cells square, so it
       // takes one bench against the blind corner and a low table, and that is
       // the whole of it — anything more and you could not turn around.
       const bx = x0 + w * 0.5, bz = z0 + d * 0.8;
-      place('bench', bx, y, bz, 0, g(1), 0.8);
-      place('lowTable', bx, y, z0 + d * 0.5, 0, g(2), 0.6);
-      place('shelfUnit', x0 + w * 0.15, y, z0 + d * 0.22, Math.PI / 2, g(3), 0.7);
+      put('bench', bx, y, bz, 0, g(1), 0.8);
+      put('lowTable', bx, y, z0 + d * 0.5, 0, g(2), 0.6);
+      put('shelfUnit', x0 + w * 0.15, y, z0 + d * 0.22, Math.PI / 2, g(3), 0.7);
     }
+
+    /* Fittings are memberships rather than props. A chandelier is this room
+       joining the list of rooms lit that way; a swag of fairy lights is a
+       place in a draw held after every room has been furnished. So they are
+       settled here, at the end, from what the type asks for adjusted by what
+       the room was told — which is also what lets you hang a chandelier in a
+       warehouse, a thing no branch above would ever do. */
+    const want = new Set(FITTINGS[t] || []);
+    for (const k of (rm.items && rm.items.remove) || []) want.delete(k);
+    for (const k of (rm.items && rm.items.add) || []) if (FITTING_KINDS.has(k)) want.add(k);
+    if (want.has('hearth')) tryHearth(rm, y, g);
+    if (want.has('chandelier')) chandelierRooms.push(rm);
+    if (want.has('fairyLights')) xmasCands.push(rm);
+    if (want.has('paperLanterns')) lanternAsked.push(rm);
+
+    /* Anything else you asked for that the type would not have placed. The
+       branches above each lay their furniture out to their own plan; a sofa in
+       a warehouse has no such plan, so it is simply set down clear of the
+       middle, in the same deterministic scatter the rest of the room uses. */
+    const extra = ((rm.items && rm.items.add) || []).filter((k) => !FITTING_KINDS.has(k));
+    extra.forEach((kind, i) => {
+      const a = (i / Math.max(1, extra.length)) * Math.PI * 2 + wobble(rm.r1, rm.c1, i) * 0.9;
+      place(kind, cx + Math.cos(a) * w * 0.3, y, cz + Math.sin(a) * d * 0.3, a, g(20 + i));
+    });
   }
 
   for (const meta of ROOM_META) furnish(meta);
@@ -2437,8 +2488,13 @@ const furniture = [];
      candidates in ROOM_META order put all eight on the ground floor, which is
      the one place you already have plenty to look at. */
   {
+    /* A room that asked for lights by name is in before the draw starts. The
+       eight are a budget on how much of this the building can take, not a
+       lottery you should be able to lose after saying you wanted it. */
+    for (const rm of xmasCands) if (rm.items && (rm.items.add || []).includes('fairyLights')
+      && !xmasRooms.includes(rm)) xmasRooms.push(rm);
     const byLev = [[], [], []];
-    for (const rm of xmasCands) byLev[rm.lev].push(rm);
+    for (const rm of xmasCands) if (!xmasRooms.includes(rm)) byLev[rm.lev].push(rm);
     for (let i = 0; xmasRooms.length < XMAS_MAX; i++) {
       let took = false;
       for (const list of byLev) {
@@ -2493,7 +2549,10 @@ const furniture = [];
   }
 
   for (const rm of chandelierRooms) {
-    const room = props.switches.find((sw) => !sw.atrium && sw.cells.some(
+    // ...and on its own floor. Rooms stack, so a rect test alone hung an
+    // upstairs chandelier off the switch of whatever sat underneath it — the
+    // same trap the swags and the lanterns already step around.
+    const room = props.switches.find((sw) => !sw.atrium && sw.lev === rm.lev && sw.cells.some(
       ([r, c]) => r >= rm.r1 && r <= rm.r2 && c >= rm.c1 && c <= rm.c2));
     if (room) {
       room.chandelier = true; rm.switchRoom = room;
@@ -2812,6 +2871,12 @@ const furniture = [];
       return tex;
     })();
     const taken = new Set(xmasRooms);
+    /* Asked for by name in the construction kit. These skip the exclusions
+       below — if you want lanterns over the racking, that is your building and
+       your call, and the reason the rule exists belongs in the kit's hint text
+       rather than in a veto. */
+    const picked = lanternAsked.filter((rm) => !taken.has(rm));
+    for (const rm of picked) taken.add(rm);
     const cands = [[], [], []];
     for (const meta of ROOM_META) {
       if (taken.has(meta) || meta.type === 'alcove') continue;
@@ -2820,7 +2885,6 @@ const furniture = [];
       if ((meta.c2 - meta.c1) < 3 || (meta.r2 - meta.r1) < 3) continue;
       cands[meta.lev].push(meta);
     }
-    const picked = [];
     for (let i = 0; picked.length < 5; i++) {
       let took = false;
       for (const list of cands) {

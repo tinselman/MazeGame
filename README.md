@@ -569,6 +569,48 @@ plan that hides them is a plan you can run a room straight through without seein
 you broke. The generator still has the final word — vault gating and stair footings are
 its business, and it will refuse a plan this page was willing to draw.
 
+### What is in a room
+
+A room's type furnishes it, and the panel lists what that comes to — a museum's vitrines
+and benches, a warehouse's racking, a restaurant's banquet tables. Dashed entries are what
+the type gives you. Click the ✕ on one to take it out, or pick from the pulldown to add
+something the type would never place: a chandelier in a warehouse, fairy lights in a room
+that is not on the list, a sofa where there is no reason for one.
+
+Nothing is written to the file unless you change it. Defaults live in the game, not in the
+plan, so retyping a room re-furnishes it rather than leaving the last type's furniture
+behind under a new name — and a plan nobody has touched this way builds byte-identically.
+
+Two kinds of thing behave differently, and the panel says which is which. Most entries are
+**props**, placed to a layout the type works out from the room's own shape; one you add is
+set down clear of the middle instead, because only the type knows that plan. **Fittings** —
+chandelier, fairy lights, paper lanterns, hearth — are not props but memberships: whether
+this room is one of the ones lit that way. Fairy lights and lanterns are capped across the
+building (eight and five), so a room that asks for them by name is seated before the draw
+runs rather than left to lose a lottery, and an explicit request also steps around the
+rules that would normally exclude it. Ask for lanterns in a warehouse and you get them,
+racking or no racking.
+
+A few things are removable but not addable, and say so: a gallery's hung panels need a
+solid wall picked out behind each one, and a cubicle's screen glow is positioned against a
+particular desk. Taking a vitrine out takes its glass; taking the racking out takes what is
+stacked on it, though the loose crates on the floor stay where they are.
+
+About half of what a room looks like is not type-driven at all — the strip lights and their
+dead and flickering ones, the wall switch, skirting and cornice, coffered beams, the window
+arcade. Those are listed under **it also gets**, as information rather than as choices,
+because there is no per-room switch for them to hunt for.
+
+### Keeping and reloading a plan
+
+**export level.json** downloads the plan. **open a plan…** reads one back. The editor also
+keeps a draft in the browser as you work, but that is one browser's memory — clear the site
+data or move machine and it is gone, so the exported file is the copy that lasts. Opening
+one is undoable, and a file that is not a plan is refused rather than half-loaded.
+
+To put a plan into the game, save the exported file over `tools/level.json` and run the
+generator. It always reads that path regardless of where you run it from.
+
 Legend:
 
 ```
