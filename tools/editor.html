@@ -366,10 +366,13 @@ function buildGrid() {
    have made there deletes the override instead of storing a redundant one,
    which keeps the file honest about what has actually been touched. */
 function baseAt(l, r, c) {
-  const saved = L.edits; L.edits = {};
-  const g = buildGrid().grid[l][r][c];
-  L.edits = saved;
-  return g;
+  const saved = L.edits;
+  try {
+    L.edits = {};
+    return buildGrid().grid[l][r][c];
+  } finally {
+    L.edits = saved;          // restore even if the build throws, or every
+  }                           // hand edit is silently lost and then autosaved
 }
 function paint(r, c, ch) {
   if (r < 0 || c < 0 || r >= L.size || c >= L.size) return false;
@@ -718,6 +721,7 @@ function blockAt(lv, br, bc) {
 function slotOf(mx, my) {
   const c = Math.floor((mx - view.x) / view.s), r = Math.floor((my - view.y) / view.s);
   for (let br = 0; br < BANDS.length; br++) for (let bc = 0; bc < BANDS.length; bc++) {
+    if (lev === 0 && br === 2 && bc === 2) continue;   // the hub is not a slot
     const R = blockRect(br, bc);
     if (r >= R.r1 && r <= R.r2 && c >= R.c1 && c <= R.c2) return { br, bc };
   }
@@ -805,8 +809,15 @@ function movePoint(pt, r, c) {
   } else if (pt.kind === 'vendor') { Object.assign(L.placed.vendors[pt.i], { lev, r, c });
   } else if (pt.kind === 'gun')    { Object.assign(L.placed.guns[pt.i], { lev, r, c });
   } else if (pt.kind === 'stair') {
+    // Clamp the WHOLE flight, not just the cell you are holding: clamping the
+    // anchor alone let the tail run off the grid, which threw on the way down
+    // and wrote silently off-grid on the way right.
     const st = L.stairs[pt.i];
-    const dr = r - st.cells[0][0], dc = c - st.cells[0][1];
+    let dr = r - st.cells[0][0], dc = c - st.cells[0][1];
+    for (const [rr, cc] of st.cells) {
+      dr = Math.max(dr, 1 - rr); dr = Math.min(dr, L.size - 2 - rr);
+      dc = Math.max(dc, 1 - cc); dc = Math.min(dc, L.size - 2 - cc);
+    }
     st.cells = st.cells.map(([rr, cc]) => [rr + dr, cc + dc]);
   }
   rebuild(); dirty();
@@ -815,8 +826,24 @@ function movePoint(pt, r, c) {
 /* ---- what is under the pointer ------------------------------------------ */
 // Handles are tested in SCREEN space with a fixed 6px reach, so they stay
 // grabbable at any zoom rather than shrinking with the cells.
+/* A block's border sits EXACTLY on a hall handle by construction, and the
+   handle claimed a fixed 7px in every direction — so the outer 7 pixels of all
+   44 rooms grabbed a hall and reflowed the whole floor instead of selecting the
+   room. At the default zoom that is nearly two cells, roughly half the
+   clickable area of a narrow band. A hall is now only grabbed over the hall
+   ITSELF, never over the room beside it, and the reach never exceeds half the
+   corridor's width. */
+function handleUnder(mx, my) {
+  const h = pickHandle(mx, my);
+  if (!h) return null;
+  const r = (my - view.y) / view.s, c = (mx - view.x) / view.s;
+  const ln = L.lines[h.i];
+  const insideRow = r >= ln[0] - 0.5 && r <= ln[0] + ln[1] + 0.5;
+  const insideCol = c >= ln[0] - 0.5 && c <= ln[0] + ln[1] + 0.5;
+  return (insideRow || insideCol) ? h : null;
+}
 function pickHandle(mx, my) {
-  let best = null, bestD = 7;
+  let best = null, bestD = Math.max(3, Math.min(7, view.s * 0.9));
   for (const h of handles()) {
     const hy = view.y + h.at * view.s, hx = view.x + h.at * view.s;
     const inRow = mx >= view.x + B0() * view.s && mx <= view.x + (B1() + 1) * view.s;
@@ -1092,7 +1119,7 @@ cv.addEventListener('mousemove', (e) => {
   const pp = pickPoint(e.offsetX, e.offsetY);
   if ((pp && (!hotPt || hotPt.kind !== pp.kind || hotPt.i !== pp.i)) || (!pp && hotPt)) { hotPt = pp; draw(); }
   if (pp) { cv.style.cursor = 'move'; return; }
-  const hh = pickHandle(e.offsetX, e.offsetY);
+  const hh = handleUnder(e.offsetX, e.offsetY);
   if ((hh && (!hot || hot.i !== hh.i || hot.edge !== hh.edge)) || (!hh && hot)) { hot = hh; draw(); }
   cv.style.cursor = hh ? 'ns-resize' : (drag ? 'grabbing' : 'grab');
   if (hh) return;
@@ -1120,7 +1147,7 @@ cv.addEventListener('mousedown', (e) => {
   }
   const pp = pickPoint(e.offsetX, e.offsetY);
   if (pp) { dragPt = pp; mark(); return; }
-  const hh = pickHandle(e.offsetX, e.offsetY);
+  const hh = handleUnder(e.offsetX, e.offsetY);
   if (hh) {
     const hy = view.y + hh.at * view.s;
     grabbing = { ...hh, axis: Math.abs(e.offsetY - hy) < 7 ? 'row' : 'col' };
@@ -1200,17 +1227,23 @@ document.getElementById('addband').onclick = () => {
 };
 document.getElementById('addstair').onclick = () => {
   mark();
-  const r = Math.round((cv.height / 2 - view.y) / view.s);
-  const c = Math.round((cv.width / 2 - view.x) / view.s);
+  const [r, c] = centreCell();
   const lo = Math.min(lev, L.levels - 2);
   L.stairs.push({ lo, cells: [[r, c], [r, c + 1], [r, c + 2], [r, c + 3]] });
   rebuild(); dirty();
 };
 
 // everything new lands at the middle of the view, ready to be dragged
+/* The canvas backing store is device pixels; view.x and the mouse are CSS
+   pixels. Mixing them put "the centre of the view" at the bottom-right corner
+   on any Retina screen — off the grid entirely, which crashed the grid build
+   and bricked the editor until you reloaded, with nothing shown to say so. */
 function centreCell() {
-  return [Math.round((cv.height / 2 - view.y) / view.s), Math.round((cv.width / 2 - view.x) / view.s)];
+  const w = cv.clientWidth, h = cv.clientHeight;
+  return [clampRow(Math.round((h / 2 - view.y) / view.s)),
+          clampRow(Math.round((w / 2 - view.x) / view.s))];
 }
+const clampRow = (v) => Math.max(1, Math.min(L.size - 2, v));
 document.getElementById('addvendor').onclick = () => {
   mark(); const [r, c] = centreCell();
   L.placed.vendors.push({ lev, r, c });

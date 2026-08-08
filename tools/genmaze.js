@@ -288,6 +288,12 @@ if (ROOMS_FIRST) {
     const e = LEVEL.envelope[l];
     if (e) rect(l, e.r1, e.c1, e.r2, e.c2, '.');
   }
+  // Corridor you placed yourself, on top of the corridor that is simply left
+  // over. Carved before the rooms, so a room dropped on one displaces it — the
+  // rooms are always the thing that wins.
+  for (const cd of (LEVEL.corridors || [])) {
+    rect(cd.lev, cd.r1, cd.c1, cd.r2, cd.c2, '.');
+  }
   for (const rm of LEVEL.rooms) {
     const R = { r1: rm.r1, c1: rm.c1, r2: rm.r2, c2: rm.c2 };
     if (rm.t === 'atrium') { atriumBlocks.push({ ...R, lev: rm.lev }); continue; }
@@ -357,8 +363,8 @@ function canPunch(lev, room, side) {
   const ch = G[lev][r][c];
   return ch !== VOID && ch !== WALL;
 }
-function punch(lev, room, side, at) {
-  if (!canPunch(lev, room, side)) return;
+function punch(lev, room, side, at, force) {
+  if (!force && !canPunch(lev, room, side)) return;
   if (side === 'N') rect(lev, room.r1 - 1, at, room.r1 - 1, at + 1, '.');
   if (side === 'S') rect(lev, room.r2 + 1, at, room.r2 + 1, at + 1, '.');
   if (side === 'W') rect(lev, at, room.c1 - 1, at + 1, room.c1 - 1, '.');
@@ -367,6 +373,17 @@ function punch(lev, room, side, at) {
 for (const rm of rooms) {
   const midR = Math.floor((rm.r1 + rm.r2) / 2), midC = Math.floor((rm.c1 + rm.c2) / 2);
   if (rm.open) continue;                   // no ring to punch through
+  /* A room with doors of its own gets exactly those and nothing else. `at` is
+     an offset along the wall measured from the room's own top-left, so the
+     door travels when the room is moved, and a push — which only ever
+     translates a rectangle — needs no repair at all. */
+  if (rm.doors && rm.doors.length) {
+    for (const d of rm.doors) {
+      const at = d.side === 'N' || d.side === 'S' ? rm.c1 + d.at : rm.r1 + d.at;
+      punch(rm.lev, rm, d.side, at, true);
+    }
+    continue;
+  }
   // two opposite sides always, so the room is a through-route
   const horizontal = (rm.c2 - rm.c1) >= (rm.r2 - rm.r1);
   if (horizontal) { punch(rm.lev, rm, 'W', midR); punch(rm.lev, rm, 'E', midR); }
@@ -487,7 +504,10 @@ for (const s of STAIRS) {
    definition, and the pre-flight only ever sees blocks.                      */
 const GALLERIES = (LEVEL && LEVEL.galleries) ? LEVEL.galleries : { row: B0 - 3, west: B0 + 18, east: B0 + 46, stairCol: B0 + 30 };
 const GALLERY_ROW = GALLERIES.row;          // three cells clear of the wall
-{
+// The galleries live on floors one and two, so a level with fewer than three
+// floors has nowhere to put them. Without this a small hand-made level dies
+// writing into a storey that does not exist.
+if (NLEV >= 3 && (!LEVEL || LEVEL.galleries)) {
   const nHall = LINES[0][0];                // the level-1 hall it leaves from
   const l2Hall = LINES[1][0] + LINES[1][1] - 1;
   const WEST = GALLERIES.west, EAST = GALLERIES.east;
@@ -606,6 +626,28 @@ if (LEVEL && LEVEL.edits) {
 
 /* ================================================================ VALIDATE */
 const problems = [];
+
+/* ---- is every room actually open? --------------------------------------
+   A doorway is only cut where there is somewhere to go on the other side, and
+   with rooms placed freely a room can end up with nothing on any of its four
+   faces — most easily by leaving a one-cell gap to its neighbour, where the
+   probe lands on the neighbour's wall and every punch quietly declines. The
+   room is then sealed, the game is unfinishable, and nothing says a word. The
+   orphan rule catches it eventually, but by cell rather than by name, so this
+   says which room and why. */
+for (const rm of rooms) {
+  if (rm.open) continue;
+  let ways = 0;
+  for (let r = rm.r1 - 1; r <= rm.r2 + 1; r++) for (let c = rm.c1 - 1; c <= rm.c2 + 1; c++) {
+    const onRing = r === rm.r1 - 1 || r === rm.r2 + 1 || c === rm.c1 - 1 || c === rm.c2 + 1;
+    if (!onRing || !inb(r, c)) continue;
+    const ch = G[rm.lev][r][c];
+    if (ch !== WALL && ch !== VOID) ways++;
+  }
+  if (!ways) problems.push(`${rm.type} at ${rm.lev}:${rm.r1},${rm.c1} is sealed — no doorway could be cut ` +
+    `(nothing walkable on any face; a one-cell gap to a neighbour does this)`);
+}
+
 const isDoor = (chr) => DOORCH.includes(chr);
 const isRoom = (chr) => chr === '+' || chr === '~' || chr === '*';
 
