@@ -40,6 +40,12 @@ const LEVEL = (() => {
   try { return JSON.parse(fs.readFileSync(path.join(__dirname, 'level.json'), 'utf8')); }
   catch (e) { return null; }
 })();
+// Two shapes of level file. The old one described the building as hall lines
+// with rooms in the gaps; the new one describes it as ROOMS, and corridor is
+// whatever is left over inside the envelope — which is the way a person
+// actually thinks about a floor plan, and the way you can move one room
+// without moving its neighbours.
+const ROOMS_FIRST = !!(LEVEL && LEVEL.rooms);
 const PAD = LEVEL ? LEVEL.pad : 6;
 const SIZE = LEVEL ? LEVEL.size : 66 + 2 * PAD;
 const NLEV = LEVEL ? LEVEL.levels : 3;
@@ -62,7 +68,7 @@ const rng = mulberry32(20260719);
 // Halls, as [start, width]. Spacing and width are both deliberately uneven —
 // a regular grid reads as graph paper. Blocks therefore come out at a range of
 // sizes, from cramped service rooms to long galleries.
-const LINES = LEVEL ? LEVEL.lines : [
+const LINES = (LEVEL && LEVEL.lines) ? LEVEL.lines : [
   [1, 3], [11, 2], [21, 4], [41, 3], [50, 2], [62, 3],
 ].map(([s0, w]) => [s0 + PAD, w]);
 // -> bands 7, 8, 16, 6, 10 cells wide. Nothing so small it cannot hold a room
@@ -75,11 +81,12 @@ for (let i = 0; i < LINES.length - 1; i++) {
 // -> [4,11] [14,22] [26,39] [43,50] [53,61]
 const MID = 2;                                   // the central band index
 
-const HUB = { r1: BANDS[MID][0], c1: BANDS[MID][0], r2: BANDS[MID][1], c2: BANDS[MID][1] };
+const HUB = (LEVEL && LEVEL.hub) ? { r1: LEVEL.hub.r1, c1: LEVEL.hub.c1, r2: LEVEL.hub.r2, c2: LEVEL.hub.c2 }
+  : { r1: BANDS[MID][0], c1: BANDS[MID][0], r2: BANDS[MID][1], c2: BANDS[MID][1] };
 const START = [HUB.r1 + 2, HUB.c1 + 2];
 
 // Six ways out of the centre, all onto the ring halls that bound it.
-const HUB_EXITS = LEVEL ? LEVEL.hubExits : [
+const HUB_EXITS = (LEVEL && LEVEL.hubExits) ? LEVEL.hubExits : [
   { side: 'N', at: 29 }, { side: 'N', at: 36 },
   { side: 'S', at: 29 }, { side: 'S', at: 36 },
   { side: 'W', at: 32 }, { side: 'E', at: 32 },
@@ -88,7 +95,7 @@ const HUB_EXITS = LEVEL ? LEVEL.hubExits : [
 // Which halls exist on each level. Level 1 carries the whole grid, so its
 // walkways ring every atrium; level 2 keeps only the inner loop, so the
 // building thins as it rises.
-const LEVEL_LINES = LEVEL ? LEVEL.levelLines : [
+const LEVEL_LINES = (LEVEL && LEVEL.levelLines) ? LEVEL.levelLines : [
   [0, 1, 2, 3, 4, 5],
   [0, 1, 2, 3, 4, 5],
   [1, 2, 3, 4],
@@ -97,7 +104,7 @@ const LEVEL_LINES = LEVEL ? LEVEL.levelLines : [
 // Blocks are addressed [bandRow][bandCol]. `t` is the room type, which drives
 // the props; `atrium` cuts the block through every floor.
 const B = (r, c) => ({ br: r, bc: c });
-const PLAN = LEVEL ? LEVEL.plan : [
+const PLAN = (LEVEL && LEVEL.plan) ? LEVEL.plan : [
   // ---- level 0: the ground floor, deliberately open
   { lev: 0, ...B(0, 0), t: 'warehouse' },
   { lev: 0, ...B(0, 1), t: 'atrium' },
@@ -161,7 +168,7 @@ const STAIRS = [
   { lo: 1, cells: [[45, 22], [46, 22], [47, 22], [48, 22]] },
   { lo: 1, cells: [[18, 42], [17, 42], [16, 42], [15, 42]] },
 ].map((st) => ({ ...st, cells: st.cells.map(([r, c]) => [r + PAD, c + PAD]) }));
-if (LEVEL) { STAIRS.length = 0; for (const st of LEVEL.stairs) STAIRS.push({ lo: st.lo, cells: st.cells.map((c) => c.slice()) }); }
+if (LEVEL && LEVEL.stairs) { STAIRS.length = 0; for (const st of LEVEL.stairs) STAIRS.push({ lo: st.lo, cells: st.cells.map((c) => c.slice()) }); }
 // Kept separate because OVERPASSES and the exterior galleries both append their
 // own flights to STAIRS below, and the level file wants only what was authored.
 const AUTHORED_STAIRS = STAIRS.map((s2) => ({ lo: s2.lo, cells: s2.cells.map((c) => c.slice()) }));
@@ -177,7 +184,7 @@ const OVERPASSES = [
   { lo: 0, axis: 'c', at: 7,  a: 13, b: 20, rise: 3 },   // over the north-west atrium
   { lo: 0, axis: 'r', at: 56, a: 13, b: 20, rise: 3 },   // over the east atrium
 ].map((o) => ({ ...o, at: o.at + PAD, a: o.a + PAD, b: o.b + PAD }));
-if (LEVEL) { OVERPASSES.length = 0; for (const o of LEVEL.overpasses) OVERPASSES.push({ ...o }); }
+if (LEVEL && LEVEL.overpasses) { OVERPASSES.length = 0; for (const o of LEVEL.overpasses) OVERPASSES.push({ ...o }); }
 for (const o of OVERPASSES) {
   const cell = (i) => (o.axis === 'c' ? [o.at, i] : [i, o.at]);
   const up = [], down = [];
@@ -194,7 +201,7 @@ const DROPS = [
   { lev: 1, at: [11, 16], into: [10, 16] },
   { lev: 1, at: [51, 32], into: [52, 32] },
 ].map((d) => ({ ...d, at: [d.at[0] + PAD, d.at[1] + PAD], into: [d.into[0] + PAD, d.into[1] + PAD] }));
-if (LEVEL) { DROPS.length = 0; for (const d of LEVEL.drops) DROPS.push({ ...d }); }
+if (LEVEL && LEVEL.drops) { DROPS.length = 0; for (const d of LEVEL.drops) DROPS.push({ ...d }); }
 
 /* ---------------------------------------------------------- pre-flight
    Two rules about the third dimension, both of which are silent disasters if
@@ -242,8 +249,9 @@ function rect(l, r1, c1, r2, c2, ch) {
     for (let c = Math.max(0, c1); c <= Math.min(SIZE - 1, c2); c++) G[l][r][c] = ch;
 }
 
-// halls
-for (let l = 0; l < NLEV; l++) {
+// halls — only in the band shape. Rooms-first fills its envelope with corridor
+// and lets the rooms displace it, so there is no hall grid to lay down.
+if (!ROOMS_FIRST) for (let l = 0; l < NLEV; l++) {
   for (const li of LEVEL_LINES[l]) {
     const [s, w] = LINES[li];
     rect(l, s, B0, s + w - 1, B1, '.');           // horizontal
@@ -259,9 +267,44 @@ for (let l = 0; l < NLEV; l++) {
     if (r < B0 || r > B1 || c < B0 || c > B1) G[l][r][c] = VOID;
   }
 }
+// rooms-first draws its own outer wall around each envelope
+if (ROOMS_FIRST) for (let l = 0; l < NLEV; l++) {
+  const e = LEVEL.envelope[l];
+  if (!e) continue;
+  rect(l, e.r1 - 1, e.c1 - 1, e.r1 - 1, e.c2 + 1, l === 0 ? WALL : VOID);
+  rect(l, e.r2 + 1, e.c1 - 1, e.r2 + 1, e.c2 + 1, l === 0 ? WALL : VOID);
+  rect(l, e.r1 - 1, e.c1 - 1, e.r2 + 1, e.c1 - 1, l === 0 ? WALL : VOID);
+  rect(l, e.r1 - 1, e.c2 + 1, e.r2 + 1, e.c2 + 1, l === 0 ? WALL : VOID);
+}
 
-// blocks: wall them in, then hollow the ones the plan uses
+/* ---- rooms first --------------------------------------------------------
+   Fill the envelope with corridor, then put the rooms into it. What is left
+   over between them IS the hallway — there is no separate hall grid to keep in
+   step, which is why a room can be moved or resized on its own without
+   dragging its neighbours along with it. */
 const rooms = [], chamberSlots = [], atriumBlocks = [];
+if (ROOMS_FIRST) {
+  for (let l = 0; l < NLEV; l++) {
+    const e = LEVEL.envelope[l];
+    if (e) rect(l, e.r1, e.c1, e.r2, e.c2, '.');
+  }
+  for (const rm of LEVEL.rooms) {
+    const R = { r1: rm.r1, c1: rm.c1, r2: rm.r2, c2: rm.c2 };
+    if (rm.t === 'atrium') { atriumBlocks.push({ ...R, lev: rm.lev }); continue; }
+    if (rm.t === 'chamber') { chamberSlots.push({ ...R, lev: rm.lev }); continue; }
+    // a hole in the floor: no room, and no corridor either
+    if (rm.t === 'void') { rect(rm.lev, R.r1, R.c1, R.r2, R.c2, VOID); continue; }
+    if (rm.enclosed === false) {
+      rect(rm.lev, R.r1, R.c1, R.r2, R.c2, rm.t === 'water' ? '~' : '+');
+      rooms.push({ lev: rm.lev, r1: R.r1, c1: R.c1, r2: R.r2, c2: R.c2, type: rm.t, open: true });
+    } else {
+      rect(rm.lev, R.r1, R.c1, R.r2, R.c2, WALL);
+      rect(rm.lev, R.r1 + 1, R.c1 + 1, R.r2 - 1, R.c2 - 1, rm.t === 'water' ? '~' : '+');
+      rooms.push({ lev: rm.lev, r1: R.r1 + 1, c1: R.c1 + 1, r2: R.r2 - 1, c2: R.c2 - 1, type: rm.t });
+    }
+  }
+}
+if (!ROOMS_FIRST)
 for (const p of PLAN) {
   const R = blockRect(p.br, p.bc);
   if (p.t === 'atrium') { atriumBlocks.push({ ...R, lev: p.lev }); continue; }
@@ -297,7 +340,25 @@ for (let l = 1; l < NLEV; l++) rect(l, HUB.r1, HUB.c1, HUB.r2, HUB.c2, VOID);
 /* ---- doorways ---------------------------------------------------------
    Every room is opened onto at least two different halls. That, plus the fact
    that the halls form a loop grid, is what makes dead ends impossible.      */
+/* A doorway only makes sense where there is something on the other side of it.
+   With rooms placed freely rather than tiled into a hall grid, a room can have
+   a face onto open air — an alcove hanging off the edge of a thinned upper
+   floor, say — and punching there just opens onto nothing and strands the
+   cells behind it. So each side is checked before it is cut, and a room that
+   ends up with no way in at all is caught by the dead-end rule rather than
+   being silently sealed. */
+function canPunch(lev, room, side) {
+  const beyond = side === 'N' ? [room.r1 - 2, null] : side === 'S' ? [room.r2 + 2, null]
+               : side === 'W' ? [null, room.c1 - 2] : [null, room.c2 + 2];
+  const mid = (a, b) => Math.floor((a + b) / 2);
+  const r = beyond[0] === null ? mid(room.r1, room.r2) : beyond[0];
+  const c = beyond[1] === null ? mid(room.c1, room.c2) : beyond[1];
+  if (!inb(r, c)) return false;
+  const ch = G[lev][r][c];
+  return ch !== VOID && ch !== WALL;
+}
 function punch(lev, room, side, at) {
+  if (!canPunch(lev, room, side)) return;
   if (side === 'N') rect(lev, room.r1 - 1, at, room.r1 - 1, at + 1, '.');
   if (side === 'S') rect(lev, room.r2 + 1, at, room.r2 + 1, at + 1, '.');
   if (side === 'W') rect(lev, at, room.c1 - 1, at + 1, room.c1 - 1, '.');
@@ -372,7 +433,7 @@ chamberSlots.forEach((slot, i) => {
    Every one sits on a block that is empty on its own level, is not under an
    atrium, and has a room beneath it — the same three conditions the pre-flight
    enforces for whole rooms.                                                  */
-const ALCOVES = LEVEL ? LEVEL.alcoves : [
+const ALCOVES = (LEVEL && LEVEL.alcoves) ? LEVEL.alcoves : [
   // second floor
   { lev: 1, br: 0, bc: 3, v: 'S', h: 'W' },
   { lev: 1, br: 1, bc: 0, v: 'N', h: 'E' },
@@ -384,8 +445,8 @@ const ALCOVES = LEVEL ? LEVEL.alcoves : [
   { lev: 2, br: 4, bc: 0, v: 'N', h: 'E' },
   { lev: 2, br: 4, bc: 3, v: 'N', h: 'W' },
 ];
-const ALC_IN = LEVEL ? LEVEL.alcoveInterior : 3;                        // interior is ALC_IN x ALC_IN
-for (const a of ALCOVES) {
+const ALC_IN = (LEVEL && LEVEL.alcoveInterior) ? LEVEL.alcoveInterior : 3;                        // interior is ALC_IN x ALC_IN
+for (const a of (ROOMS_FIRST ? [] : ALCOVES)) {
   const R = blockRect(a.br, a.bc);
   const span = ALC_IN + 1;               // wall ring is the interior plus one each side
   const wr1 = a.v === 'N' ? R.r1 : R.r2 - span;
@@ -424,7 +485,7 @@ for (const s of STAIRS) {
    Carved as plain hall cells rather than PLAN blocks, which is what keeps
    them out of the support pre-flight: a cantilever has nothing beneath it by
    definition, and the pre-flight only ever sees blocks.                      */
-const GALLERIES = LEVEL ? LEVEL.galleries : { row: B0 - 3, west: B0 + 18, east: B0 + 46, stairCol: B0 + 30 };
+const GALLERIES = (LEVEL && LEVEL.galleries) ? LEVEL.galleries : { row: B0 - 3, west: B0 + 18, east: B0 + 46, stairCol: B0 + 30 };
 const GALLERY_ROW = GALLERIES.row;          // three cells clear of the wall
 {
   const nHall = LINES[0][0];                // the level-1 hall it leaves from
@@ -467,7 +528,7 @@ const BUTTON_PREFS = [
   { lev: 1, at: [12, 12] }, { lev: 0, at: [52, 52] }, { lev: 2, at: [23, 40] },
   { lev: 0, at: [12, 52] }, { lev: 1, at: [52, 23] }, { lev: 0, at: [23, 12] },
 ].map((b) => ({ ...b, at: [b.at[0] + PAD, b.at[1] + PAD] }));
-if (LEVEL) { BUTTON_PREFS.length = 0; for (const b of LEVEL.buttonPrefs) BUTTON_PREFS.push({ ...b }); }
+if (LEVEL && LEVEL.buttonPrefs) { BUTTON_PREFS.length = 0; for (const b of LEVEL.buttonPrefs) BUTTON_PREFS.push({ ...b }); }
 
 /* ---------------------------------------------------------------- --dump
    Everything above this line is the level: the decisions a person makes about
