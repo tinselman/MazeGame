@@ -1,1334 +1,951 @@
 <meta charset="utf-8">
 <title>Crystal Maze — construction kit</title>
-<!--
-  A plan editor for tools/level.json.
-
-  The level file holds every decision about what the building is; this page is
-  the place to make those decisions with a mouse instead of a text editor. It
-  reads the same file genmaze.js reads, derives the same geometry from it by
-  the same rules, and writes it back out.
-
-  The one rule that shapes everything here: a room is not a rectangle you draw,
-  it is the GAP BETWEEN HALL LINES. Halls run the full width of the building on
-  a street grid, which is what makes the floor a loop network and dead ends
-  structurally impossible. So resizing a room means moving the hall that bounds
-  it, and its neighbour across that hall resizes with it. That constraint is the
-  reason the building always works.
-
-  Serve this over http (the same server as the game) — it fetches level.json,
-  which a file:// page is not allowed to do.
--->
+<meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
-  :root {
-    --bg: #0d0f13; --panel: #14171d; --line: #262b34; --ink: #d8dde6;
-    --dim: #7c8595; --accent: #ffb765; --sel: #6fd3ff;
-  }
-  * { box-sizing: border-box; }
-  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink);
-               font: 13px/1.5 ui-monospace, Menlo, Consolas, monospace; }
-  #app { display: flex; height: 100%; }
-  #stage { flex: 1; position: relative; overflow: hidden; }
-  /* Pinned to the stage. Without an explicit width/height the canvas took its
-     size from the width attribute draw() sets, which then fed back into the
-     next draw and doubled it every frame. */
-  canvas { position: absolute; inset: 0; width: 100%; height: 100%; cursor: grab; }
-  canvas.dragging { cursor: grabbing; }
-
-  #bar {
-    position: absolute; top: 0; left: 0; right: 0; z-index: 5;
-    display: flex; gap: 14px; align-items: center; padding: 9px 14px;
-    background: linear-gradient(#0d0f13ee, #0d0f13aa); border-bottom: 1px solid var(--line);
-  }
-  #bar .grp { display: flex; gap: 5px; align-items: center; }
-  .btn {
-    background: #1a1e26; border: 1px solid var(--line); color: var(--ink);
-    padding: 4px 11px; border-radius: 4px; cursor: pointer; font: inherit;
-  }
-  .btn:hover { border-color: #3b4250; background: #222732; }
-  .btn.on { background: var(--accent); border-color: var(--accent); color: #17120a; font-weight: 700; }
-  .btn.ghost { opacity: .62; }
-  .lab { color: var(--dim); }
-
-  #side {
-    width: 335px; background: var(--panel); border-left: 1px solid var(--line);
-    display: flex; flex-direction: column; overflow: hidden;
-  }
-  #side h2 { margin: 0; padding: 11px 14px; font-size: 12px; letter-spacing: .09em;
-             text-transform: uppercase; color: var(--dim); border-bottom: 1px solid var(--line); }
-  #insp { flex: 1; overflow-y: auto; padding: 13px 14px 26px; }
-  .row { display: flex; justify-content: space-between; gap: 10px; padding: 3px 0; }
-  .row .k { color: var(--dim); }
-  .sect { margin: 16px 0 7px; color: var(--accent); font-size: 11px;
-          letter-spacing: .09em; text-transform: uppercase; }
-  select, input[type=number] {
-    background: #1a1e26; border: 1px solid var(--line); color: var(--ink);
-    padding: 4px 7px; border-radius: 4px; font: inherit; width: 100%;
-  }
-  .item {
-    display: flex; align-items: center; gap: 8px; padding: 3px 6px; margin: 2px 0;
-    background: #191d25; border: 1px solid var(--line); border-radius: 4px;
-  }
-  .item.def { opacity: .58; border-style: dashed; }
-  .item .nm { flex: 1; }
-  .item .x { cursor: pointer; color: var(--dim); padding: 0 3px; }
-  .item .x:hover { color: #ff7a5c; }
-  .hint { color: var(--dim); font-size: 12px; margin: 9px 0; }
-  #legend { position: absolute; left: 14px; bottom: 12px; z-index: 5;
-            background: #0d0f13cc; border: 1px solid var(--line); border-radius: 6px;
-            padding: 9px 12px; display: grid; grid-template-columns: auto auto; gap: 3px 10px; }
-  #legend i { width: 11px; height: 11px; display: inline-block; border-radius: 2px;
-              vertical-align: -1px; margin-right: 6px; }
-  #status { position: absolute; right: 14px; bottom: 12px; z-index: 5; color: var(--dim); }
-  #probs { padding: 9px 14px; border-bottom: 1px solid var(--line); max-height: 190px; overflow-y: auto; }
-  #probs.ok  { color: #6fdba0; }
-  .pr { padding: 4px 7px; margin: 3px 0; border-radius: 4px; cursor: pointer;
-        border-left: 3px solid transparent; background: #191d25; }
-  .pr.bad  { border-left-color: #ff6a4a; color: #ffb9a8; }
-  .pr.warn { border-left-color: #ffc861; color: #ffe0ad; }
-  .pr:hover { background: #222732; }
+  :root{--bg:#0e1116;--panel:#151a22;--line:#232a35;--ink:#d7dee8;--dim:#7d8798;
+        --hi:#ffc861;--sel:#6fd3ff;--bad:#ff6a4a;--warn:#ffc861;--ok:#6fdba0;}
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);
+    font:13px/1.5 ui-monospace,Menlo,Consolas,monospace;overflow:hidden}
+  #wrap{display:flex;height:100%}
+  #stage{flex:1;position:relative;min-width:0}
+  canvas{position:absolute;inset:0;width:100%;height:100%;cursor:default}
+  #bar{position:absolute;top:0;left:0;right:0;z-index:5;display:flex;gap:6px;
+    align-items:center;padding:8px 12px;background:linear-gradient(#0e1116ee,#0e1116aa);
+    flex-wrap:wrap}
+  .btn{background:#1b212b;border:1px solid var(--line);color:var(--ink);
+    padding:4px 9px;border-radius:5px;cursor:pointer;font:inherit}
+  .btn:hover{background:#222936}
+  .btn.on{background:var(--hi);border-color:var(--hi);color:#10161f}
+  .btn:disabled{opacity:.35;cursor:default}
+  .lbl{color:var(--dim);margin-left:6px}
+  .gap{width:12px;display:inline-block}
+  #side{width:330px;background:var(--panel);border-left:1px solid var(--line);
+    display:flex;flex-direction:column;overflow:hidden}
+  h2{margin:0;padding:9px 14px;font-size:11px;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--dim);border-bottom:1px solid var(--line)}
+  #probs{padding:8px 12px;max-height:180px;overflow-y:auto;border-bottom:1px solid var(--line)}
+  #probs.clean{color:var(--ok)}
+  .pr{padding:4px 7px;margin:3px 0;border-radius:4px;background:#191d25;
+    border-left:3px solid transparent;cursor:pointer}
+  .pr.bad{border-left-color:var(--bad);color:#ffb9a8}
+  .pr.warn{border-left-color:var(--warn);color:#ffe0ad}
+  #insp{padding:12px 14px;overflow-y:auto;flex:1}
+  .sect{color:var(--dim);font-size:10px;letter-spacing:.14em;text-transform:uppercase;
+    margin:14px 0 5px}
+  .sect:first-child{margin-top:0}
+  .hint{color:var(--dim);margin:6px 0}
+  select,input[type=text]{width:100%;background:#10151d;color:var(--ink);
+    border:1px solid var(--line);border-radius:5px;padding:5px 7px;font:inherit}
+  .row{display:flex;gap:6px;margin-top:6px}
+  .row .btn{flex:1}
+  .chip{display:inline-block;background:#1b212b;border:1px solid var(--line);
+    border-radius:12px;padding:2px 9px;margin:2px 3px 2px 0;cursor:pointer}
+  .chip.auto{border-style:dashed;color:var(--dim)}
+  .chip:hover{border-color:var(--bad)}
+  #legend{position:absolute;left:12px;bottom:12px;z-index:5;background:#141922dd;
+    border:1px solid var(--line);border-radius:7px;padding:9px 11px;
+    display:grid;grid-template-columns:auto auto;gap:3px 14px;font-size:11px}
+  .sw{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;
+    vertical-align:-1px}
+  #stat{position:absolute;right:14px;bottom:12px;z-index:5;color:var(--dim);font-size:11px}
 </style>
 
-<div id="app">
+<div id="wrap">
   <div id="stage">
-    <canvas id="cv"></canvas>
     <div id="bar">
-      <div class="grp"><span class="lab">floor</span>
-        <button class="btn" data-lev="0">0</button>
-        <button class="btn" data-lev="1">1</button>
-        <button class="btn" data-lev="2">2</button>
-      </div>
-      <div class="grp"><span class="lab">below</span>
-        <button class="btn ghost" id="ghost">show</button>
-      </div>
-      <div class="grp"><span class="lab">zoom</span>
-        <button class="btn" id="zout">&minus;</button>
-        <button class="btn" id="zin">+</button>
-        <button class="btn" id="zfit">fit</button>
-      </div>
-      <div class="grp" style="margin-left:auto">
-        <span class="gap"></span>
-    <span class="lbl">tool</span>
-    <button class="btn tool on" data-tool="select" title="select and drag (V)">select</button>
-    <button class="btn tool" data-tool="wall"  title="draw wall (W)">wall</button>
-    <button class="btn tool" data-tool="floor" title="draw room floor (F)">floor</button>
-    <button class="btn tool" data-tool="corr"  title="draw corridor (C)">corridor</button>
-    <button class="btn tool" data-tool="door"  title="open or close a doorway (D)">door</button>
-    <button class="btn tool" data-tool="erase" title="erase to nothing (E)">erase</button>
-    <span class="gap"></span>
-    <button class="btn" id="undo" disabled title="undo (⌘Z)">undo</button>
-    <button class="btn" id="redo" disabled title="redo (⇧⌘Z)">redo</button>
-    <span class="gap"></span>
-    <button class="btn" id="addband" title="add a band row and column, growing the building">+ band</button>
-    <button class="btn" id="addstair" title="add a stair flight at the centre of the view">+ stair</button>
-    <button class="btn" id="addvendor" title="add a vending machine">+ machine</button>
-    <button class="btn" id="addgun" title="add a gun">+ gun</button>
-    <button class="btn" id="adddrop" title="add a parapet gap you can fall through">+ gap</button>
-    <button class="btn" id="save">export level.json</button>
-      </div>
+      <span class="lbl">floor</span>
+      <button class="btn flr on" data-lev="0">0</button>
+      <button class="btn flr" data-lev="1">1</button>
+      <button class="btn flr" data-lev="2">2</button>
+      <span class="gap"></span>
+      <span class="lbl">zoom</span>
+      <button class="btn" id="zout">−</button>
+      <button class="btn" id="zin">+</button>
+      <button class="btn" id="fit">fit</button>
+      <span class="gap"></span>
+      <button class="btn" id="undo" disabled>undo</button>
+      <button class="btn" id="redo" disabled>redo</button>
+      <span class="gap"></span>
+      <span class="lbl">add</span>
+      <button class="btn" id="aroom">room</button>
+      <button class="btn" id="acorr">corridor</button>
+      <button class="btn" id="avoid">void</button>
+      <button class="btn" id="astair">stair</button>
+      <button class="btn" id="amach">machine</button>
+      <button class="btn" id="agun">gun</button>
+      <span class="gap"></span>
+      <button class="btn" id="save">export level.json</button>
+      <button class="btn" id="revert">revert</button>
     </div>
+    <canvas id="cv"></canvas>
     <div id="legend"></div>
-    <div id="status">loading…</div>
+    <div id="stat"></div>
   </div>
   <div id="side">
-    <h2>the plan</h2>
-    <div id="probs">…</div>
-    <h2>inspector</h2>
-    <div id="insp"><p class="hint">Click a room, a vault, an atrium or a corridor.</p></div>
+    <h2>the plan</h2><div id="probs">…</div>
+    <h2>selected</h2><div id="insp"></div>
   </div>
 </div>
 
 <script>
-/* ---- what a room of each kind contains ---------------------------------
-   These mirror what furnish() actually places in the game, so the list you
-   see is the list that exists. A room's contents are its type's defaults plus
-   whatever you add, minus whatever you remove — which is why the defaults show
-   dashed and greyed: they are not stored, they are what the type means.     */
-const DEFAULTS = {
-  restaurant: ['banquetTable', 'chair', 'hearth', 'chandelier', 'fairyLights'],
-  living:     ['sofa', 'armchair', 'lowTable', 'shelfUnit', 'hearth', 'fairyLights'],
-  museum:     ['vitrine', 'plinth', 'chandelier'],
-  gallery:    ['plinth', 'hungPanel', 'bench', 'fairyLights'],
-  warehouse:  ['rackBay', 'pallet', 'crate'],
-  office:     ['desk', 'chair', 'monitor', 'keyboard'],
-  cubicles:   ['partition', 'desk', 'chair', 'monitor', 'keyboard', 'terminals'],
-  hall:       ['column', 'chandelier', 'fairyLights'],
-  alcove:     ['bench', 'lowTable', 'shelfUnit'],
-  atrium:     ['fountain'],
-  chamber:    ['crystal', 'portal'],
-};
-const PALETTE = {
-  'furniture': ['chair', 'banquetTable', 'lowTable', 'sofa', 'armchair', 'shelfUnit',
-                'plinth', 'vitrine', 'crate', 'pallet', 'rackBay', 'desk', 'monitor',
-                'keyboard', 'partition', 'column', 'bench', 'hungPanel', 'fountain'],
-  'fittings':  ['chandelier', 'fairyLights', 'paperLanterns', 'hearth', 'terminals'],
-  'playable':  ['vendingMachine', 'gun', 'crystal', 'gateButton', 'portal'],
-};
-const PLAYABLE = new Set(PALETTE.playable);
-const TYPES = ['warehouse', 'gallery', 'cubicles', 'restaurant', 'hall', 'museum',
-               'living', 'office', 'atrium', 'chamber', '(empty)'];
+/* ===========================================================================
+   Crystal Maze — construction kit
 
-const COL = {
-  hall: '#2a303b', room: '#39414f', hub: '#5d4a2a', atrium: '#1b2028',
-  chamber: '#4a3050', alcove: '#3a4a44', stair: '#7a6a3a', gallery: '#2f4a52',
-  wall: '#171a20', outside: '#0b0d10',
-};
+   Rooms are rectangles you place on a floor. Corridor is whatever is left over
+   between them. That is the whole model, and it is the opposite of the way the
+   generator used to think: hall lines were primary and rooms were the gaps, so
+   "resize this room" could only mean "move a line across the entire floor".
+   Here a room is a thing, and moving one moves one.
 
-let L = null, lev = 0, view = { x: 0, y: 0, s: 11 }, sel = null, hover = null, ghost = false;
-let hot = null, hotPt = null, grabbing = null;   // the hall edge under the pointer, and the one being dragged
-let moving = null;                 // a block being dragged to another slot
-let dragPt = null;                 // a stair, button or drop being dragged
-let problems = [];                 // what the validator says about the plan as it stands
-let tool = 'select';               // select | wall | floor | corr | erase | door | stair
-let painting = false, paintCh = null;
+   Everything with a position is the same kind of object: it can be clicked,
+   dragged, and deleted, and it says what it is in the panel. There are no
+   tools and no modes — what you click is what you get.
+   =========================================================================== */
 
-/* ---- undo ---------------------------------------------------------------
-   Snapshots, not commands. The whole level is nine kilobytes of JSON, so
-   keeping fifty of them costs less than half a megabyte and buys an undo that
-   cannot get out of step with the thing it is undoing — which a command log
-   very much can, once one edit starts depending on another. mark() is called
-   BEFORE a change, and a drag marks once at the start rather than per frame,
-   so one gesture is one step. */
-const HIST_MAX = 50;
-let history = [], future = [];
-function mark() {
-  history.push(JSON.stringify(L));
-  if (history.length > HIST_MAX) history.shift();
-  future.length = 0;
-  syncUndo();
-}
-function undo() {
-  if (!history.length) return;
-  future.push(JSON.stringify(L));
-  L = JSON.parse(history.pop());
-  sel = null; rebuild(); dirty(); syncUndo();
-}
-function redo() {
-  if (!future.length) return;
-  history.push(JSON.stringify(L));
-  L = JSON.parse(future.pop());
-  sel = null; rebuild(); dirty(); syncUndo();
-}
-function syncUndo() {
-  const u = document.getElementById('undo'), r = document.getElementById('redo');
-  if (u) u.disabled = !history.length;
-  if (r) r.disabled = !future.length;
-}
 const cv = document.getElementById('cv'), g = cv.getContext('2d');
+const el = (id) => document.getElementById(id);
 
-/* ---- geometry, derived exactly the way genmaze.js derives it ------------ */
-let BANDS = [], HUB = null;
-function derive() {
-  BANDS = [];
-  for (let i = 0; i < L.lines.length - 1; i++) {
-    BANDS.push([L.lines[i][0] + L.lines[i][1], L.lines[i + 1][0] - 1]);
-  }
-  const MID = 2;
-  HUB = { r1: BANDS[MID][0], c1: BANDS[MID][0], r2: BANDS[MID][1], c2: BANDS[MID][1] };
-}
-const blockRect = (br, bc) => ({ r1: BANDS[br][0], c1: BANDS[bc][0], r2: BANDS[br][1], c2: BANDS[bc][1] });
-const B0 = () => L.pad, B1 = () => L.size - 1 - L.pad;
-const key = (p) => `${p.lev}:${p.br},${p.bc}`;
+/* A room rect INCLUDES its wall ring, so every size below is an outer size.
+   The generator stamps walls over the whole rect and the interior one cell in.
+   A doorway is two cells wide, which puts the hard floor at 4 outer; 5 gives a
+   3x3 interior, which is the smallest a room can be and still hold furniture.
+   Two rooms may share a wall, or must stand at least 2 cells apart: a 1-cell
+   gap is a corridor slot with walls both sides, whose end cell has one exit and
+   is therefore a dead end, and a 0-cell gap makes the generator's doorway probe
+   land on the neighbour's wall so it silently declines to cut anything. */
+const MIN_ROOM = 5, MIN_GAP = 2;
 
-/* ---- the cell grid, so the drawing shows what the map will actually be -- */
-function buildGrid() {
-  const N = L.size;
-  const grid = [];
-  for (let l = 0; l < L.levels; l++) {
-    grid.push(Array.from({ length: N }, () => Array(N).fill(' ')));
-  }
-  const rect = (l, r1, c1, r2, c2, ch) => {
-    for (let r = Math.max(0, r1); r <= Math.min(N - 1, r2); r++)
-      for (let c = Math.max(0, c1); c <= Math.min(N - 1, c2); c++) grid[l][r][c] = ch;
-  };
-  const b0 = B0(), b1 = B1();
-  for (let l = 0; l < L.levels; l++) {
-    if (l === 0) rect(0, b0, b0, b1, b1, '#');
-    for (const li of L.levelLines[l]) {
-      const [s, w] = L.lines[li];
-      rect(l, s, b0, s + w - 1, b1, '.');
-      rect(l, b0, s, b1, s + w - 1, '.');
-    }
-    rect(l, b0, b0, b0, b1, l === 0 ? '#' : ' ');
-    rect(l, b1, b0, b1, b1, l === 0 ? '#' : ' ');
-    rect(l, b0, b0, b1, b0, l === 0 ? '#' : ' ');
-    rect(l, b0, b1, b1, b1, l === 0 ? '#' : ' ');
-  }
-  // blocks
-  for (const p of L.plan) {
-    const R = blockRect(p.br, p.bc);
-    if (p.t === 'atrium') {
-      rect(0, R.r1, R.c1, R.r2, R.c2, '.');
-      for (let l = 1; l < L.levels; l++) rect(l, R.r1, R.c1, R.r2, R.c2, ' ');
-      continue;
-    }
-    if (p.t === 'chamber') {
-      rect(p.lev, R.r1, R.c1, R.r2, R.c2, '#');
-      rect(p.lev, R.r1 + 1, R.c1 + 1, R.r2 - 1, R.c2 - 1, 'V');
-      continue;
-    }
-    if (p.enclosed === false) {
-      rect(p.lev, R.r1, R.c1, R.r2, R.c2, '+');       // open: no ring
-    } else {
-      rect(p.lev, R.r1, R.c1, R.r2, R.c2, '#');
-      rect(p.lev, R.r1 + 1, R.c1 + 1, R.r2 - 1, R.c2 - 1, '+');
-    }
-  }
-  /* Doorways, punched exactly the way the generator punches them: two on
-     opposite sides so a room is a through-route, and a third on a
-     perpendicular one for choice. Without these every room reads as sealed and
-     the reachability check condemns the whole building. */
-  const punch = (l, rm, side, at) => {
-    if (side === 'N') rect(l, rm.r1 - 1, at, rm.r1 - 1, at + 1, '.');
-    if (side === 'S') rect(l, rm.r2 + 1, at, rm.r2 + 1, at + 1, '.');
-    if (side === 'W') rect(l, at, rm.c1 - 1, at + 1, rm.c1 - 1, '.');
-    if (side === 'E') rect(l, at, rm.c2 + 1, at + 1, rm.c2 + 1, '.');
-  };
-  for (const p of L.plan) {
-    if (p.t === 'atrium' || p.t === 'chamber' || p.enclosed === false) continue;
-    const R = blockRect(p.br, p.bc);
-    const rm = { r1: R.r1 + 1, c1: R.c1 + 1, r2: R.r2 - 1, c2: R.c2 - 1 };
-    const midR = Math.floor((rm.r1 + rm.r2) / 2), midC = Math.floor((rm.c1 + rm.c2) / 2);
-    const horiz = (rm.c2 - rm.c1) >= (rm.r2 - rm.r1);
-    if (horiz) { punch(p.lev, rm, 'W', midR); punch(p.lev, rm, 'E', midR); punch(p.lev, rm, 'N', midC); }
-    else       { punch(p.lev, rm, 'N', midC); punch(p.lev, rm, 'S', midC); punch(p.lev, rm, 'W', midR); }
-  }
-  // a vault's gate: shut in play, but it opens, so reachability counts it
-  for (const p of L.plan) {
-    if (p.t !== 'chamber') continue;
-    const R = blockRect(p.br, p.bc);
-    const cc = Math.floor(((R.c1 + 1) + (R.c2 - 1)) / 2);
-    grid[p.lev][R.r1][cc] = 'd';
-  }
+const TYPES = ['warehouse','gallery','cubicles','restaurant','hall','museum',
+               'living','office','alcove','chamber','atrium','void'];
+const COL = {
+  warehouse:'#5d6470', gallery:'#5f6a7d', cubicles:'#586070', restaurant:'#6d5f57',
+  hall:'#66707f', museum:'#5c6675', living:'#6d6258', office:'#5a6472',
+  alcove:'#5b7268', chamber:'#7d5a86', atrium:'#20262f', void:'#171b22',
+  corridor:'#3b434f', hub:'#7d6a35', wall:'#242a34',
+};
+const FIT = {
+  stair:  {c:'#ffd88a', n:'stairwell'},
+  button: {c:'#6fd3ff', n:'gate button'},
+  drop:   {c:'#ff7a5c', n:'parapet gap'},
+  vendor: {c:'#8fc492', n:'vending machine'},
+  gun:    {c:'#e6e0c0', n:'gun'},
+};
+const GUNS = {1:'pistol',2:'shotgun',3:'machine gun',4:'blaster',5:'laser'};
 
-  // hub
-  rect(0, HUB.r1, HUB.c1, HUB.r2, HUB.c2, '#');
-  rect(0, HUB.r1 + 1, HUB.c1 + 1, HUB.r2 - 1, HUB.c2 - 1, 'H');
-  for (let l = 1; l < L.levels; l++) rect(l, HUB.r1, HUB.c1, HUB.r2, HUB.c2, ' ');
-  for (const e of L.hubExits) {
-    if (e.side === 'N') rect(0, HUB.r1, e.at, HUB.r1, e.at + 1, '.');
-    if (e.side === 'S') rect(0, HUB.r2, e.at, HUB.r2, e.at + 1, '.');
-    if (e.side === 'W') rect(0, e.at, HUB.c1, e.at + 1, HUB.c1, '.');
-    if (e.side === 'E') rect(0, e.at, HUB.c2, e.at + 1, HUB.c2, '.');
+let L = null, lev = 0, view = {x:40,y:60,s:9};
+let sel = null, hover = null, GRID = null, BASE = null, problems = [];
+let drag = null;            // {kind, ...} whatever is being dragged
+let history = [], future = [];
+
+/* ---- loading ------------------------------------------------------------ */
+async function load(fresh) {
+  const draft = fresh ? null : localStorage.getItem('cm-draft');
+  if (draft) { L = JSON.parse(draft); }
+  else {
+    L = await (await fetch('level.json?' + Date.now())).json();
   }
-  // alcoves
-  const AI = L.alcoveInterior;
-  for (const a of L.alcoves) {
-    const R = blockRect(a.br, a.bc), span = AI + 1;
-    const wr1 = a.v === 'N' ? R.r1 : R.r2 - span, wr2 = wr1 + span;
-    const wc1 = a.h === 'W' ? R.c1 : R.c2 - span, wc2 = wc1 + span;
-    rect(a.lev, wr1, wc1, wr2, wc2, '#');
-    rect(a.lev, wr1 + 1, wc1 + 1, wr2 - 1, wc2 - 1, 'A');
-    const arm = { r1: wr1 + 1, c1: wc1 + 1, r2: wr2 - 1, c2: wc2 - 1 };
-    const pn = (side, at) => {
-      if (side === 'N') rect(a.lev, arm.r1 - 1, at, arm.r1 - 1, at + 1, '.');
-      if (side === 'S') rect(a.lev, arm.r2 + 1, at, arm.r2 + 1, at + 1, '.');
-      if (side === 'W') rect(a.lev, at, arm.c1 - 1, at + 1, arm.c1 - 1, '.');
-      if (side === 'E') rect(a.lev, at, arm.c2 + 1, at + 1, arm.c2 + 1, '.');
-    };
-    pn(a.v, wc1 + 1); pn(a.h, wr1 + 1);
+  L.corridors = L.corridors || [];
+  // every rectangle needs a name of its own, so a drag that rebuilds the arrays
+  // can find the same thing again afterwards
+  L.rooms.forEach((r,i) => { if (!r.id) r.id = 'r' + i; });
+  L.corridors.forEach((c,i) => { if (!c.id) c.id = 'c' + i; });
+  L.placed = L.placed || {}; L.placed.vendors = L.placed.vendors || [];
+  L.placed.guns = L.placed.guns || []; L.edits = L.edits || {};
+  L.roomItems = L.roomItems || {};
+  rebuild(); fit();
+}
+function dirty(){ localStorage.setItem('cm-draft', JSON.stringify(L)); el('save').classList.add('on'); }
+
+/* ---- undo: snapshots, so it can never drift from what it is undoing ------ */
+function mark(){ history.push(JSON.stringify(L)); if(history.length>60) history.shift();
+                 future.length=0; syncUndo(); }
+function undo(){ if(!history.length) return; future.push(JSON.stringify(L));
+                 L=JSON.parse(history.pop()); sel=null; rebuild(); dirty(); syncUndo(); }
+function redo(){ if(!future.length) return; history.push(JSON.stringify(L));
+                 L=JSON.parse(future.pop()); sel=null; rebuild(); dirty(); syncUndo(); }
+function syncUndo(){ el('undo').disabled=!history.length; el('redo').disabled=!future.length; }
+
+/* ---- the grid this page draws ------------------------------------------- */
+function rectFill(grid,l,r1,c1,r2,c2,ch){
+  for(let r=Math.max(0,r1); r<=Math.min(L.size-1,r2); r++)
+    for(let c=Math.max(0,c1); c<=Math.min(L.size-1,c2); c++) grid[l][r][c]=ch;
+}
+/* The envelope is the floorplate — the extent of the building on that floor,
+   which the generator floods with corridor before it puts the rooms in. It is
+   worked out from the rooms rather than set, so dragging a room outward extends
+   the building to meet it instead of stopping against an edge you cannot see.
+   Void does not count: it is a hole, and a hole cannot enlarge the floor. */
+function deriveEnvelope(){
+  /* One footprint for the whole building, not one per floor. Upper floors keep
+     the ground floor's outline even where their rooms fall short, because the
+     atriums and the balconies that ring them are cut out of exactly that
+     alignment — a top floor that quietly shrank would take the balconies with
+     it. So: the union across every floor, plus a three-cell corridor margin. */
+  let r1=1e9,c1=1e9,r2=-1e9,c2=-1e9,any=false;
+  const use=(o)=>{any=true; r1=Math.min(r1,o.r1); c1=Math.min(c1,o.c1);
+                  r2=Math.max(r2,o.r2); c2=Math.max(c2,o.c2);};
+  for(const rm of L.rooms) if(rm.t!=='void') use(rm);
+  for(const cd of L.corridors) use(cd);
+  use(L.hub);
+  const e = any ? {r1:Math.max(1,r1-3), c1:Math.max(1,c1-3),
+                   r2:Math.min(L.size-2,r2+3), c2:Math.min(L.size-2,c2+3)} : null;
+  L.envelope = Array.from({length:L.levels}, () => e && {...e});
+}
+/* If the plan has grown past the board, grow the board. Coordinates are
+   absolute, so growing at the far side costs nothing; growing at the near side
+   means shifting the whole world, which is the same picture with new numbers. */
+function reframe(){
+  let minR=1e9,minC=1e9,maxR=-1e9,maxC=-1e9;
+  const use=(r,c)=>{minR=Math.min(minR,r);minC=Math.min(minC,c);
+                    maxR=Math.max(maxR,r);maxC=Math.max(maxC,c);};
+  for(const o of L.rooms.concat(L.corridors)){ use(o.r1,o.c1); use(o.r2,o.c2); }
+  use(L.hub.r1,L.hub.c1); use(L.hub.r2,L.hub.c2);
+  for(const st of L.stairs) for(const [r,c] of st.cells) use(r,c);
+  const PAD=4;
+  const dr=Math.max(0,PAD-minR), dc=Math.max(0,PAD-minC);
+  if(dr||dc){
+    const sh=(o)=>{o.r1+=dr;o.c1+=dc;o.r2+=dr;o.c2+=dc;};
+    L.rooms.forEach(sh); L.corridors.forEach(sh); sh(L.hub);
+    for(const e of L.hubExits) e.at += (e.side==='N'||e.side==='S') ? dc : dr;
+    for(const st of L.stairs) st.cells=st.cells.map(([r,c])=>[r+dr,c+dc]);
+    for(const b of L.buttonPrefs) b.at=[b.at[0]+dr,b.at[1]+dc];
+    for(const d of L.drops){ d.at=[d.at[0]+dr,d.at[1]+dc]; d.into=[d.into[0]+dr,d.into[1]+dc]; }
+    for(const v of L.placed.vendors){ v.r+=dr; v.c+=dc; }
+    for(const x of L.placed.guns){ x.r+=dr; x.c+=dc; }
+    L.edits=Object.fromEntries(Object.entries(L.edits).map(([k,v])=>{
+      const [l,r,c]=k.split(',').map(Number); return [`${l},${r+dr},${c+dc}`,v]; }));
+    maxR+=dr; maxC+=dc;
   }
-  // exterior galleries
-  const G = L.galleries, nHall = L.lines[0][0], l2Hall = L.lines[1][0] + L.lines[1][1] - 1;
-  rect(1, G.row, G.west, G.row, G.east, 'g');
-  rect(1, G.row, G.west, nHall, G.west, 'g');
-  rect(1, G.row, G.east, nHall, G.east, 'g');
-  const W2 = G.stairCol + 4, E2 = W2 + 4;
-  rect(2, G.row, W2, G.row, E2, 'g');
-  rect(2, G.row, E2, l2Hall, E2, 'g');
-  for (let k = 0; k < 4; k++) { grid[1][G.row][G.stairCol + k] = '/'; grid[2][G.row][G.stairCol + k] = '/'; }
-  // stairs and overpass flights
-  const flights = L.stairs.map((s) => ({ lo: s.lo, cells: s.cells }));
-  for (const o of L.overpasses) {
-    const cell = (i) => (o.axis === 'c' ? [o.at, i] : [i, o.at]);
-    const up = [], down = [];
-    for (let k = 0; k < o.rise; k++) up.push(cell(o.a + k));
-    for (let k = 0; k < o.rise; k++) down.push(cell(o.b - k));
-    flights.push({ lo: o.lo, cells: up }, { lo: o.lo, cells: down });
-    for (let i = o.a + o.rise; i <= o.b - o.rise; i++) {
-      const [r, c] = cell(i); grid[o.lo + 1][r][c] = '.';
-    }
+  const need=Math.max(maxR,maxC)+PAD+1;
+  if(need>L.size) L.size=need;
+}
+function buildGrid(){
+  deriveEnvelope();
+  const grid=[];
+  for(let l=0;l<L.levels;l++)
+    grid.push(Array.from({length:L.size},()=>Array(L.size).fill(' ')));
+  // corridor is the leftover inside the envelope
+  L.envelope.forEach((e,l)=>{ if(e) rectFill(grid,l,e.r1,e.c1,e.r2,e.c2,'.'); });
+  for(const cd of L.corridors) rectFill(grid,cd.lev,cd.r1,cd.c1,cd.r2,cd.c2,'.');
+  for(const rm of L.rooms){
+    if(rm.t==='void'){ rectFill(grid,rm.lev,rm.r1,rm.c1,rm.r2,rm.c2,' '); continue; }
+    if(rm.t==='atrium'){ rectFill(grid,rm.lev,rm.r1,rm.c1,rm.r2,rm.c2,rm.lev===0?'.':' '); continue; }
+    if(rm.enclosed===false){ rectFill(grid,rm.lev,rm.r1,rm.c1,rm.r2,rm.c2,'+'); continue; }
+    rectFill(grid,rm.lev,rm.r1,rm.c1,rm.r2,rm.c2,'#');
+    rectFill(grid,rm.lev,rm.r1+1,rm.c1+1,rm.r2-1,rm.c2-1, rm.t==='chamber'?'v':'+');
   }
-  for (const s of flights) for (const [r, c] of s.cells) {
-    grid[s.lo][r][c] = '/'; grid[s.lo + 1][r][c] = '/';
+  // the hub
+  const H=L.hub;
+  rectFill(grid,H.lev,H.r1,H.c1,H.r2,H.c2,'#');
+  rectFill(grid,H.lev,H.r1+1,H.c1+1,H.r2-1,H.c2-1,'H');
+  for(const e of L.hubExits){
+    if(e.side==='N') rectFill(grid,H.lev,H.r1,e.at,H.r1,e.at+1,'.');
+    if(e.side==='S') rectFill(grid,H.lev,H.r2,e.at,H.r2,e.at+1,'.');
+    if(e.side==='W') rectFill(grid,H.lev,e.at,H.c1,e.at+1,H.c1,'.');
+    if(e.side==='E') rectFill(grid,H.lev,e.at,H.c2,e.at+1,H.c2,'.');
   }
-  // hand edits last, so anything drawn by hand wins over anything the plan made
-  for (const k of Object.keys(L.edits || {})) {
-    const [l, r, c] = k.split(',').map(Number);
-    if (l >= 0 && l < L.levels && r >= 0 && r < L.size && c >= 0 && c < L.size) grid[l][r][c] = L.edits[k];
+  // stairs
+  for(const st of L.stairs) for(const [r,c] of st.cells){
+    if(r>=0&&c>=0&&r<L.size&&c<L.size){ grid[st.lo][r][c]='/'; if(st.lo+1<L.levels) grid[st.lo+1][r][c]='/'; }
   }
-  return { grid, flights };
+  for(const k of Object.keys(L.edits)){
+    const [l,r,c]=k.split(',').map(Number);
+    if(l>=0&&l<L.levels&&r>=0&&r<L.size&&c>=0&&c<L.size) grid[l][r][c]=L.edits[k];
+  }
+  /* Doorways are worked out against the plan WITHOUT any doorways in it, then
+     stamped. Deciding where a door goes while other doors are already cut would
+     make the answer depend on the order rooms happen to sit in the file. */
+  BASE = grid.map(p=>p.map(row=>row.slice()));
+  for(const rm of L.rooms) for(const d of doorsOf(rm)) for(const [r,c] of d.cells){
+    if(r>=0&&c>=0&&r<L.size&&c<L.size) grid[rm.lev][r][c]='+';
+  }
+  return grid;
 }
 
-/* ---- painting -----------------------------------------------------------
-   A cell you change by hand is stored as an override rather than baked into
-   the plan, so the bands still describe the building and the overrides say
-   where you disagreed with them. Painting a cell back to what the plan would
-   have made there deletes the override instead of storing a redundant one,
-   which keeps the file honest about what has actually been touched. */
-function baseAt(l, r, c) {
-  const saved = L.edits;
-  try {
-    L.edits = {};
-    return buildGrid().grid[l][r][c];
-  } finally {
-    L.edits = saved;          // restore even if the build throws, or every
-  }                           // hand edit is silently lost and then autosaved
+/* ---- doorways -----------------------------------------------------------
+   A door is remembered as a side plus an offset from the room's own top-left
+   corner, so it travels when the room is moved — and a push only ever
+   translates a rectangle, so a pushed neighbour needs no repair at all. On a
+   resize the offset is clamped back into the wall it belongs to.
+
+   A room nobody has touched has no `doors` and gets the automatic pair: two
+   opposite faces, so it is a through-route. Touch one door and the room's
+   doors become entirely yours.                                              */
+/* Does the far side of this wall lead anywhere? An alcove cut into a block of
+   void has three faces onto nothing, and a door there opens on air and strands
+   the cells behind it. The generator probes two cells out from the interior
+   before it cuts; this probes the same place, against the plan as it stands
+   before any doorway has been stamped into it. */
+function canPunch(rm, side){
+  if(!BASE) return true;
+  const I = inner(rm);
+  const mid = (a,b)=>Math.floor((a+b)/2);
+  const r = side==='N' ? I.r1-2 : side==='S' ? I.r2+2 : mid(I.r1,I.r2);
+  const c = side==='W' ? I.c1-2 : side==='E' ? I.c2+2 : mid(I.c1,I.c2);
+  const ch = (BASE[rm.lev][r]||[])[c];
+  return ch!==undefined && ch!==' ' && ch!=='#';
 }
-function paint(r, c, ch) {
-  if (r < 0 || c < 0 || r >= L.size || c >= L.size) return false;
-  const k = `${lev},${r},${c}`;
-  if (baseAt(lev, r, c) === ch) { if (!(k in L.edits)) return false; delete L.edits[k]; }
-  else { if (L.edits[k] === ch) return false; L.edits[k] = ch; }
-  return true;
+/* Left alone, a room gets the generator's own pattern: two opposite faces so it
+   is a through-route, and a third on a perpendicular wall so there is a choice
+   of ways in. Any face that opens onto nothing is dropped. */
+function autoDoors(rm){
+  const I = inner(rm);
+  const atR = Math.floor((I.r1+I.r2)/2) - I.r1;
+  const atC = Math.floor((I.c1+I.c2)/2) - I.c1;
+  const h = (I.c2-I.c1) >= (I.r2-I.r1);
+  const want = h ? [{side:'W',at:atR},{side:'E',at:atR},{side:'N',at:atC}]
+                 : [{side:'N',at:atC},{side:'S',at:atC},{side:'W',at:atR}];
+  return want.filter(d=>canPunch(rm,d.side));
 }
-// A door space is a wall with room on one side and somewhere to walk on the
-// other — the only places an opening makes sense.
-function doorSpaces() {
-  const out = [];
-  const g = GRID[lev];
-  const walk = (ch) => ch && ch !== '#' && ch !== ' ';
-  for (let r = 1; r < L.size - 1; r++) for (let c = 1; c < L.size - 1; c++) {
-    if (g[r][c] !== '#') continue;
-    const ns = walk(g[r - 1][c]), ss = walk(g[r + 1][c]);
-    const ws = walk(g[r][c - 1]), es = walk(g[r][c + 1]);
-    if ((ns && ss) || (ws && es)) out.push([r, c]);
-  }
+/* A room rect is the OUTSIDE. The generator measures door offsets from the
+   room's interior corner and cuts two cells, because a one-cell gap is a
+   crack rather than a doorway. Both of those have to hold here as well, or the
+   doors you click are not the doors you get. */
+const inner = (rm) => ({r1:rm.r1+1, c1:rm.c1+1, r2:rm.r2-1, c2:rm.c2-1});
+function doorCells(rm,d){
+  const I = inner(rm), at = d.at;
+  if(d.side==='N') return [[rm.r1, I.c1+at], [rm.r1, I.c1+at+1]];
+  if(d.side==='S') return [[rm.r2, I.c1+at], [rm.r2, I.c1+at+1]];
+  if(d.side==='W') return [[I.r1+at, rm.c1], [I.r1+at+1, rm.c1]];
+  return [[I.r1+at, rm.c2], [I.r1+at+1, rm.c2]];
+}
+const doorSpan = (rm,side) => (side==='N'||side==='S')
+  ? rm.c2-rm.c1-1 : rm.r2-rm.r1-1;          // cells along that interior wall
+/* Chambers are the crystal vaults: the generator cuts their one gated portal
+   itself, so they are not a room you put doors on. Atriums and open rooms have
+   no wall ring to put one in. */
+const hasDoors = (rm) => rm.t!=='void' && rm.t!=='atrium' && rm.t!=='chamber'
+                      && rm.enclosed!==false;
+function doorsOf(rm){
+  if(!hasDoors(rm)) return [];
+  const list = rm.doors || autoDoors(rm);
+  return list.map(d=>{
+    const at = Math.max(0, Math.min(doorSpan(rm,d.side)-2, d.at));  // survive a resize
+    const dd = {side:d.side, at, auto:!rm.doors};
+    dd.cells = doorCells(rm, dd);
+    return dd;
+  });
+}
+// every place along a room's walls where a doorway could go
+function doorSlots(rm){
+  if(!hasDoors(rm)) return [];
+  const out=[];
+  for(const side of ['N','S','W','E'])
+    for(let at=0; at<=doorSpan(rm,side)-2; at++){
+      const d={side,at}; d.cells=doorCells(rm,d); out.push(d);
+    }
   return out;
 }
-
-let GRID = null, FLIGHTS = [];
-
-/* ---- growing the grid ---------------------------------------------------
-   You can drag a hall past the edge of the building. When that happens the
-   grid itself grows: every absolute coordinate in the level shifts, and the
-   size grows with it, so the thing you dragged ends up where you put it and
-   nothing else moves relative to it. Blocks and alcoves are addressed by band
-   index rather than by cell, so they need no shifting at all — they follow
-   their hall lines automatically, which is the whole point of the band model. */
-function shiftAll(d) {
-  for (const ln of L.lines) ln[0] += d;
-  for (const e of L.hubExits) e.at += d;
-  for (const st of L.stairs) for (const c of st.cells) { c[0] += d; c[1] += d; }
-  for (const o of L.overpasses) { o.at += d; o.a += d; o.b += d; }
-  for (const dr of L.drops) { dr.at[0] += d; dr.at[1] += d; dr.into[0] += d; dr.into[1] += d; }
-  for (const b of L.buttonPrefs) { b.at[0] += d; b.at[1] += d; }
-  const G = L.galleries;
-  G.row += d; G.west += d; G.east += d; G.stairCol += d;
-}
-function growLow(d)  { shiftAll(d); L.size += d; view.x -= d * view.s; view.y -= d * view.s; }
-function growHigh(d) { L.size += d; }
-
-/* ---- hall handles -------------------------------------------------------
-   A room is the gap between hall lines, so the way you resize a room is by
-   moving the hall that bounds it. Each line has two draggable edges. Note that
-   a line drives BOTH a horizontal corridor and a vertical one — the plan is a
-   symmetric street grid — so moving one handle moves the matching corridor on
-   the other axis too. That is what keeps the loop network intact.            */
-const MIN_BAND = 5;          // a band must still hold a room with a 3x3 interior
-const MIN_HALL = 1, MAX_HALL = 10;   // a corridor, not a plaza
-function handles() {
-  const out = [];
-  for (let i = 0; i < L.lines.length; i++) {
-    if (!L.levelLines[lev].includes(i)) continue;
-    const [s0, w] = L.lines[i];
-    out.push({ i, edge: 'lo', at: s0 });
-    out.push({ i, edge: 'hi', at: s0 + w });
-  }
-  return out;
-}
-function moveHandle(h, to) {
-  const ln = L.lines[h.i];
-  const prev = h.i > 0 ? L.lines[h.i - 1] : null;
-  const next = h.i < L.lines.length - 1 ? L.lines[h.i + 1] : null;
-  if (h.edge === 'lo') {
-    const far = ln[0] + ln[1];
-    let lo = Math.round(to);
-    if (prev) lo = Math.max(lo, prev[0] + prev[1] + MIN_BAND);
-    lo = Math.min(lo, far - MIN_HALL);
-    lo = Math.max(lo, far - MAX_HALL);
-    ln[1] = far - lo; ln[0] = lo;
-  } else {
-    let hi = Math.round(to);
-    if (next) hi = Math.min(hi, next[0] - MIN_BAND);
-    hi = Math.max(hi, ln[0] + MIN_HALL);
-    hi = Math.min(hi, ln[0] + MAX_HALL);
-    ln[1] = hi - ln[0];
-  }
-  // and if that pushed the plan outside the building, make the building bigger
-  const lo = L.lines[0][0], hi = L.lines[L.lines.length - 1][0] + L.lines[L.lines.length - 1][1] - 1;
-  if (lo - 1 < L.pad) growLow(L.pad - (lo - 1));
-  if (hi + 1 > L.size - 1 - L.pad) growHigh((hi + 1) - (L.size - 1 - L.pad));
+function toggleDoor(rm, side, at){
+  mark();
+  if(!rm.doors) rm.doors = autoDoors(rm).map(d=>({side:d.side,at:d.at}));
+  const i = rm.doors.findIndex(d=>d.side===side && d.at===at);
+  if(i>=0) rm.doors.splice(i,1); else rm.doors.push({side,at});
   rebuild(); dirty();
 }
 
-/* ---- the same rules the generator enforces, run as you edit -------------
-   The generator refuses a plan that cannot be played, and until now it only
-   said so on the command line after an export. These are the checks that
-   actually catch editing mistakes, run over the grid this page already builds:
+/* ---- squeeze, then push -------------------------------------------------
+   Solved from a snapshot taken when the drag began, never incrementally, so
+   dragging out and back returns the plan exactly as it was rather than leaving
+   it quietly compacted. Each frame re-solves the whole cascade from scratch.
 
-     supported   a room upstairs needs something beneath it, or it floats
-     atrium      nothing may sit where an atrium cuts through
-     twice       two blocks cannot claim the same slot on one floor
-     dead end    every walkable cell needs two ways out, or you can be trapped
-     orphan      every walkable cell must be reachable from the start
+   Rooms may not overlap. Between two of them the legal states are: sharing a
+   wall, or at least MIN_GAP apart — a 1-cell gap is a dead end and a 0-cell gap
+   seals both rooms, so the drag steps over that band rather than resting in it.
+   =========================================================================== */
+function movables(l){ return L.rooms.filter(r=>r.lev===l).concat(L.corridors.filter(r=>r.lev===l)); }
+function spans(o,axis){ return axis==='r' ? [o.r1,o.r2] : [o.c1,o.c2]; }
+function overlapsOther(a,b,axis){
+  const [x1,x2]=spans(a,axis==='r'?'c':'r'), [y1,y2]=spans(b,axis==='r'?'c':'r');
+  return x1<=y2 && y1<=x2;
+}
+/* Push everything that `moved` runs into, along `axis`, in direction `dir`.
+   Returns false if the cascade runs off the board.
 
-   Vault gating is deliberately left to the generator: it depends on door
-   swing and button placement, and getting a half-answer here would be worse
-   than getting none.                                                        */
-function validate() {
-  const out = [];
-  const occupied = [], atriums = new Set();
-  for (let l = 0; l < L.levels; l++) occupied.push(new Set());
-  for (const p of L.plan) {
-    const k = p.br + ',' + p.bc;
-    if (p.t === 'atrium') atriums.add(k);
-    if (occupied[p.lev].has(k)) out.push({ sev: 'bad', lev: p.lev, br: p.br, bc: p.bc,
-      msg: `block ${k} is used twice on floor ${p.lev}` });
-    occupied[p.lev].add(k);
+   `orig` is where everything stood before this frame's move, and it is what
+   decides which side of the moved rect a neighbour is on. Reading the side off
+   the CURRENT positions instead looks fine until you drag far enough that the
+   arithmetic mistakes a room on the opposite side of the floor for one you are
+   bearing down on, and hurls it out of the building. */
+function cascade(list, moved, axis, dir, bd, orig, seen){
+  seen = seen || new Set([moved]);
+  const mo = orig.get(moved);
+  for(const o of list){
+    if(o===moved || seen.has(o)) continue;
+    /* Void is a hole in the floor, not a block. Alcoves are deliberately cut
+       into it and overlap it, so a void that shoved things aside would shove
+       away the very hole the alcove sits in. */
+    if(o.t==='void') continue;
+    if(!overlapsOther(moved,o,axis)) continue;
+    const oo = orig.get(o);
+    const ahead = dir>0 ? (axis==='r' ? oo.r1>mo.r1 : oo.c1>mo.c1)
+                        : (axis==='r' ? oo.r1<mo.r1 : oo.c1<mo.c1);
+    if(!ahead) continue;                             // behind the move; not its problem
+    const [m1,m2]=spans(moved,axis), [o1,o2]=spans(o,axis);
+    const gap = dir>0 ? o1-m2-1 : m1-o2-1;
+    if(gap>=MIN_GAP) continue;                       // still clear of it
+    const need = MIN_GAP-gap;                        // how far it must give way
+    seen.add(o);
+    if(axis==='r'){ o.r1+=dir*need; o.r2+=dir*need; } else { o.c1+=dir*need; o.c2+=dir*need; }
+    const lo = axis==='r'?o.r1:o.c1, hi = axis==='r'?o.r2:o.c2;
+    if(lo < (axis==='r'?bd.r1:bd.c1) || hi > (axis==='r'?bd.r2:bd.c2)) return false;
+    if(!cascade(list,o,axis,dir,bd,orig,seen)) return false;
   }
-  for (const p of L.plan) {
-    const k = p.br + ',' + p.bc;
-    if (p.lev > 0 && atriums.has(k)) out.push({ sev: 'bad', lev: p.lev, br: p.br, bc: p.bc,
-      msg: `${p.t} sits where an atrium cuts through` });
-    if (p.lev > 0 && p.t !== 'atrium' && !occupied[p.lev - 1].has(k)) out.push({
-      sev: 'bad', lev: p.lev, br: p.br, bc: p.bc, msg: `${p.t} has nothing beneath it` });
-  }
+  return true;
+}
+/* One candidate move, applied to a fresh copy of the plan as it stood when the
+   drag began. Returns false if the cascade it sets off cannot fit on the board.
+   Solving from the snapshot every frame — rather than nudging what is already
+   there — is what lets you drag out and back and get your layout returned to
+   you instead of a quietly compacted version of it. */
+function attempt(d, dr, dc){
+  const snap = JSON.parse(d.snapshot);
+  L.rooms = snap.rooms; L.corridors = snap.corridors;
+  const list = movables(lev);
+  const me = list.find(o=>o.id===d.id) || list[d.idx];
+  if(!me) return true;
+  /* Those two arrays are now new objects, so anything still holding the old
+     ones is holding a ghost — including the selection, whose panel would go on
+     accepting edits and applying them to a room that is no longer in the plan. */
+  if(sel && sel.o && sel.o.id) sel.o = me.id===sel.o.id ? me
+    : (list.find(o=>o.id===sel.o.id) || sel.o);
+  const bd = {r1:1, c1:1, r2:L.size-2, c2:L.size-2};   // the board, not the building
+  const before = {r1:me.r1,c1:me.c1,r2:me.r2,c2:me.c2};
+  const orig = new Map(list.map(o=>[o,{r1:o.r1,c1:o.c1,r2:o.r2,c2:o.c2}]));
 
-  // dead ends and orphans, over the grid we already have
-  const walk = (ch) => ch !== '#' && ch !== ' ';   // 'd' is a gate: shut in play, but it opens
-  let deadEnds = 0, firstDead = null;
-  for (let l = 0; l < L.levels; l++) {
-    for (let r = 1; r < L.size - 1; r++) for (let c = 1; c < L.size - 1; c++) {
-      if (!walk(GRID[l][r][c])) continue;
-      let n = GRID[l][r][c] === '/' ? 1 : 0;      // a flight continues vertically
-      for (const [dr, dc] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
-        if (walk(GRID[l][r + dr][c + dc])) n++;
-      }
-      if (n < 2) { deadEnds++; if (!firstDead) firstDead = { l, r, c }; }
+  if(d.edge==='body'){ me.r1+=dr; me.r2+=dr; me.c1+=dc; me.c2+=dc; }
+  else {
+    if(d.edge.includes('N')) me.r1 = Math.min(me.r1+dr, me.r2-MIN_ROOM+1);
+    if(d.edge.includes('S')) me.r2 = Math.max(me.r2+dr, me.r1+MIN_ROOM-1);
+    if(d.edge.includes('W')) me.c1 = Math.min(me.c1+dc, me.c2-MIN_ROOM+1);
+    if(d.edge.includes('E')) me.c2 = Math.max(me.c2+dc, me.c1+MIN_ROOM-1);
+  }
+  if(me.r1<bd.r1||me.c1<bd.c1||me.r2>bd.r2||me.c2>bd.c2) return false;
+
+  const rDir = me.r1>before.r1||me.r2>before.r2 ? 1 : -1;
+  const cDir = me.c1>before.c1||me.c2>before.c2 ? 1 : -1;
+  if(me.r1!==before.r1||me.r2!==before.r2) if(!cascade(list,me,'r',rDir,bd,orig)) return false;
+  if(me.c1!==before.c1||me.c2!==before.c2) if(!cascade(list,me,'c',cDir,bd,orig)) return false;
+  return true;
+}
+function solveDrag(d, dr, dc){
+  /* A drag that cannot go the whole way goes as far as it can. Refusing the
+     move outright would look like the editor had simply stopped responding. */
+  while(dr||dc){
+    if(attempt(d,dr,dc)){ rebuild(); return; }
+    if(Math.abs(dr)>=Math.abs(dc)) dr-=Math.sign(dr); else dc-=Math.sign(dc);
+  }
+  attempt(d,0,0); rebuild();
+}
+
+/* ---- what is under the pointer ------------------------------------------
+   Hit targets are AREAS, because the things on screen are areas. The old kit
+   tested a nine-pixel circle at one corner of a stair flight, which is why a
+   flight could not be clicked; the same mistake applied to five kinds at once.
+   Everything here is tested against the shape you can actually see, and the
+   grab margin is in screen pixels so it works at any zoom.                  */
+const px=(c)=>view.x+c*view.s, py=(r)=>view.y+r*view.s;
+const toCell=(mx,my)=>[Math.floor((my-view.y)/view.s), Math.floor((mx-view.x)/view.s)];
+function rectAt(o,mx,my,pad){
+  pad=pad||0;
+  return mx>=px(o.c1)-pad && mx<=px(o.c2+1)+pad && my>=py(o.r1)-pad && my<=py(o.r2+1)+pad;
+}
+function handleAt(o,mx,my){
+  const M=Math.max(4,Math.min(9,view.s));
+  const l=px(o.c1),r=px(o.c2+1),t=py(o.r1),b=py(o.r2+1);
+  const nearL=Math.abs(mx-l)<M, nearR=Math.abs(mx-r)<M;
+  const nearT=Math.abs(my-t)<M, nearB=Math.abs(my-b)<M;
+  const inX=mx>l-M&&mx<r+M, inY=my>t-M&&my<b+M;
+  if(!inX||!inY) return null;
+  let e='';
+  if(nearT) e+='N'; else if(nearB) e+='S';
+  if(nearL) e+='W'; else if(nearR) e+='E';
+  return e||null;
+}
+function pick(mx,my){
+  /* Fittings first: they sit on top. More than one can share a cell — a gun
+     left on the spot where a machine stands — so clicking again works down the
+     stack instead of handing you the same one forever. */
+  const hits=[];
+  for(const f of fittings()){
+    if(f.kind==='stair'){
+      if(f.cells.some(([r,c])=>mx>=px(c)&&mx<px(c+1)&&my>=py(r)&&my<py(r+1))) hits.push(f);
+    } else if(mx>=px(f.c)-3&&mx<=px(f.c+1)+3&&my>=py(f.r)-3&&my<=py(f.r+1)+3) hits.push(f);
+  }
+  if(hits.length){
+    const at = sel ? hits.findIndex(f=>f.kind===sel.kind && f.i===sel.i) : -1;
+    return hits[(at+1) % hits.length];
+  }
+  // a doorway on a selected room, or a place one could go
+  if(sel&&sel.kind==='room'&&sel.o.lev===lev){
+    const on=(cells)=>cells.some(([r,c])=>
+      mx>=px(c)&&mx<px(c+1)&&my>=py(r)&&my<py(r+1));
+    for(const d of doorsOf(sel.o)) if(on(d.cells))
+      return {kind:'door', o:sel.o, side:d.side, at:d.at};
+    for(const d of doorSlots(sel.o)) if(on(d.cells))
+      return {kind:'door', o:sel.o, side:d.side, at:d.at};
+  }
+  const list = movables(lev);
+  for(let i=list.length-1;i>=0;i--) if(rectAt(list[i],mx,my))
+    return {kind: L.corridors.includes(list[i])?'corridor':'room', o:list[i]};
+  const H=L.hub;
+  if(lev===H.lev && mx>=px(H.c1)&&mx<=px(H.c2+1)&&my>=py(H.r1)&&my<=py(H.r2+1))
+    return {kind:'hub', o:H};
+  const [r,c]=toCell(mx,my);
+  return {kind:'cell', r, c};
+}
+function fittings(){
+  const out=[];
+  L.stairs.forEach((st,i)=>{ if(st.lo===lev||st.lo+1===lev)
+    out.push({kind:'stair',i,cells:st.cells,r:st.cells[0][0],c:st.cells[0][1],o:st}); });
+  L.buttonPrefs.forEach((b,i)=>{ if(b.lev===lev)
+    out.push({kind:'button',i,r:b.at[0],c:b.at[1],o:b}); });
+  L.drops.forEach((d,i)=>{ if(d.lev===lev)
+    out.push({kind:'drop',i,r:d.into[0],c:d.into[1],o:d}); });
+  L.placed.vendors.forEach((v,i)=>{ if(v.lev===lev)
+    out.push({kind:'vendor',i,r:v.r,c:v.c,o:v}); });
+  L.placed.guns.forEach((x,i)=>{ if(x.lev===lev)
+    out.push({kind:'gun',i,r:x.r,c:x.c,o:x}); });
+  return out;
+}
+
+/* ---- what the generator adds on its own ---------------------------------
+   The overpass bridges and the exterior gallery walkways are cut by the
+   generator, not placed here. They are drawn anyway, as ghosts, because a plan
+   that hides them is a plan you can walk a room straight through without ever
+   seeing what you broke. */
+function ghosts(){
+  const out=[];
+  for(const o of (L.overpasses||[])){
+    if(o.lo+1!==lev) continue;
+    out.push(o.axis==='c' ? {r1:o.at,c1:o.a,r2:o.at,c2:o.b,n:'overpass'}
+                          : {r1:o.a,c1:o.at,r2:o.b,c2:o.at,n:'overpass'});
+  }
+  const G=L.galleries;
+  if(G && L.levels>=3){
+    const GR=G.row, sc=G.stairCol, W2=sc+4, E2=W2+4;
+    const nHall=L.pad+1, l2Hall=L.pad+12;   // the halls the walkways rejoin
+    if(lev===1){
+      out.push({r1:GR,c1:G.west,r2:GR,c2:G.east,n:'gallery walkway'});
+      out.push({r1:GR,c1:G.west,r2:nHall,c2:G.west,n:'gallery walkway'});
+      out.push({r1:GR,c1:G.east,r2:nHall,c2:G.east,n:'gallery walkway'});
+    }
+    if(lev===2){
+      out.push({r1:GR,c1:W2,r2:GR,c2:E2,n:'gallery walkway'});
+      out.push({r1:GR,c1:E2,r2:l2Hall,c2:E2,n:'gallery walkway'});
+    }
+    if(lev===1||lev===2) out.push({r1:GR,c1:sc,r2:GR,c2:sc+3,n:'gallery stair'});
+  }
+  return out;
+}
+
+/* ---- checks, run as you edit -------------------------------------------- */
+function validate(){
+  const out=[];
+  const list=[];
+  for(const rm of L.rooms) if(rm.t!=='void'&&rm.t!=='atrium') list.push(rm);
+  for(let i=0;i<list.length;i++) for(let j=i+1;j<list.length;j++){
+    const a=list[i],b=list[j];
+    if(a.lev!==b.lev) continue;
+    if(a.r1<=b.r2&&b.r1<=a.r2&&a.c1<=b.c2&&b.c1<=a.c2)
+      out.push({sev:'bad',lev:a.lev,o:a,msg:`${a.t} and ${b.t} overlap`});
+    else {
+      const gr = a.r2<b.r1 ? b.r1-a.r2-1 : b.r2<a.r1 ? a.r1-b.r2-1 : -1;
+      const gc = a.c2<b.c1 ? b.c1-a.c2-1 : b.c2<a.c1 ? a.c1-b.c2-1 : -1;
+      const gap = Math.max(gr,gc);
+      if(gap===0||gap===1)
+        out.push({sev:'bad',lev:a.lev,o:a,
+          msg:`${a.t} and ${b.t} are ${gap} cells apart — that is a dead end, and at 0 both seal shut. Share a wall, or stand ${MIN_GAP} apart.`});
     }
   }
-  if (deadEnds) out.push({ sev: 'bad', lev: firstDead.l, cell: firstDead,
-    msg: `${deadEnds} dead end${deadEnds > 1 ? 's' : ''} — first at ${firstDead.r},${firstDead.c} on floor ${firstDead.l}` });
-
-  // reachability from the hub, ignoring doors (they open)
-  const seen = new Set(), q = [];
-  const startR = HUB.r1 + 2, startC = HUB.c1 + 2;
-  if (walk(GRID[0][startR][startC])) { q.push([0, startR, startC]); seen.add(`0,${startR},${startC}`); }
-  while (q.length) {
-    const [l, r, c] = q.pop();
-    const climb = GRID[l][r][c] === '/';
-    for (const [dl, dr, dc] of [[0, -1, 0], [0, 1, 0], [0, 0, -1], [0, 0, 1],
-                                ...(climb ? [[1, 0, 0], [-1, 0, 0]] : [])]) {
-      const nl = l + dl, nr = r + dr, nc = c + dc;
-      if (nl < 0 || nl >= L.levels || nr < 1 || nc < 1 || nr >= L.size - 1 || nc >= L.size - 1) continue;
-      const k = `${nl},${nr},${nc}`;
-      if (seen.has(k) || !walk(GRID[nl][nr][nc])) continue;
-      seen.add(k); q.push([nl, nr, nc]);
-    }
+  for(const rm of L.rooms){
+    if(rm.t==='void'||rm.t==='atrium') continue;
+    if(rm.r2-rm.r1+1<MIN_ROOM||rm.c2-rm.c1+1<MIN_ROOM)
+      out.push({sev:'warn',lev:rm.lev,o:rm,msg:`${rm.t} is too small for a doorway and furniture`});
+    if(rm.doors && !rm.doors.length)
+      out.push({sev:'bad',lev:rm.lev,o:rm,msg:`${rm.t} has no doorway at all`});
   }
-  let orphans = 0, firstOrph = null;
-  for (let l = 0; l < L.levels; l++) for (let r = 1; r < L.size - 1; r++) for (let c = 1; c < L.size - 1; c++) {
-    if (!walk(GRID[l][r][c])) continue;
-    if (!seen.has(`${l},${r},${c}`)) { orphans++; if (!firstOrph) firstOrph = { l, r, c }; }
+  /* Dead ends. A vault is one on purpose — you go in for the crystal and come
+     back out the way you came — so its cells and the approach to its door are
+     exempt, exactly as they are in the generator. */
+  const walk=(ch)=>ch!=='#'&&ch!==' ';
+  const exempt=new Set();
+  for(const rm of L.rooms) if(rm.t==='chamber')
+    for(let r=rm.r1-2;r<=rm.r2+2;r++) for(let c=rm.c1-2;c<=rm.c2+2;c++)
+      exempt.add(`${rm.lev},${r},${c}`);
+  let dead=0,firstDead=null;
+  for(let l=0;l<L.levels;l++) for(let r=1;r<L.size-1;r++) for(let c=1;c<L.size-1;c++){
+    if(!walk(GRID[l][r][c]) || exempt.has(`${l},${r},${c}`)) continue;
+    let n = GRID[l][r][c]==='/'?1:0;
+    for(const [dr,dc] of [[-1,0],[1,0],[0,-1],[0,1]]) if(walk(GRID[l][r+dr][c+dc])) n++;
+    if(n<2){ dead++; if(!firstDead) firstDead={l,r,c}; }
   }
-  if (orphans) out.push({ sev: 'warn', lev: firstOrph.l, cell: firstOrph,
-    msg: `${orphans} cell${orphans > 1 ? 's' : ''} cut off from the hub — first at ${firstOrph.r},${firstOrph.c} on floor ${firstOrph.l}` });
+  if(dead) out.push({sev:'bad',lev:firstDead.l,cell:firstDead,
+    msg:`${dead} dead end${dead>1?'s':''} — first at ${firstDead.r},${firstDead.c} on floor ${firstDead.l}`});
   return out;
 }
 
 /* ---- drawing ------------------------------------------------------------ */
-function cellColour(ch) {
-  switch (ch) {
-    case '.': return COL.hall;
-    case '+': return COL.room;
-    case 'H': return COL.hub;
-    case 'V': return COL.chamber;
-    case 'A': return COL.alcove;
-    case 'g': return COL.gallery;
-    case '/': return COL.stair;
-    case 'd': return '#c07bff';
-    case '#': return COL.wall;
-    default:  return null;
+function rebuild(){ GRID=buildGrid(); problems=validate(); renderProblems(); draw(); renderInsp(); }
+function draw(){
+  const dpr=devicePixelRatio||1;
+  cv.width=cv.clientWidth*dpr; cv.height=cv.clientHeight*dpr;
+  g.setTransform(dpr,0,0,dpr,0,0);
+  g.clearRect(0,0,cv.clientWidth,cv.clientHeight);
+  const S=view.s;
+  // the grid, cell by cell
+  for(let r=0;r<L.size;r++) for(let c=0;c<L.size;c++){
+    const ch=GRID[lev][r][c];
+    if(ch===' ') continue;
+    g.fillStyle = ch==='#'?COL.wall : ch==='H'?COL.hub : ch==='/'?'#8a7440'
+                : ch==='v'?COL.chamber : ch==='+'?'#4a525f' : COL.corridor;
+    g.fillRect(px(c),py(r),S+.6,S+.6);
   }
-}
-function draw() {
-  const w = cv.width = cv.clientWidth * devicePixelRatio;
-  const h = cv.height = cv.clientHeight * devicePixelRatio;
-  g.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
-  g.fillStyle = COL.outside;
-  g.fillRect(0, 0, w, h);
-  const S = view.s, N = L.size;
-
-  const px = (c) => view.x + c * S, py = (r) => view.y + r * S;
-
-  // the floor below, as a faint ghost, so you can see what you are standing on
-  if (ghost && lev > 0) {
-    g.globalAlpha = 0.3;
-    for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) {
-      const col = cellColour(GRID[lev - 1][r][c]);
-      if (!col) continue;
-      g.fillStyle = col; g.fillRect(px(c), py(r), S, S);
-    }
-    g.globalAlpha = 1;
+  // the generator's own walkways, shown but not editable here
+  for(const gh of ghosts()){
+    g.fillStyle='#8a99b055';
+    g.fillRect(px(gh.c1),py(gh.r1),(gh.c2-gh.c1+1)*S,(gh.r2-gh.r1+1)*S);
+    g.strokeStyle='#8a99b0'; g.lineWidth=1; g.setLineDash([2,3]);
+    g.strokeRect(px(gh.c1)+.5,py(gh.r1)+.5,(gh.c2-gh.c1+1)*S,(gh.r2-gh.r1+1)*S);
+    g.setLineDash([]);
   }
-
-  for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) {
-    const col = cellColour(GRID[lev][r][c]);
-    if (!col) continue;
-    g.fillStyle = col;
-    g.fillRect(px(c), py(r), S, S);
-  }
-
-  // the building's own edge
-  g.strokeStyle = '#39414f'; g.lineWidth = 1;
-  g.strokeRect(px(B0()) + .5, py(B0()) + .5, (B1() - B0() + 1) * S, (B1() - B0() + 1) * S);
-
-  // block outlines and labels
-  g.font = `${Math.max(9, S * 0.75)}px ui-monospace, monospace`;
-  g.textAlign = 'center'; g.textBaseline = 'middle';
-  for (const p of L.plan) {
-    if (p.lev !== lev && !(p.t === 'atrium' && lev > 0)) continue;
-    const R = blockRect(p.br, p.bc);
-    const x = px(R.c1), y = py(R.r1), ww = (R.c2 - R.c1 + 1) * S, hh = (R.r2 - R.r1 + 1) * S;
-    const isSel = sel && sel.kind === 'block' && key(sel.p) === key(p);
-    const isHov = hover && hover.kind === 'block' && key(hover.p) === key(p);
-    g.strokeStyle = isSel ? COL.sel : isHov ? '#9aa6b8' : '#4b5567';
-    g.lineWidth = isSel ? 2.5 : 1;
-    g.strokeRect(x + .5, y + .5, ww, hh);
-    if (S >= 7) {
-      g.fillStyle = isSel ? COL.sel : '#c3ccda';
-      g.fillText(p.t, x + ww / 2, y + hh / 2);
-      g.fillStyle = '#7c8595';
-      g.fillText(`${p.br},${p.bc}`, x + ww / 2, y + hh / 2 + S * 1.1);
+  // room outlines and names
+  for(const rm of L.rooms){
+    if(rm.lev!==lev) continue;
+    const w=(rm.c2-rm.c1+1)*S, h=(rm.r2-rm.r1+1)*S;
+    g.strokeStyle = rm.t==='void' ? '#2a3038' : (COL[rm.t]||'#5a6472');
+    g.lineWidth = 1.5;
+    g.strokeRect(px(rm.c1)+.5,py(rm.r1)+.5,w,h);
+    if(S>=7&&rm.t!=='void'){
+      g.fillStyle='#aeb8c6'; g.font='11px ui-monospace,monospace';
+      g.textAlign='center'; g.textBaseline='middle';
+      g.fillText(rm.t, px(rm.c1)+w/2, py(rm.r1)+h/2);
     }
   }
-
-  // the hub
-  if (lev === 0) {
-    const x = px(HUB.c1), y = py(HUB.r1);
-    g.strokeStyle = '#c39a4e'; g.lineWidth = 2;
-    g.strokeRect(x + .5, y + .5, (HUB.c2 - HUB.c1 + 1) * S, (HUB.r2 - HUB.r1 + 1) * S);
-    g.fillStyle = '#e0b76a';
-    g.fillText('HUB', x + (HUB.c2 - HUB.c1 + 1) * S / 2, y + (HUB.r2 - HUB.r1 + 1) * S / 2);
+  for(const cd of L.corridors){
+    if(cd.lev!==lev) continue;
+    g.strokeStyle='#6b7a8c'; g.setLineDash([4,3]); g.lineWidth=1.5;
+    g.strokeRect(px(cd.c1)+.5,py(cd.r1)+.5,(cd.c2-cd.c1+1)*S,(cd.r2-cd.r1+1)*S);
+    g.setLineDash([]);
   }
-
-  // hall lines — the handles that will resize rooms
-  for (let i = 0; i < L.lines.length; i++) {
-    if (!L.levelLines[lev].includes(i)) continue;
-    const [s0, ww] = L.lines[i];
-    g.fillStyle = '#ffb76522';
-    g.fillRect(px(B0()), py(s0), (B1() - B0() + 1) * S, ww * S);
-    g.fillRect(px(s0), py(B0()), ww * S, (B1() - B0() + 1) * S);
-  }
-
-  // the hall handles: grab an edge to resize the rooms either side of it
-  for (const h of handles()) {
-    const isHot = hot && hot.i === h.i && hot.edge === h.edge;
-    g.fillStyle = isHot ? COL.sel : '#ffb76599';
-    // the horizontal corridor's edge, and the vertical one's
-    g.fillRect(px(B0()), py(h.at) - 2, (B1() - B0() + 1) * S, 4);
-    g.fillRect(px(h.at) - 2, py(B0()), 4, (B1() - B0() + 1) * S);
-    if (isHot) {
-      g.fillStyle = COL.sel;
-      g.fillRect(px(B0()) - 26, py(h.at) - 9, 24, 18);
-      g.fillStyle = '#08121a';
-      g.fillText(String(h.at), px(B0()) - 14, py(h.at));
+  // doorways of the selected room, and the slots it could gain
+  if(sel&&sel.kind==='room'&&sel.o.lev===lev){
+    g.fillStyle='#6fd3ff1e';
+    for(const d of doorSlots(sel.o)) for(const [r,c] of d.cells) g.fillRect(px(c),py(r),S,S);
+    for(const d of doorsOf(sel.o)){
+      g.fillStyle = d.auto ? '#6fd3ff88' : '#6fd3ff';
+      for(const [r,c] of d.cells) g.fillRect(px(c),py(r),S,S);
     }
   }
-
-  // stairs
-  for (const f of FLIGHTS) {
-    if (f.lo !== lev && f.lo + 1 !== lev) continue;
-    const up = f.lo === lev;
-    g.strokeStyle = up ? '#ffd88a' : '#8fa8c8';
-    g.lineWidth = 2;
-    const a = f.cells[0], b = f.cells[f.cells.length - 1];
-    g.beginPath();
-    g.moveTo(px(a[1] + .5), py(a[0] + .5));
-    g.lineTo(px(b[1] + .5), py(b[0] + .5));
-    g.stroke();
-    g.fillStyle = up ? '#ffd88a' : '#8fa8c8';
-    g.fillText(up ? '▲' : '▼', px(b[1] + .5), py(b[0] + .5));
-  }
-
-  // With the door tool up, every wall that could sensibly become an opening is
-  // shown, so you are choosing from real options rather than guessing.
-  if (tool === 'door') {
-    g.fillStyle = '#6fd3ff2e';
-    for (const [r, c] of doorSpaces()) g.fillRect(px(c), py(r), S, S);
-  }
-  // anything overruled by hand carries a corner tick, so a plan you come back
-  // to still tells you where you disagreed with it
-  for (const k of Object.keys(L.edits || {})) {
-    const [l, r, c] = k.split(',').map(Number);
-    if (l !== lev) continue;
-    g.fillStyle = '#ffd88a';
-    g.fillRect(px(c), py(r), Math.max(2, S * .22), Math.max(2, S * .22));
-  }
-
-  // the movable points: parapet gaps, gate buttons, the foot of each flight
-  for (const pt of points()) {
-    const x = px(pt.c + .5), y = py(pt.r + .5);
-    const isHot = (hotPt && hotPt.kind === pt.kind && hotPt.i === pt.i) ||
-                  (sel && sel.kind === pt.kind && sel.i === pt.i);
-    const col = (FITTINGS[pt.kind] || {}).colour || '#ffd88a';
-    if (pt.kind === 'drop') {
-      g.strokeStyle = col; g.lineWidth = isHot ? 3 : 2;
-      g.strokeRect(px(pt.c) + .5, py(pt.r) + .5, S, S);
+  // fittings
+  for(const f of fittings()){
+    const C=FIT[f.kind].c;
+    const on = sel&&sel.kind===f.kind&&sel.i===f.i;
+    if(f.kind==='stair'){
+      g.fillStyle=C;
+      for(const [r,c] of f.cells) g.fillRect(px(c)+1,py(r)+1,S-2,S-2);
+      if(on){ g.strokeStyle='#fff'; g.lineWidth=2;
+        const rs=f.cells.map(x=>x[0]), cs=f.cells.map(x=>x[1]);
+        g.strokeRect(px(Math.min(...cs))-1,py(Math.min(...rs))-1,
+          (Math.max(...cs)-Math.min(...cs)+1)*S+2,(Math.max(...rs)-Math.min(...rs)+1)*S+2); }
     } else {
-      g.fillStyle = col;
-      g.beginPath(); g.arc(x, y, Math.max(3, S * (isHot ? .48 : .35)), 0, 7); g.fill();
-      g.fillStyle = '#08121a';
-      g.fillText(pt.label, x, y);
+      g.fillStyle=C;
+      g.fillRect(px(f.c)+1,py(f.r)+1,S-2,S-2);
+      if(on){ g.strokeStyle='#fff'; g.lineWidth=2; g.strokeRect(px(f.c)-1,py(f.r)-1,S+2,S+2); }
     }
   }
-
-  // anything the plan is unhappy about, marked where it is
-  for (const pr of problems) {
-    if (pr.lev !== lev) continue;
-    g.strokeStyle = pr.sev === 'bad' ? '#ff6a4a' : '#ffc861';
-    g.lineWidth = 2;
-    if (pr.cell) {
-      g.beginPath(); g.arc(px(pr.cell.c + .5), py(pr.cell.r + .5), S * 1.4, 0, 7); g.stroke();
-    } else if (pr.br !== undefined) {
-      const R = blockRect(pr.br, pr.bc);
-      g.strokeRect(px(R.c1) + .5, py(R.r1) + .5, (R.c2 - R.c1 + 1) * S, (R.r2 - R.r1 + 1) * S);
-    }
+  // the selection and its handles
+  const so = sel && (sel.kind==='room'||sel.kind==='corridor') ? sel.o : null;
+  if(so && so.lev===lev){
+    const l=px(so.c1),t=py(so.r1),w=(so.c2-so.c1+1)*S,h=(so.r2-so.r1+1)*S;
+    g.strokeStyle=COL_SEL(); g.lineWidth=2; g.strokeRect(l+.5,t+.5,w,h);
+    g.fillStyle=COL_SEL();
+    for(const [hx,hy] of [[l,t],[l+w/2,t],[l+w,t],[l,t+h/2],[l+w,t+h/2],[l,t+h],[l+w/2,t+h],[l+w,t+h]])
+      g.fillRect(hx-3,hy-3,6,6);
   }
-
-  // a room being carried to a new slot
-  if (moving && moving.to) {
-    const R = blockRect(moving.to.br, moving.to.bc);
-    g.fillStyle = '#6fd3ff28';
-    g.fillRect(px(R.c1), py(R.r1), (R.c2 - R.c1 + 1) * S, (R.r2 - R.r1 + 1) * S);
-    g.strokeStyle = COL.sel; g.lineWidth = 2.5;
-    g.strokeRect(px(R.c1) + .5, py(R.r1) + .5, (R.c2 - R.c1 + 1) * S, (R.r2 - R.r1 + 1) * S);
+  // problems, marked where they are
+  for(const p of problems){
+    if(p.lev!==lev) continue;
+    g.strokeStyle = p.sev==='bad'?'#ff6a4a':'#ffc861'; g.lineWidth=2;
+    if(p.cell) g.strokeRect(px(p.cell.c)-2,py(p.cell.r)-2,S+4,S+4);
+    else if(p.o) g.strokeRect(px(p.o.c1)-2,py(p.o.r1)-2,(p.o.c2-p.o.c1+1)*S+4,(p.o.r2-p.o.r1+1)*S+4);
   }
+  el('stat').textContent = `${L.size}×${L.size} · floor ${lev} · `+
+    `${L.rooms.filter(r=>r.lev===lev&&r.t!=='void').length} rooms · ${view.s}px/cell`;
+}
+const COL_SEL=()=>'#6fd3ff';
 
-  document.getElementById('status').textContent =
-    `${L.size}×${L.size} · floor ${lev} · ${L.plan.filter(p => p.lev === lev).length} blocks · zoom ${S}px/cell`;
-}
-
-/* ---- moving a room ------------------------------------------------------
-   A room IS a block, so moving one means giving it a different band address.
-   Drop it on an empty slot and it moves; drop it on an occupied one and the
-   two swap, which is almost always what you meant. Nothing is resized by this
-   — a room takes the size of the slot it lands in, because the size belongs to
-   the halls, not to the room. */
-function blockAt(lv, br, bc) {
-  return L.plan.find((p) => p.lev === lv && p.br === br && p.bc === bc) || null;
-}
-function slotOf(mx, my) {
-  const c = Math.floor((mx - view.x) / view.s), r = Math.floor((my - view.y) / view.s);
-  for (let br = 0; br < BANDS.length; br++) for (let bc = 0; bc < BANDS.length; bc++) {
-    if (lev === 0 && br === 2 && bc === 2) continue;   // the hub is not a slot
-    const R = blockRect(br, bc);
-    if (r >= R.r1 && r <= R.r2 && c >= R.c1 && c <= R.c2) return { br, bc };
-  }
-  return null;
-}
-function moveBlock(p, to) {
-  if (p.br === to.br && p.bc === to.bc) return;
-  const other = blockAt(p.lev, to.br, to.bc);
-  const fromKey = key(p);
-  const otherKey = other ? key(other) : null;
-  if (other) { other.br = p.br; other.bc = p.bc; }
-  p.br = to.br; p.bc = to.bc;
-  // contents follow their room
-  const items = L.roomItems[fromKey], oItems = otherKey ? L.roomItems[otherKey] : null;
-  delete L.roomItems[fromKey];
-  if (otherKey) delete L.roomItems[otherKey];
-  if (items) L.roomItems[key(p)] = items;
-  if (oItems && other) L.roomItems[key(other)] = oItems;
-  rebuild(); dirty();
-}
-
-/* ---- the movable points: flights, buttons, parapet gaps ----------------- */
-/* Everything with a position, in one list, so selecting, dragging and deleting
-   work the same way whatever you clicked. Stairs, gate buttons and parapet gaps
-   have always lived in the level; machines and guns used to be scattered by the
-   game at run time and are now placeable too — an empty list still means
-   "scatter them", so a level that says nothing about them behaves as before. */
-const FITTINGS = {
-  stair:  { colour: '#ffd88a', title: 'stair flight' },
-  button: { colour: '#6fd3ff', title: 'gate button' },
-  drop:   { colour: '#ff7a5c', title: 'parapet gap' },
-  vendor: { colour: '#8fc492', title: 'vending machine' },
-  gun:    { colour: '#e6e0c0', title: 'gun' },
-};
-function points() {
-  const out = [];
-  L.stairs.forEach((st, i) => {
-    if (st.lo !== lev && st.lo + 1 !== lev) return;
-    out.push({ kind: 'stair', i, r: st.cells[0][0], c: st.cells[0][1], label: st.lo + '→' + (st.lo + 1) });
+function renderProblems(){
+  const n=el('probs');
+  if(!problems.length){ n.className='clean'; n.textContent='✓ the plan holds up'; return; }
+  n.className='';
+  n.innerHTML = problems.slice(0,7).map((p,i)=>
+    `<div class="pr ${p.sev}" data-i="${i}">${p.msg}</div>`).join('')
+    + (problems.length>7?`<div class="pr">…and ${problems.length-7} more</div>`:'');
+  n.querySelectorAll('.pr[data-i]').forEach(d=>d.onclick=()=>{
+    const p=problems[+d.dataset.i];
+    setLev(p.lev);
+    if(p.o){ sel={kind:'room',o:p.o}; renderInsp(); }
+    draw();
   });
-  L.buttonPrefs.forEach((b, i) => {
-    if (b.lev !== lev) return;
-    out.push({ kind: 'button', i, r: b.at[0], c: b.at[1], label: 'ABCDEF'[i] });
-  });
-  L.drops.forEach((d, i) => {
-    if (d.lev !== lev) return;
-    out.push({ kind: 'drop', i, r: d.into[0], c: d.into[1], label: '↓' });
-  });
-  (L.placed.vendors || []).forEach((v, i) => {
-    if (v.lev !== lev) return;
-    out.push({ kind: 'vendor', i, r: v.r, c: v.c, label: 'V' });
-  });
-  (L.placed.guns || []).forEach((g2, i) => {
-    if (g2.lev !== lev) return;
-    out.push({ kind: 'gun', i, r: g2.r, c: g2.c, label: String(g2.tier) });
-  });
-  return out;
-}
-function deleteFitting(kind, i) {
-  mark();
-  if (kind === 'stair') L.stairs.splice(i, 1);
-  else if (kind === 'button') L.buttonPrefs.splice(i, 1);
-  else if (kind === 'drop') L.drops.splice(i, 1);
-  else if (kind === 'vendor') L.placed.vendors.splice(i, 1);
-  else if (kind === 'gun') L.placed.guns.splice(i, 1);
-  sel = null; rebuild(); dirty();
-}
-function pickPoint(mx, my) {
-  let best = null, bestD = 9;
-  for (const pt of points()) {
-    const x = view.x + (pt.c + .5) * view.s, y = view.y + (pt.r + .5) * view.s;
-    const d = Math.hypot(mx - x, my - y);
-    if (d < bestD) { bestD = d; best = pt; }
-  }
-  return best;
-}
-function movePoint(pt, r, c) {
-  r = Math.max(0, Math.min(L.size - 1, Math.round(r)));
-  c = Math.max(0, Math.min(L.size - 1, Math.round(c)));
-  if (pt.kind === 'button') { L.buttonPrefs[pt.i].at = [r, c]; }
-  else if (pt.kind === 'drop') {
-    const d = L.drops[pt.i];
-    const dr = r - d.into[0], dc = c - d.into[1];
-    d.into = [r, c]; d.at = [d.at[0] + dr, d.at[1] + dc];
-  } else if (pt.kind === 'vendor') { Object.assign(L.placed.vendors[pt.i], { lev, r, c });
-  } else if (pt.kind === 'gun')    { Object.assign(L.placed.guns[pt.i], { lev, r, c });
-  } else if (pt.kind === 'stair') {
-    // Clamp the WHOLE flight, not just the cell you are holding: clamping the
-    // anchor alone let the tail run off the grid, which threw on the way down
-    // and wrote silently off-grid on the way right.
-    const st = L.stairs[pt.i];
-    let dr = r - st.cells[0][0], dc = c - st.cells[0][1];
-    for (const [rr, cc] of st.cells) {
-      dr = Math.max(dr, 1 - rr); dr = Math.min(dr, L.size - 2 - rr);
-      dc = Math.max(dc, 1 - cc); dc = Math.min(dc, L.size - 2 - cc);
-    }
-    st.cells = st.cells.map(([rr, cc]) => [rr + dr, cc + dc]);
-  }
-  rebuild(); dirty();
 }
 
-/* ---- what is under the pointer ------------------------------------------ */
-// Handles are tested in SCREEN space with a fixed 6px reach, so they stay
-// grabbable at any zoom rather than shrinking with the cells.
-/* A block's border sits EXACTLY on a hall handle by construction, and the
-   handle claimed a fixed 7px in every direction — so the outer 7 pixels of all
-   44 rooms grabbed a hall and reflowed the whole floor instead of selecting the
-   room. At the default zoom that is nearly two cells, roughly half the
-   clickable area of a narrow band. A hall is now only grabbed over the hall
-   ITSELF, never over the room beside it, and the reach never exceeds half the
-   corridor's width. */
-function handleUnder(mx, my) {
-  const h = pickHandle(mx, my);
-  if (!h) return null;
-  const r = (my - view.y) / view.s, c = (mx - view.x) / view.s;
-  const ln = L.lines[h.i];
-  const insideRow = r >= ln[0] - 0.5 && r <= ln[0] + ln[1] + 0.5;
-  const insideCol = c >= ln[0] - 0.5 && c <= ln[0] + ln[1] + 0.5;
-  return (insideRow || insideCol) ? h : null;
-}
-function pickHandle(mx, my) {
-  let best = null, bestD = Math.max(3, Math.min(7, view.s * 0.9));
-  for (const h of handles()) {
-    const hy = view.y + h.at * view.s, hx = view.x + h.at * view.s;
-    const inRow = mx >= view.x + B0() * view.s && mx <= view.x + (B1() + 1) * view.s;
-    const inCol = my >= view.y + B0() * view.s && my <= view.y + (B1() + 1) * view.s;
-    if (inRow && Math.abs(my - hy) < bestD) { bestD = Math.abs(my - hy); best = h; }
-    if (inCol && Math.abs(mx - hx) < bestD) { bestD = Math.abs(mx - hx); best = h; }
-  }
-  return best;
-}
+/* ---- the panel: say what the thing IS ----------------------------------- */
+function renderInsp(){
+  const n=el('insp');
+  if(!sel){ n.innerHTML='<p class="hint">Click a room, a corridor, a stairwell, a machine, a gun, a gate button or a parapet gap. Drag it to move it. Drag a handle to resize. Everything is selectable — there are no tools to switch between.</p>'; return; }
 
-function pick(mx, my) {
-  const c = Math.floor((mx - view.x) / view.s), r = Math.floor((my - view.y) / view.s);
-  if (r < 0 || c < 0 || r >= L.size || c >= L.size) return null;
-  for (const p of L.plan) {
-    if (p.lev !== lev && !(p.t === 'atrium' && lev > 0)) continue;
-    const R = blockRect(p.br, p.bc);
-    if (r >= R.r1 && r <= R.r2 && c >= R.c1 && c <= R.c2) return { kind: 'block', p, r, c };
-  }
-  if (lev === 0 && r >= HUB.r1 && r <= HUB.r2 && c >= HUB.c1 && c <= HUB.c2) return { kind: 'hub', r, c };
-  const slot = slotOf(mx, my);
-  if (slot) return { kind: 'slot', br: slot.br, bc: slot.bc, r, c };
-  return { kind: 'cell', r, c, ch: GRID[lev][r][c] };
-}
-
-/* ---- the inspector ------------------------------------------------------ */
-function itemsFor(p) {
-  const k = key(p);
-  const ov = L.roomItems[k] || { add: [], remove: [] };
-  const base = DEFAULTS[p.t] || [];
-  return { base, add: ov.add || [], remove: ov.remove || [] };
-}
-function setOverride(p, fn) {
-  mark();
-  const k = key(p);
-  L.roomItems[k] = L.roomItems[k] || { add: [], remove: [] };
-  fn(L.roomItems[k]);
-  if (!L.roomItems[k].add.length && !L.roomItems[k].remove.length) delete L.roomItems[k];
-  renderInspector(); draw(); dirty();
-}
-function renderInspector() {
-  const el = document.getElementById('insp');
-  if (!sel) { el.innerHTML = '<p class="hint">Click a room, a vault, an atrium or a corridor.</p>'; return; }
-
-  if (sel.kind === 'hub') {
-    el.innerHTML = `<div class="sect">the hub</div>
-      <div class="row"><span class="k">extent</span><span>${HUB.r1}–${HUB.r2} × ${HUB.c1}–${HUB.c2}</span></div>
-      <div class="row"><span class="k">exits</span><span>${L.hubExits.length}</span></div>
-      <p class="hint">The hub is derived from the middle band, so it resizes when you move the hall lines that bound it.</p>`;
-    return;
-  }
-  if (sel.kind === 'stair') {
-    const st = L.stairs[sel.i];
-    if (!st) { sel = null; return renderInspector(); }
-    const horiz = st.cells[0][0] === st.cells[st.cells.length - 1][0];
-    el.innerHTML = `<div class="sect">stair flight</div>
-      <p class="hint">Climbs from floor ${st.lo} to floor ${st.lo + 1}, ${st.cells.length} steps,
-      running ${horiz ? 'east–west' : 'north–south'} from ${st.cells[0][0]},${st.cells[0][1]}.</p>
+  if(sel.kind==='stair'){
+    const st=L.stairs[sel.i]; if(!st){ sel=null; return renderInsp(); }
+    const horiz = st.cells[0][0]===st.cells[st.cells.length-1][0];
+    const up = st.lo+1===lev;
+    n.innerHTML=`<div class="sect">${up?'down':'up'} stairwell · floor ${lev}</div>
+      <p class="hint">Joins floor ${st.lo} and floor ${st.lo+1}. ${st.cells.length} steps,
+      running ${horiz?'east–west':'north–south'}, from ${st.cells[0][0]},${st.cells[0][1]}.
+      You are looking at its ${up?'head, coming up from below':'foot, going up'}.</p>
       <div class="sect">which floors</div>
-      <select id="slo">${[...Array(Math.max(1, L.levels - 1))].map((_, i) =>
-        `<option value="${i}"${i === st.lo ? ' selected' : ''}>${i} → ${i + 1}</option>`).join('')}</select>
+      <select id="slo">${Array.from({length:Math.max(1,L.levels-1)},(_,i)=>
+        `<option value="${i}"${i===st.lo?' selected':''}>floor ${i} → floor ${i+1}</option>`).join('')}</select>
       <div class="sect">shape</div>
-      <button class="btn" id="sturn" style="width:100%">turn it ninety degrees</button>
-      <div style="display:flex;gap:6px;margin-top:6px">
-        <button class="btn" id="sshort" style="flex:1">shorter</button>
-        <button class="btn" id="slong" style="flex:1">longer</button>
-      </div>
+      <div class="row"><button class="btn" id="sturn">turn</button>
+        <button class="btn" id="sshort">shorter</button>
+        <button class="btn" id="slong">longer</button></div>
       <div class="sect">remove</div>
-      <button class="btn" id="sdel" style="width:100%">delete this flight</button>
-      <p class="hint">Drag the flight on the plan to move it. A flight needs somewhere
-      walkable one cell beyond each end, on the floor that end belongs to — the
-      generator checks that and will say so.</p>`;
-    const rebuildCells = (r0, c0, n, horizontal) => {
-      st.cells = [];
-      for (let k = 0; k < n; k++) st.cells.push(horizontal ? [r0, c0 + k] : [r0 + k, c0]);
-    };
-    document.getElementById('slo').onchange = (ev) => { mark(); st.lo = +ev.target.value; rebuild(); dirty(); };
-    document.getElementById('sturn').onclick = () => {
-      mark(); rebuildCells(st.cells[0][0], st.cells[0][1], st.cells.length, !horiz); rebuild(); dirty();
-    };
-    document.getElementById('sshort').onclick = () => {
-      if (st.cells.length <= 2) return;
-      mark(); rebuildCells(st.cells[0][0], st.cells[0][1], st.cells.length - 1, horiz); rebuild(); dirty();
-    };
-    document.getElementById('slong').onclick = () => {
-      mark(); rebuildCells(st.cells[0][0], st.cells[0][1], st.cells.length + 1, horiz); rebuild(); dirty();
-    };
-    document.getElementById('sdel').onclick = () => {
-      mark(); L.stairs.splice(sel.i, 1); sel = null; rebuild(); dirty();
-    };
+      <button class="btn" id="del" style="width:100%">delete this stairwell</button>
+      <p class="hint">Drag it on the plan to move it. Delete key does the same.</p>`;
+    const reshape=(nn,hz)=>{ const [r0,c0]=st.cells[0]; st.cells=[];
+      for(let k=0;k<nn;k++) st.cells.push(hz?[r0,c0+k]:[r0+k,c0]); };
+    el('slo').onchange=e=>{mark(); st.lo=+e.target.value; rebuild(); dirty();};
+    el('sturn').onclick=()=>{mark(); reshape(st.cells.length,!horiz); rebuild(); dirty();};
+    el('sshort').onclick=()=>{ if(st.cells.length<=2) return; mark(); reshape(st.cells.length-1,horiz); rebuild(); dirty();};
+    el('slong').onclick=()=>{mark(); reshape(st.cells.length+1,horiz); rebuild(); dirty();};
+    el('del').onclick=()=>delFitting();
     return;
   }
-  if (FITTINGS[sel.kind]) {
-    const F = FITTINGS[sel.kind];
-    const notes = {
-      button: 'The generator seeds it on the nearest corridor cell to wherever you leave it.',
-      drop:   'You step off here and fall to the floor below.',
-      vendor: 'Machines belong in corridors. Listing any at all replaces the twelve the game would otherwise scatter, so place them all or none.',
-      gun:    'One gun per rung of the ladder. Listing a rung fixes where that gun waits; rungs you leave out are scattered as before.',
-      stair:  '',
-    };
-    let extra = '';
-    if (sel.kind === 'gun') {
-      const g2 = L.placed.guns[sel.i];
-      const NAMES = { 1: 'pistol', 2: 'shotgun', 3: 'machine gun', 4: 'blaster', 5: 'laser' };
-      extra = `<div class="sect">which gun</div><select id="gt">` +
-        [1, 2, 3, 4, 5].map((t) => `<option value="${t}"${t === g2.tier ? ' selected' : ''}>${t} · ${NAMES[t]}</option>`).join('') +
-        `</select>`;
-    }
-    el.innerHTML = `<div class="sect">${F.title}</div>
-      <p class="hint">On floor ${lev}. Drag it on the plan to move it.</p>
+  if(FIT[sel.kind]){
+    const F=FIT[sel.kind];
+    const extra = sel.kind==='gun'
+      ? `<div class="sect">which gun</div><select id="gt">${[1,2,3,4,5].map(t=>
+          `<option value="${t}"${t===L.placed.guns[sel.i].tier?' selected':''}>${t} · ${GUNS[t]}</option>`).join('')}</select>` : '';
+    const note = {button:'The generator seeds it on the nearest corridor cell to wherever you leave it.',
+      drop:'You step off here and fall to the floor below.',
+      vendor:'Machines belong in corridors. Listing any at all replaces the twelve the game would otherwise scatter.',
+      gun:'Listing a rung fixes where that gun waits; rungs you leave out are scattered as before.'}[sel.kind]||'';
+    n.innerHTML=`<div class="sect">${F.n} · floor ${lev}</div>
+      <p class="hint">At ${sel.o.r!==undefined?sel.o.r+','+sel.o.c:sel.o.at}. Drag it on the plan to move it.</p>
       ${extra}
       <div class="sect">remove</div>
-      <button class="btn" id="fdel" style="width:100%">delete this ${F.title}</button>
-      <p class="hint">${notes[sel.kind] || ''} The delete key does the same thing.</p>`;
-    document.getElementById('fdel').onclick = () => deleteFitting(sel.kind, sel.i);
-    const gt = document.getElementById('gt');
-    if (gt) gt.onchange = (ev) => { mark(); L.placed.guns[sel.i].tier = +ev.target.value; rebuild(); dirty(); };
+      <button class="btn" id="del" style="width:100%">delete this ${F.n}</button>
+      <p class="hint">${note} Delete key does the same.</p>`;
+    el('del').onclick=()=>delFitting();
+    const gt=el('gt'); if(gt) gt.onchange=e=>{mark(); L.placed.guns[sel.i].tier=+e.target.value; rebuild(); dirty();};
     return;
   }
-  if (sel.kind === 'slot') {
-    const opts = TYPES.filter(t => t !== '(empty)').map(t => `<option>${t}</option>`).join('');
-    el.innerHTML = `<div class="sect">empty slot ${sel.br},${sel.bc} · floor ${lev}</div>
-      <p class="hint">Nothing is planned here on this floor.</p>
-      <div class="sect">put a room here</div>
-      <select id="mk"><option value="">choose a type…</option>${opts}</select>`;
-    document.getElementById('mk').onchange = (e) => {
-      if (!e.target.value) return;
-      mark();
-      L.plan.push({ lev, br: sel.br, bc: sel.bc, t: e.target.value });
-      sel = { kind: 'block', p: L.plan[L.plan.length - 1] };
-      rebuild(); dirty();
-    };
+  if(sel.kind==='hub'){
+    n.innerHTML=`<div class="sect">the hub · floor ${L.hub.lev}</div>
+      <p class="hint">Where you start, where the crystals come home, and the floor that lifts you out at the end. ${L.hub.r2-L.hub.r1+1} by ${L.hub.c2-L.hub.c1+1} cells with ${L.hubExits.length} ways out.</p>`;
     return;
   }
-  if (sel.kind === 'cell') {
-    const nm = { '.': 'corridor', '#': 'wall', ' ': 'outside / void', '/': 'stair flight',
-                 'g': 'exterior gallery', 'A': 'alcove', 'V': 'vault', 'H': 'hub', '+': 'room floor' }[sel.ch] || sel.ch;
-    el.innerHTML = `<div class="sect">cell</div>
-      <div class="row"><span class="k">at</span><span>row ${sel.r}, col ${sel.c}</span></div>
-      <div class="row"><span class="k">is</span><span>${nm}</span></div>`;
+  if(sel.kind==='corridor'){
+    const o=sel.o;
+    n.innerHTML=`<div class="sect">corridor · floor ${o.lev}</div>
+      <p class="hint">${o.r2-o.r1+1} by ${o.c2-o.c1+1} cells at ${o.r1},${o.c1}. Corridor also appears wherever rooms leave a gap — this one is placed, so it stays put while rooms move around it.</p>
+      <div class="sect">remove</div>
+      <button class="btn" id="del" style="width:100%">delete this corridor</button>`;
+    el('del').onclick=()=>{mark(); L.corridors=L.corridors.filter(x=>x!==o); sel=null; rebuild(); dirty();};
     return;
   }
-
-  const p = sel.p, R = blockRect(p.br, p.bc);
-  const cells = (R.r2 - R.r1 - 1) * (R.c2 - R.c1 - 1);
-  const { base, add, remove } = itemsFor(p);
-  const opts = TYPES.map(t => `<option${t === p.t ? ' selected' : ''}>${t}</option>`).join('');
-  let html = `<div class="sect">block ${p.br},${p.bc} · floor ${p.lev}</div>
-    <div class="row"><span class="k">rows</span><span>${R.r1}–${R.r2}</span></div>
-    <div class="row"><span class="k">cols</span><span>${R.c1}–${R.c2}</span></div>
-    <div class="row"><span class="k">interior</span><span>${R.r2 - R.r1 - 1} × ${R.c2 - R.c1 - 1} cells</span></div>
-    <div class="row"><span class="k">floor area</span><span>${(cells * 9).toLocaleString()} m²</span></div>
-    <div class="sect">type</div><select id="ty">${opts}</select>
-    <div class="sect">walls</div>
-    <select id="enc">
-      <option value="1"${p.enclosed === false ? '' : ' selected'}>enclosed — a wall ring with doorways</option>
-      <option value="0"${p.enclosed === false ? ' selected' : ''}>open — the floor runs out to the halls</option>
-    </select>
-    <p class="hint">An open block has no wall ring and needs no doorways: every edge is one. It reads as a bay off the corridor rather than a room you go into.</p>
-    <p class="hint">The type furnishes the room. Its contents below come from that type — edit them to make this room specific.</p>
-    <div class="sect">contents</div>`;
-
-  for (const it of base) {
-    if (remove.includes(it)) continue;
-    html += `<div class="item def"><span class="nm">${it}</span>
-      <span class="x" data-rm="${it}" title="remove from this room">✕</span></div>`;
+  if(sel.kind==='room'){
+    const rm=sel.o;
+    const doors=doorsOf(rm);
+    n.innerHTML=`<div class="sect">${rm.t} · floor ${rm.lev}</div>
+      <p class="hint">${rm.r2-rm.r1+1} by ${rm.c2-rm.c1+1} cells at ${rm.r1},${rm.c1} — that is the outside, walls included, so the room inside is ${rm.r2-rm.r1-1} by ${rm.c2-rm.c1-1}.</p>
+      <div class="sect">type</div>
+      <select id="ty">${TYPES.map(t=>`<option${t===rm.t?' selected':''}>${t}</option>`).join('')}</select>
+      <div class="sect">walls</div>
+      <select id="enc">
+        <option value="1"${rm.enclosed===false?'':' selected'}>enclosed — a wall ring with doorways</option>
+        <option value="0"${rm.enclosed===false?' selected':''}>open — the floor runs out to the halls</option>
+      </select>
+      <div class="sect">doorways · ${doors.length}</div>
+      <p class="hint">${
+        rm.t==='chamber'
+          ? 'None here. A vault gets one gated portal, in the colour of the crystal inside it, and the generator cuts that itself once it knows which crystal this is.'
+        : !hasDoors(rm)
+          ? 'None here — this has no wall ring to put one in.'
+        : rm.doors ? 'Hand-placed. Click a pale square on the plan to open a doorway, or a bright one to close it.'
+        : 'Automatic: two opposite faces so the room is a through-route, and a third for choice. Click a pale square to place your own — the first click makes them all yours.'}</p>
+      ${doors.map(d=>`<span class="chip${d.auto?' auto':''}">${d.side} at ${d.at}</span>`).join('')}
+      ${rm.doors?'<div class="row"><button class="btn" id="dauto">back to automatic</button></div>':''}
+      <div class="sect">remove</div>
+      <button class="btn" id="del" style="width:100%">delete this room</button>`;
+    el('ty').onchange=e=>{mark(); rm.t=e.target.value; rebuild(); dirty();};
+    el('enc').onchange=e=>{mark(); if(e.target.value==='0') rm.enclosed=false; else delete rm.enclosed; rebuild(); dirty();};
+    const da=el('dauto'); if(da) da.onclick=()=>{mark(); delete rm.doors; rebuild(); dirty();};
+    el('del').onclick=()=>{mark(); L.rooms=L.rooms.filter(x=>x!==rm); sel=null; rebuild(); dirty();};
+    return;
   }
-  for (const it of add) {
-    html += `<div class="item"><span class="nm">${it}${PLAYABLE.has(it) ? ' ◆' : ''}</span>
-      <span class="x" data-un="${it}" title="remove">✕</span></div>`;
-  }
-  for (const it of remove) {
-    html += `<div class="item" style="opacity:.4;text-decoration:line-through">
-      <span class="nm">${it}</span><span class="x" data-re="${it}" title="put back">↺</span></div>`;
-  }
-  const groups = Object.entries(PALETTE).map(([gname, list]) =>
-    `<optgroup label="${gname}">${list.map(i => `<option>${i}</option>`).join('')}</optgroup>`).join('');
-  html += `<div class="sect">add</div><select id="addsel"><option value="">choose…</option>${groups}</select>
-    <p class="hint">Dashed items are what the type gives you. ◆ marks something the game's rules use.</p>
-    <div class="sect">this block</div>
-    <button class="btn" id="del" style="width:100%">remove the room from this slot</button>
-    <p class="hint">Drag a room onto another slot to move it — drop it on an occupied one and the two swap.</p>`;
-  el.innerHTML = html;
-
-  document.getElementById('ty').onchange = (e) => { mark(); p.t = e.target.value; rebuild(); dirty(); };
-  document.getElementById('enc').onchange = (e) => {
-    mark();
-    if (e.target.value === '0') p.enclosed = false; else delete p.enclosed;
-    rebuild(); dirty();
-  };
-  document.getElementById('addsel').onchange = (e) => {
-    if (!e.target.value) return;
-    const v = e.target.value;
-    setOverride(p, (o) => { if (!o.add.includes(v)) o.add.push(v); });
-  };
-  el.querySelectorAll('[data-rm]').forEach(n => n.onclick = () =>
-    setOverride(p, (o) => { if (!o.remove.includes(n.dataset.rm)) o.remove.push(n.dataset.rm); }));
-  el.querySelectorAll('[data-un]').forEach(n => n.onclick = () =>
-    setOverride(p, (o) => { o.add = o.add.filter(x => x !== n.dataset.un); }));
-  el.querySelectorAll('[data-re]').forEach(n => n.onclick = () =>
-    setOverride(p, (o) => { o.remove = o.remove.filter(x => x !== n.dataset.re); }));
-  document.getElementById('del').onclick = () => {
-    mark();
-    L.plan = L.plan.filter((x) => x !== p);
-    delete L.roomItems[key(p)];
-    sel = null; rebuild(); dirty();
-  };
+  const gh = ghosts().find(x=>sel.r>=x.r1&&sel.r<=x.r2&&sel.c>=x.c1&&sel.c<=x.c2);
+  n.innerHTML=`<div class="sect">cell ${sel.r},${sel.c}</div>
+    <p class="hint">Nothing placed here. It is ${({'.':'corridor','#':'wall','+':'room floor','/':'stair',' ':'nothing','H':'hub floor','v':'vault'})[GRID[lev][sel.r]?.[sel.c]]||'nothing'}.</p>`
+    + (gh?`<div class="sect">${gh.n}</div><p class="hint">Drawn dashed because the generator cuts it, not this page — it is not yours to move. Put a room through it and the walkway loses its landing.</p>`:'');
 }
-
-/* ---- plumbing ----------------------------------------------------------- */
-let dirtyFlag = false;
-function dirty() {
-  dirtyFlag = true;
-  document.getElementById('save').classList.add('on');
-  localStorage.setItem('cm-level-draft', JSON.stringify(L));
-}
-function rebuild() {
-  derive();
-  const b = buildGrid(); GRID = b.grid; FLIGHTS = b.flights;
-  problems = validate();
-  renderProblems();
-  draw(); renderInspector();
-}
-function renderProblems() {
-  const el = document.getElementById('probs');
-  if (!problems.length) {
-    el.innerHTML = '<span class="ok">✓ the plan holds up</span>';
-    el.className = 'ok'; return;
-  }
-  el.className = problems.some(p => p.sev === 'bad') ? 'bad' : 'warn';
-  el.innerHTML = problems.slice(0, 6).map(p =>
-    `<div class="pr ${p.sev}" data-lev="${p.lev}">${p.msg}</div>`).join('') +
-    (problems.length > 6 ? `<div class="pr">…and ${problems.length - 6} more</div>` : '');
-  el.querySelectorAll('.pr[data-lev]').forEach(n => n.onclick = () => {
-    const q = document.querySelector(`[data-lev="${n.dataset.lev}"].btn`);
-    if (q) q.click();
-  });
-}
-
-function fit() {
-  // The canvas already sits inside the stage, which excludes the side panel —
-  // subtracting it again here is what made the plan come up postage-stamp sized.
-  const w = cv.clientWidth - 30, h = cv.clientHeight - 76;
-  view.s = Math.max(4, Math.min(40, Math.floor(Math.min(w, h) / L.size)));
-  view.x = (cv.clientWidth - L.size * view.s) / 2;
-  view.y = (cv.clientHeight - L.size * view.s) / 2 + 20;
-  draw();
-}
-
-cv.addEventListener('mousemove', (e) => {
-  if (painting) {
-    const r = Math.floor((e.offsetY - view.y) / view.s), c = Math.floor((e.offsetX - view.x) / view.s);
-    if (paint(r, c, paintCh)) { rebuild(); dirty(); }
-    return;
-  }
-  if (dragPt) { dragPt.moved = true; movePoint(dragPt, (e.offsetY - view.y) / view.s, (e.offsetX - view.x) / view.s); return; }
-  if (moving) {
-    moving.to = slotOf(e.offsetX, e.offsetY);
-    moving.dragged = true;
-    draw(); return;
-  }
-  if (grabbing) {
-    // vertical drag moves a row edge, horizontal drag moves the column edge —
-    // it is the same line either way, so whichever axis you pull, it follows
-    const useRow = grabbing.axis === 'row';
-    const to = useRow ? (e.offsetY - view.y) / view.s : (e.offsetX - view.x) / view.s;
-    moveHandle(grabbing, to);
-    return;
-  }
-  if (drag) {
-    view.x += e.movementX; view.y += e.movementY; draw(); return;
-  }
-  const pp = pickPoint(e.offsetX, e.offsetY);
-  if ((pp && (!hotPt || hotPt.kind !== pp.kind || hotPt.i !== pp.i)) || (!pp && hotPt)) { hotPt = pp; draw(); }
-  if (pp) { cv.style.cursor = 'move'; return; }
-  const hh = handleUnder(e.offsetX, e.offsetY);
-  if ((hh && (!hot || hot.i !== hh.i || hot.edge !== hh.edge)) || (!hh && hot)) { hot = hh; draw(); }
-  cv.style.cursor = hh ? 'ns-resize' : (drag ? 'grabbing' : 'grab');
-  if (hh) return;
-  const h = pick(e.offsetX, e.offsetY);
-  const changed = JSON.stringify(h && h.kind === 'block' ? key(h.p) : h && h.kind) !==
-                  JSON.stringify(hover && hover.kind === 'block' ? key(hover.p) : hover && hover.kind);
-  hover = h;
-  if (changed) draw();
-});
-let drag = false, moved = 0;
-cv.addEventListener('mousedown', (e) => {
-  if (tool !== 'select') {
-    const r = Math.floor((e.offsetY - view.y) / view.s), c = Math.floor((e.offsetX - view.x) / view.s);
-    mark();
-    if (tool === 'door') {
-      // a door space toggles: open it, or close one that is already open
-      const cur = GRID[lev][r] && GRID[lev][r][c];
-      paintCh = (cur === '#') ? '.' : '#';
-    } else {
-      paintCh = { wall: '#', floor: '+', corr: '.', erase: ' ' }[tool];
-    }
-    painting = true;
-    if (paint(r, c, paintCh)) { rebuild(); dirty(); }
-    return;
-  }
-  const pp = pickPoint(e.offsetX, e.offsetY);
-  if (pp) { dragPt = pp; mark(); return; }
-  const hh = handleUnder(e.offsetX, e.offsetY);
-  if (hh) {
-    const hy = view.y + hh.at * view.s;
-    grabbing = { ...hh, axis: Math.abs(e.offsetY - hy) < 7 ? 'row' : 'col' };
-    mark();                                   // one gesture, one undo step
-    return;
-  }
-  // grabbing a block picks it up; a click that never moves just selects it
-  const hit = pick(e.offsetX, e.offsetY);
-  if (hit && hit.kind === 'block' && hit.p.lev === lev) {
-    moving = { p: hit.p, to: null, dragged: false };
-    mark();
-    return;
-  }
-  drag = true; moved = 0; cv.classList.add('dragging');
-});
-addEventListener('mousemove', (e) => { if (drag) moved += Math.abs(e.movementX) + Math.abs(e.movementY); });
-addEventListener('mouseup', (e) => {
-  if (painting) { painting = false; return; }
-  if (dragPt) {
-    // a click on a fitting that never moved selects it, so it can be inspected
-    // and deleted; only an actual drag moves it
-    if (!dragPt.moved) { sel = { kind: dragPt.kind, i: dragPt.i }; renderInspector(); draw(); }
-    dragPt = null; return;
-  }
-  if (moving) {
-    if (moving.dragged && moving.to) moveBlock(moving.p, moving.to);
-    else { sel = { kind: 'block', p: moving.p }; renderInspector(); }
-    moving = null; draw(); return;
-  }
-  if (grabbing) { grabbing = null; return; }
-  if (drag && moved < 4 && e.target === cv) { sel = pick(e.offsetX, e.offsetY); renderInspector(); draw(); }
-  drag = false; cv.classList.remove('dragging');
-});
-/* Two fingers scroll the plan around. They do not zoom — a trackpad pinch
-   arrives as a wheel event with ctrlKey set, and it is swallowed here rather
-   than being allowed to resize either the plan or the page, so the only things
-   that change the zoom are the − and + buttons. */
-cv.addEventListener('wheel', (e) => {
-  e.preventDefault();
-  view.x -= e.deltaX;
-  view.y -= e.deltaY;
-  draw();
-}, { passive: false });
-
-document.querySelectorAll('[data-lev]').forEach(b => b.onclick = () => {
-  lev = +b.dataset.lev;
-  document.querySelectorAll('[data-lev]').forEach(x => x.classList.toggle('on', x === b));
-  sel = null; rebuild();
-});
-document.getElementById('ghost').onclick = (e) => { ghost = !ghost; e.target.classList.toggle('on', ghost); draw(); };
-document.getElementById('zin').onclick = () => { view.s = Math.min(40, view.s + 2); draw(); };
-document.getElementById('zout').onclick = () => { view.s = Math.max(3, view.s - 2); draw(); };
-document.getElementById('zfit').onclick = fit;
-document.querySelectorAll('.tool').forEach((b) => b.onclick = () => {
-  tool = b.dataset.tool;
-  document.querySelectorAll('.tool').forEach((x) => x.classList.toggle('on', x === b));
-  draw();
-});
-document.getElementById('undo').onclick = undo;
-document.getElementById('redo').onclick = redo;
-
-/* Growing the building outward. A band is the gap between two hall lines, so
-   another band means another hall line — and because one line drives both a
-   row and a column, the building gains a row AND a column of slots at once,
-   which is what keeps the street grid square. */
-document.getElementById('addband').onclick = () => {
+function delFitting(){
   mark();
-  const last = L.lines[L.lines.length - 1];
-  const prev = L.lines[L.lines.length - 2];
-  const band = last[0] - (prev[0] + prev[1]);            // match the last band's depth
-  L.lines.push([last[0] + last[1] + Math.max(6, band), last[1]]);
-  for (const ll of L.levelLines) ll.push(L.lines.length - 1);
-  const hi = L.lines[L.lines.length - 1];
-  const need = hi[0] + hi[1] - 1 + 1 + L.pad;
-  if (need > L.size - 1) L.size = need + 1;
-  rebuild(); dirty();
-};
-document.getElementById('addstair').onclick = () => {
-  mark();
-  const [r, c] = centreCell();
-  const lo = Math.min(lev, L.levels - 2);
-  L.stairs.push({ lo, cells: [[r, c], [r, c + 1], [r, c + 2], [r, c + 3]] });
-  rebuild(); dirty();
-};
-
-// everything new lands at the middle of the view, ready to be dragged
-/* The canvas backing store is device pixels; view.x and the mouse are CSS
-   pixels. Mixing them put "the centre of the view" at the bottom-right corner
-   on any Retina screen — off the grid entirely, which crashed the grid build
-   and bricked the editor until you reloaded, with nothing shown to say so. */
-function centreCell() {
-  const w = cv.clientWidth, h = cv.clientHeight;
-  return [clampRow(Math.round((h / 2 - view.y) / view.s)),
-          clampRow(Math.round((w / 2 - view.x) / view.s))];
+  const k=sel.kind;
+  if(k==='stair') L.stairs.splice(sel.i,1);
+  else if(k==='button') L.buttonPrefs.splice(sel.i,1);
+  else if(k==='drop') L.drops.splice(sel.i,1);
+  else if(k==='vendor') L.placed.vendors.splice(sel.i,1);
+  else if(k==='gun') L.placed.guns.splice(sel.i,1);
+  sel=null; rebuild(); dirty();
 }
-const clampRow = (v) => Math.max(1, Math.min(L.size - 2, v));
-document.getElementById('addvendor').onclick = () => {
-  mark(); const [r, c] = centreCell();
-  L.placed.vendors.push({ lev, r, c });
-  sel = { kind: 'vendor', i: L.placed.vendors.length - 1 };
-  rebuild(); dirty();
-};
-document.getElementById('addgun').onclick = () => {
-  mark(); const [r, c] = centreCell();
-  const used = new Set(L.placed.guns.map((g2) => g2.tier));
-  const tier = [2, 3, 4, 5, 1].find((t) => !used.has(t)) || 2;
-  L.placed.guns.push({ tier, lev, r, c });
-  sel = { kind: 'gun', i: L.placed.guns.length - 1 };
-  rebuild(); dirty();
-};
-document.getElementById('adddrop').onclick = () => {
-  mark(); const [r, c] = centreCell();
-  L.drops.push({ lev, at: [r + 1, c], into: [r, c] });
-  sel = { kind: 'drop', i: L.drops.length - 1 };
-  rebuild(); dirty();
-};
 
-document.getElementById('save').onclick = () => {
-  const bad = problems.filter((p) => p.sev === 'bad').length;
-  if (bad && !confirm(`The plan has ${bad} problem${bad > 1 ? 's' : ''} the generator will refuse.\n\nExport anyway?`)) return;
-  const blob = new Blob([JSON.stringify(L, null, 2)], { type: 'application/json' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob); a.download = 'level.json'; a.click();
-  document.getElementById('save').classList.remove('on');
-  document.getElementById('insp').innerHTML =
-    `<div class="sect">exported</div>
-     <p class="hint">level.json has downloaded. To rebuild the building from it:</p>
-     <ol class="hint" style="padding-left:18px">
-       <li>Move it over <code>tools/level.json</code> in the project.</li>
-       <li>Run <code>node tools/genmaze.js</code> to check it.</li>
-       <li>Run <code>node tools/genmaze.js --write</code> to splice the new maps into the game.</li>
-       <li>Reload the game and walk it.</li>
-     </ol>
-     <p class="hint">The generator is the final word: it checks vault gating and stair
-     footings, which this page deliberately leaves to it.</p>`;
-};
-addEventListener('resize', () => { fit(); });
-addEventListener('keydown', (e) => {
-  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
-    e.preventDefault(); e.shiftKey ? redo() : undo(); return;
+/* ---- mouse -------------------------------------------------------------- */
+let panning=false, moved=0;
+cv.addEventListener('mousedown',(e)=>{
+  const hit=pick(e.offsetX,e.offsetY);
+  moved=0;
+  if(hit.kind==='door'){ toggleDoor(hit.o,hit.side,hit.at); return; }
+  if(FIT[hit.kind]){ sel=hit; drag={kind:'fitting',f:hit,r0:toCell(e.offsetX,e.offsetY)[0],c0:toCell(e.offsetX,e.offsetY)[1]};
+    mark(); renderInsp(); draw(); return; }
+  if(hit.kind==='room'||hit.kind==='corridor'){
+    sel=hit;
+    const edge=handleAt(hit.o,e.offsetX,e.offsetY);
+    const [r,c]=toCell(e.offsetX,e.offsetY);
+    mark();
+    drag={kind:'rect', id:hit.o.id, idx:movables(lev).indexOf(hit.o), edge:edge||'body',
+          r0:r, c0:c, snapshot:JSON.stringify({rooms:L.rooms,corridors:L.corridors})};
+    renderInsp(); draw(); return;
   }
-  if (!e.metaKey && !e.ctrlKey && document.activeElement === document.body) {
-    const k = { v: 'select', w: 'wall', f: 'floor', c: 'corr', d: 'door', e: 'erase' }[e.key.toLowerCase()];
-    if (k) { const b = document.querySelector(`[data-tool="${k}"]`); if (b) { b.click(); return; } }
-    if (e.key === 'Delete' || e.key === 'Backspace') {
-      if (sel && FITTINGS[sel.kind]) { deleteFitting(sel.kind, sel.i); return; }
-      if (sel && sel.kind === 'block') {
-        mark(); L.plan = L.plan.filter((x) => x !== sel.p); delete L.roomItems[key(sel.p)];
-        sel = null; rebuild(); dirty(); return;
-      }
-    }
+  sel=hit.kind==='hub'?hit:null; renderInsp();
+  panning=true; cv.style.cursor='grabbing'; draw();
+});
+cv.addEventListener('mousemove',(e)=>{
+  if(drag&&drag.kind==='rect'){
+    const [r,c]=toCell(e.offsetX,e.offsetY);
+    solveDrag(drag, r-drag.r0, c-drag.c0);
+    moved++; return;
   }
-  if (e.key >= '0' && e.key <= '2') document.querySelector(`[data-lev="${e.key}"]`).click();
-  if (e.key === 'f') fit();
-  if (e.key === 'g') document.getElementById('ghost').click();
+  if(drag&&drag.kind==='fitting'){
+    const [r,c]=toCell(e.offsetX,e.offsetY);
+    const cl=(v)=>Math.max(1,Math.min(L.size-2,v));
+    const f=drag.f;
+    if(f.kind==='stair'){
+      const st=L.stairs[f.i]; let dr=cl(r)-st.cells[0][0], dc=cl(c)-st.cells[0][1];
+      for(const [rr,cc] of st.cells){ dr=Math.max(dr,1-rr); dr=Math.min(dr,L.size-2-rr);
+        dc=Math.max(dc,1-cc); dc=Math.min(dc,L.size-2-cc); }
+      st.cells=st.cells.map(([rr,cc])=>[rr+dr,cc+dc]);
+    } else if(f.kind==='button'){ L.buttonPrefs[f.i].at=[cl(r),cl(c)]; }
+    else if(f.kind==='drop'){ const d=L.drops[f.i]; const dr=cl(r)-d.into[0],dc=cl(c)-d.into[1];
+      d.into=[cl(r),cl(c)]; d.at=[d.at[0]+dr,d.at[1]+dc]; }
+    else if(f.kind==='vendor'){ Object.assign(L.placed.vendors[f.i],{lev,r:cl(r),c:cl(c)}); }
+    else if(f.kind==='gun'){ Object.assign(L.placed.guns[f.i],{lev,r:cl(r),c:cl(c)}); }
+    moved++; rebuild(); return;
+  }
+  if(panning){ view.x+=e.movementX; view.y+=e.movementY; draw(); return; }
+  const hit=pick(e.offsetX,e.offsetY);
+  let cur='default';
+  if(hit.kind==='room'||hit.kind==='corridor'){
+    const edge=handleAt(hit.o,e.offsetX,e.offsetY);
+    cur = edge ? ({N:'ns-resize',S:'ns-resize',W:'ew-resize',E:'ew-resize',
+      NW:'nwse-resize',SE:'nwse-resize',NE:'nesw-resize',SW:'nesw-resize'}[edge]||'move') : 'move';
+  } else if(FIT[hit.kind]||hit.kind==='door') cur='pointer';
+  cv.style.cursor=cur;
+});
+addEventListener('mouseup',()=>{
+  if(drag){ if(moved){ reframe(); rebuild(); } dirty(); }
+  drag=null; panning=false; cv.style.cursor='default';
+});
+cv.addEventListener('wheel',(e)=>{ e.preventDefault(); view.x-=e.deltaX; view.y-=e.deltaY; draw(); },{passive:false});
+addEventListener('keydown',(e)=>{
+  if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='z'){ e.preventDefault(); e.shiftKey?redo():undo(); return; }
+  if(e.key==='Delete'||e.key==='Backspace'){
+    if(!sel) return;
+    if(FIT[sel.kind]) { delFitting(); e.preventDefault(); }
+    else if(sel.kind==='room'){ mark(); L.rooms=L.rooms.filter(x=>x!==sel.o); sel=null; rebuild(); dirty(); e.preventDefault(); }
+    else if(sel.kind==='corridor'){ mark(); L.corridors=L.corridors.filter(x=>x!==sel.o); sel=null; rebuild(); dirty(); e.preventDefault(); }
+  }
 });
 
-const LEGEND = [['room', COL.room], ['corridor', COL.hall], ['hub', COL.hub],
-                ['vault', COL.chamber], ['alcove', COL.alcove], ['gallery', COL.gallery],
-                ['stair', COL.stair], ['wall', COL.wall]];
-document.getElementById('legend').innerHTML = LEGEND.map(([n, c]) =>
-  `<span><i style="background:${c}"></i>${n}</span>`).join('');
+/* ---- toolbar ------------------------------------------------------------ */
+function setLev(l){ lev=l; sel=null;
+  document.querySelectorAll('.flr').forEach(b=>b.classList.toggle('on',+b.dataset.lev===l));
+  rebuild(); }
+document.querySelectorAll('.flr').forEach(b=>b.onclick=()=>setLev(+b.dataset.lev));
+el('zin').onclick=()=>{view.s=Math.min(40,view.s+2); draw();};
+el('zout').onclick=()=>{view.s=Math.max(3,view.s-2); draw();};
+el('fit').onclick=fit;
+/* The canvas is already the stage, sidebar excluded — so only the toolbar and a
+   margin come off. It also reads zero until the pane has been laid out, which is
+   why fit runs again on the first resize the page ever sees. */
+function fit(){
+  const w=(cv.clientWidth||innerWidth-330)-56, h=(cv.clientHeight||innerHeight)-110;
+  view.s=Math.max(3,Math.min(28,Math.floor(Math.min(w/L.size,h/L.size))));
+  view.x=28; view.y=54; draw();
+}
+el('undo').onclick=undo; el('redo').onclick=redo;
+/* Middle of what you are looking at, so a new thing lands where you are
+   looking. Before the pane has been painted the canvas has no size to ask
+   about, and rather than drop everything in the top corner, fall back to the
+   middle of the building — which is somewhere useful whatever the view. */
+function centreCell(){
+  const w=cv.clientWidth, h=cv.clientHeight;
+  const e=L.envelope[lev]||{r1:1,c1:1,r2:L.size-2,c2:L.size-2};
+  if(!w||!h) return [Math.round((e.r1+e.r2)/2), Math.round((e.c1+e.c2)/2)];
+  return [Math.max(2,Math.min(L.size-8,Math.round((h/2-view.y)/view.s))),
+          Math.max(2,Math.min(L.size-8,Math.round((w/2-view.x)/view.s)))];
+}
+el('aroom').onclick=()=>{ mark(); const [r,c]=centreCell();
+  const o={id:'r'+Date.now(),lev,r1:r,c1:c,r2:r+6,c2:c+6,t:'gallery'};
+  L.rooms.push(o); sel={kind:'room',o}; rebuild(); dirty(); };
+el('acorr').onclick=()=>{ mark(); const [r,c]=centreCell();
+  const o={id:'c'+Date.now(),lev,r1:r,c1:c,r2:r+2,c2:c+9};
+  L.corridors.push(o); sel={kind:'corridor',o}; reframe(); rebuild(); dirty(); };
+el('avoid').onclick=()=>{ mark(); const [r,c]=centreCell();
+  const o={id:'v'+Date.now(),lev,r1:r,c1:c,r2:r+6,c2:c+6,t:'void'};
+  L.rooms.push(o); sel={kind:'room',o}; rebuild(); dirty(); };
+el('astair').onclick=()=>{ mark(); const [r,c]=centreCell();
+  L.stairs.push({lo:Math.min(lev,L.levels-2),cells:[[r,c],[r,c+1],[r,c+2],[r,c+3]]});
+  sel={kind:'stair',i:L.stairs.length-1,o:L.stairs[L.stairs.length-1]}; rebuild(); dirty(); };
+el('amach').onclick=()=>{ mark(); const [r,c]=centreCell();
+  L.placed.vendors.push({lev,r,c}); sel={kind:'vendor',i:L.placed.vendors.length-1,o:L.placed.vendors[L.placed.vendors.length-1]}; rebuild(); dirty(); };
+el('agun').onclick=()=>{ mark(); const [r,c]=centreCell();
+  const used=new Set(L.placed.guns.map(x=>x.tier));
+  L.placed.guns.push({tier:[2,3,4,5,1].find(t=>!used.has(t))||2,lev,r,c});
+  sel={kind:'gun',i:L.placed.guns.length-1,o:L.placed.guns[L.placed.guns.length-1]}; rebuild(); dirty(); };
+el('revert').onclick=()=>{ if(!confirm('Throw away your changes and reload the saved level?')) return;
+  localStorage.removeItem('cm-draft'); location.reload(); };
+el('save').onclick=()=>{
+  const bad=problems.filter(p=>p.sev==='bad').length;
+  if(bad && !confirm(`${bad} problem${bad>1?'s':''} the generator will refuse. Export anyway?`)) return;
+  const b=new Blob([JSON.stringify(L,null,2)],{type:'application/json'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(b); a.download='level.json'; a.click();
+  el('save').classList.remove('on');
+  el('insp').innerHTML=`<div class="sect">exported</div>
+    <p class="hint">Save it over <b>tools/level.json</b>, then:</p>
+    <p class="hint"><code>node tools/genmaze.js</code> — check it<br>
+    <code>node tools/genmaze.js --write</code> — build the game</p>
+    <p class="hint">The generator has the last word: it checks vault gating and stair footings, which this page leaves to it.</p>`;
+};
 
-fetch('level.json')
-  .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-  .then(j => {
-    const draft = localStorage.getItem('cm-level-draft');
-    if (draft && confirm('An unsaved draft from last time was found. Load it?')) L = JSON.parse(draft);
-    else L = j;
-    L.roomItems = L.roomItems || {};
-  L.edits = L.edits || {};
-  L.placed = L.placed || {};
-  L.placed.vendors = L.placed.vendors || [];
-  L.placed.guns = L.placed.guns || [];
-    document.querySelector('[data-lev="0"]').classList.add('on');
-    rebuild(); fit();
-  })
-  .catch(err => {
-    document.getElementById('status').textContent = 'could not load level.json — ' + err.message;
-    document.getElementById('insp').innerHTML =
-      '<p class="hint">This page must be served over http, not opened as a file. ' +
-      'Run the game\'s server and open <code>/tools/editor.html</code>.</p>';
-  });
+el('legend').innerHTML = ['room','corridor','hub','chamber','alcove','atrium']
+  .map(k=>`<span><span class="sw" style="background:${COL[k]||'#4a525f'}"></span>${k}</span>`).join('')
+  + ['stair','button','drop','vendor','gun'].map(k=>
+    `<span><span class="sw" style="background:${FIT[k].c}"></span>${FIT[k].n}</span>`).join('')
+  + `<span><span class="sw" style="background:#8a99b055;border:1px dashed #8a99b0"></span>generator's own</span>`;
+
+/* The canvas measures zero until the pane it lives in has been laid out, and
+   there is no one event that reliably says "now". So: fit the first time it has
+   a real width, whether that news arrives by observer or by looking again. */
+let everSized=false;
+function onSized(){
+  if(!L) return;
+  if(!everSized && cv.clientWidth>0){ everSized=true; fit(); } else draw();
+}
+new ResizeObserver(onSized).observe(cv);
+addEventListener('resize',onSized);
+const sizeWatch=setInterval(()=>{ onSized(); if(everSized) clearInterval(sizeWatch); },80);
+load(new URLSearchParams(location.search).has('fresh'));
 </script>

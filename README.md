@@ -513,15 +513,61 @@ filter, raises its level, and fades in a tritone above the root.
 
 ## Editing the maze
 
-`tools/genmaze.js` is the source of truth. It hand-places all the structure — hub,
-chambers, rooms, water, stairs, bridges, buttons, portals — and generates only the
-connective corridor maze between them, from a fixed seed, so the maze is identical
-every playthrough.
+`tools/level.json` is the plan and `tools/genmaze.js` builds it. The plan is a list of
+**rooms**: rectangles placed on a floor, each with a type and, if you want them, its own
+doorways. Corridor is not drawn at all — it is whatever is left over inside the building's
+outline once the rooms are in it. That is the whole model, and it is what makes a room
+something you can move on its own; under the old one, hall lines came first and rooms were
+the gaps between them, so "make this room wider" could only mean "slide a wall the length
+of the floor".
 
 ```
 node tools/genmaze.js            # print the three levels and validate
 node tools/genmaze.js --write    # splice them into index.html
 ```
+
+### The construction kit
+
+`tools/editor.html` is the plan on screen. Open it over a local server — `python3 -m
+http.server` in the project root, then `/tools/editor.html`. It reads `tools/level.json`,
+keeps a draft in local storage as you work, and exports a new `level.json` to save over
+the old one.
+
+Everything with a position is one kind of thing: rooms, corridors, stairwells, vending
+machines, guns, gate buttons, parapet gaps. Click it to select it, drag it to move it,
+press delete to remove it. There are no tools and no modes to switch between — what you
+click is what you get, and the panel says in words what you have hold of ("up stairwell,
+floor 1 — joins floor 0 and floor 1, four steps, running east–west").
+
+Rooms carry eight handles. Drag one and the room resizes; drag the room itself and it
+moves. Either way, whatever it runs into gives way, and whatever *that* runs into gives
+way in turn. Two rooms may share a wall or stand two cells apart, and the drag steps
+straight over the gaps of one and zero: a one-cell gap is a corridor slot walled on both
+sides, which is a dead end, and at zero the generator's doorway probe lands on the
+neighbour's wall and quietly declines to cut anything, sealing both rooms.
+
+The whole cascade is re-solved every frame from a snapshot taken when the drag began,
+never nudged along incrementally. Drag a room out across the floor and back, and you get
+your layout returned to you rather than a quietly compacted version of it.
+
+A room left alone gets the generator's own doorways — two opposite faces so it is a
+through-route, a third for choice, and none at all on a face that opens onto void. Select
+a room and those show bright against the pale squares of every other place one could go;
+click a pale square to cut a doorway, a bright one to seal it. From the first click the
+doors are yours and the automatic pattern stops applying. Offsets are measured from the
+room's own corner, so doors travel with it — and because a push only ever translates a
+rectangle, a shoved neighbour needs no repair at all.
+
+The building's outline follows the rooms rather than fencing them in: drag a room outward
+and the floorplate extends to meet it, and if the plan outgrows the board the board grows
+too. The panel on the right re-checks the plan on every edit — overlaps, illegal gaps,
+rooms too small to hold a doorway, dead ends — and clicking a complaint takes you to it.
+
+Two things are drawn dashed and cannot be selected: the overpass bridges and the exterior
+gallery walkways, which the generator cuts on its own. They are shown anyway, because a
+plan that hides them is a plan you can run a room straight through without seeing what
+you broke. The generator still has the final word — vault gating and stair footings are
+its business, and it will refuse a plan this page was willing to draw.
 
 Legend:
 
