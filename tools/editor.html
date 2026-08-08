@@ -106,7 +106,21 @@
         <button class="btn" id="zfit">fit</button>
       </div>
       <div class="grp" style="margin-left:auto">
-        <button class="btn" id="save">export level.json</button>
+        <span class="gap"></span>
+    <span class="lbl">tool</span>
+    <button class="btn tool on" data-tool="select" title="select and drag (V)">select</button>
+    <button class="btn tool" data-tool="wall"  title="draw wall (W)">wall</button>
+    <button class="btn tool" data-tool="floor" title="draw room floor (F)">floor</button>
+    <button class="btn tool" data-tool="corr"  title="draw corridor (C)">corridor</button>
+    <button class="btn tool" data-tool="door"  title="open or close a doorway (D)">door</button>
+    <button class="btn tool" data-tool="erase" title="erase to nothing (E)">erase</button>
+    <span class="gap"></span>
+    <button class="btn" id="undo" disabled title="undo (⌘Z)">undo</button>
+    <button class="btn" id="redo" disabled title="redo (⇧⌘Z)">redo</button>
+    <span class="gap"></span>
+    <button class="btn" id="addband" title="add a band row and column, growing the building">+ band</button>
+    <button class="btn" id="addstair" title="add a stair flight at the centre of the view">+ stair</button>
+    <button class="btn" id="save">export level.json</button>
       </div>
     </div>
     <div id="legend"></div>
@@ -161,6 +175,41 @@ let hot = null, hotPt = null, grabbing = null;   // the hall edge under the poin
 let moving = null;                 // a block being dragged to another slot
 let dragPt = null;                 // a stair, button or drop being dragged
 let problems = [];                 // what the validator says about the plan as it stands
+let tool = 'select';               // select | wall | floor | corr | erase | door | stair
+let painting = false, paintCh = null;
+
+/* ---- undo ---------------------------------------------------------------
+   Snapshots, not commands. The whole level is nine kilobytes of JSON, so
+   keeping fifty of them costs less than half a megabyte and buys an undo that
+   cannot get out of step with the thing it is undoing — which a command log
+   very much can, once one edit starts depending on another. mark() is called
+   BEFORE a change, and a drag marks once at the start rather than per frame,
+   so one gesture is one step. */
+const HIST_MAX = 50;
+let history = [], future = [];
+function mark() {
+  history.push(JSON.stringify(L));
+  if (history.length > HIST_MAX) history.shift();
+  future.length = 0;
+  syncUndo();
+}
+function undo() {
+  if (!history.length) return;
+  future.push(JSON.stringify(L));
+  L = JSON.parse(history.pop());
+  sel = null; rebuild(); dirty(); syncUndo();
+}
+function redo() {
+  if (!future.length) return;
+  history.push(JSON.stringify(L));
+  L = JSON.parse(future.pop());
+  sel = null; rebuild(); dirty(); syncUndo();
+}
+function syncUndo() {
+  const u = document.getElementById('undo'), r = document.getElementById('redo');
+  if (u) u.disabled = !history.length;
+  if (r) r.disabled = !future.length;
+}
 const cv = document.getElementById('cv'), g = cv.getContext('2d');
 
 /* ---- geometry, derived exactly the way genmaze.js derives it ------------ */
@@ -299,7 +348,46 @@ function buildGrid() {
   for (const s of flights) for (const [r, c] of s.cells) {
     grid[s.lo][r][c] = '/'; grid[s.lo + 1][r][c] = '/';
   }
+  // hand edits last, so anything drawn by hand wins over anything the plan made
+  for (const k of Object.keys(L.edits || {})) {
+    const [l, r, c] = k.split(',').map(Number);
+    if (l >= 0 && l < L.levels && r >= 0 && r < L.size && c >= 0 && c < L.size) grid[l][r][c] = L.edits[k];
+  }
   return { grid, flights };
+}
+
+/* ---- painting -----------------------------------------------------------
+   A cell you change by hand is stored as an override rather than baked into
+   the plan, so the bands still describe the building and the overrides say
+   where you disagreed with them. Painting a cell back to what the plan would
+   have made there deletes the override instead of storing a redundant one,
+   which keeps the file honest about what has actually been touched. */
+function baseAt(l, r, c) {
+  const saved = L.edits; L.edits = {};
+  const g = buildGrid().grid[l][r][c];
+  L.edits = saved;
+  return g;
+}
+function paint(r, c, ch) {
+  if (r < 0 || c < 0 || r >= L.size || c >= L.size) return false;
+  const k = `${lev},${r},${c}`;
+  if (baseAt(lev, r, c) === ch) { if (!(k in L.edits)) return false; delete L.edits[k]; }
+  else { if (L.edits[k] === ch) return false; L.edits[k] = ch; }
+  return true;
+}
+// A door space is a wall with room on one side and somewhere to walk on the
+// other — the only places an opening makes sense.
+function doorSpaces() {
+  const out = [];
+  const g = GRID[lev];
+  const walk = (ch) => ch && ch !== '#' && ch !== ' ';
+  for (let r = 1; r < L.size - 1; r++) for (let c = 1; c < L.size - 1; c++) {
+    if (g[r][c] !== '#') continue;
+    const ns = walk(g[r - 1][c]), ss = walk(g[r + 1][c]);
+    const ws = walk(g[r][c - 1]), es = walk(g[r][c + 1]);
+    if ((ns && ss) || (ws && es)) out.push([r, c]);
+  }
+  return out;
 }
 
 let GRID = null, FLIGHTS = [];
@@ -557,6 +645,21 @@ function draw() {
     g.fillText(up ? '▲' : '▼', px(b[1] + .5), py(b[0] + .5));
   }
 
+  // With the door tool up, every wall that could sensibly become an opening is
+  // shown, so you are choosing from real options rather than guessing.
+  if (tool === 'door') {
+    g.fillStyle = '#6fd3ff2e';
+    for (const [r, c] of doorSpaces()) g.fillRect(px(c), py(r), S, S);
+  }
+  // anything overruled by hand carries a corner tick, so a plan you come back
+  // to still tells you where you disagreed with it
+  for (const k of Object.keys(L.edits || {})) {
+    const [l, r, c] = k.split(',').map(Number);
+    if (l !== lev) continue;
+    g.fillStyle = '#ffd88a';
+    g.fillRect(px(c), py(r), Math.max(2, S * .22), Math.max(2, S * .22));
+  }
+
   // the movable points: parapet gaps, gate buttons, the foot of each flight
   for (const pt of points()) {
     const x = px(pt.c + .5), y = py(pt.r + .5);
@@ -711,6 +814,7 @@ function itemsFor(p) {
   return { base, add: ov.add || [], remove: ov.remove || [] };
 }
 function setOverride(p, fn) {
+  mark();
   const k = key(p);
   L.roomItems[k] = L.roomItems[k] || { add: [], remove: [] };
   fn(L.roomItems[k]);
@@ -736,6 +840,7 @@ function renderInspector() {
       <select id="mk"><option value="">choose a type…</option>${opts}</select>`;
     document.getElementById('mk').onchange = (e) => {
       if (!e.target.value) return;
+      mark();
       L.plan.push({ lev, br: sel.br, bc: sel.bc, t: e.target.value });
       sel = { kind: 'block', p: L.plan[L.plan.length - 1] };
       rebuild(); dirty();
@@ -792,8 +897,9 @@ function renderInspector() {
     <p class="hint">Drag a room onto another slot to move it — drop it on an occupied one and the two swap.</p>`;
   el.innerHTML = html;
 
-  document.getElementById('ty').onchange = (e) => { p.t = e.target.value; rebuild(); dirty(); };
+  document.getElementById('ty').onchange = (e) => { mark(); p.t = e.target.value; rebuild(); dirty(); };
   document.getElementById('enc').onchange = (e) => {
+    mark();
     if (e.target.value === '0') p.enclosed = false; else delete p.enclosed;
     rebuild(); dirty();
   };
@@ -809,6 +915,7 @@ function renderInspector() {
   el.querySelectorAll('[data-re]').forEach(n => n.onclick = () =>
     setOverride(p, (o) => { o.remove = o.remove.filter(x => x !== n.dataset.re); }));
   document.getElementById('del').onclick = () => {
+    mark();
     L.plan = L.plan.filter((x) => x !== p);
     delete L.roomItems[key(p)];
     sel = null; rebuild(); dirty();
@@ -856,6 +963,11 @@ function fit() {
 }
 
 cv.addEventListener('mousemove', (e) => {
+  if (painting) {
+    const r = Math.floor((e.offsetY - view.y) / view.s), c = Math.floor((e.offsetX - view.x) / view.s);
+    if (paint(r, c, paintCh)) { rebuild(); dirty(); }
+    return;
+  }
   if (dragPt) { movePoint(dragPt, (e.offsetY - view.y) / view.s, (e.offsetX - view.x) / view.s); return; }
   if (moving) {
     moving.to = slotOf(e.offsetX, e.offsetY);
@@ -888,24 +1000,41 @@ cv.addEventListener('mousemove', (e) => {
 });
 let drag = false, moved = 0;
 cv.addEventListener('mousedown', (e) => {
+  if (tool !== 'select') {
+    const r = Math.floor((e.offsetY - view.y) / view.s), c = Math.floor((e.offsetX - view.x) / view.s);
+    mark();
+    if (tool === 'door') {
+      // a door space toggles: open it, or close one that is already open
+      const cur = GRID[lev][r] && GRID[lev][r][c];
+      paintCh = (cur === '#') ? '.' : '#';
+    } else {
+      paintCh = { wall: '#', floor: '+', corr: '.', erase: ' ' }[tool];
+    }
+    painting = true;
+    if (paint(r, c, paintCh)) { rebuild(); dirty(); }
+    return;
+  }
   const pp = pickPoint(e.offsetX, e.offsetY);
-  if (pp) { dragPt = pp; return; }
+  if (pp) { dragPt = pp; mark(); return; }
   const hh = pickHandle(e.offsetX, e.offsetY);
   if (hh) {
     const hy = view.y + hh.at * view.s;
     grabbing = { ...hh, axis: Math.abs(e.offsetY - hy) < 7 ? 'row' : 'col' };
+    mark();                                   // one gesture, one undo step
     return;
   }
   // grabbing a block picks it up; a click that never moves just selects it
   const hit = pick(e.offsetX, e.offsetY);
   if (hit && hit.kind === 'block' && hit.p.lev === lev) {
     moving = { p: hit.p, to: null, dragged: false };
+    mark();
     return;
   }
   drag = true; moved = 0; cv.classList.add('dragging');
 });
 addEventListener('mousemove', (e) => { if (drag) moved += Math.abs(e.movementX) + Math.abs(e.movementY); });
 addEventListener('mouseup', (e) => {
+  if (painting) { painting = false; return; }
   if (dragPt) { dragPt = null; return; }
   if (moving) {
     if (moving.dragged && moving.to) moveBlock(moving.p, moving.to);
@@ -934,6 +1063,39 @@ document.getElementById('ghost').onclick = (e) => { ghost = !ghost; e.target.cla
 document.getElementById('zin').onclick = () => { view.s = Math.min(40, view.s + 2); draw(); };
 document.getElementById('zout').onclick = () => { view.s = Math.max(3, view.s - 2); draw(); };
 document.getElementById('zfit').onclick = fit;
+document.querySelectorAll('.tool').forEach((b) => b.onclick = () => {
+  tool = b.dataset.tool;
+  document.querySelectorAll('.tool').forEach((x) => x.classList.toggle('on', x === b));
+  draw();
+});
+document.getElementById('undo').onclick = undo;
+document.getElementById('redo').onclick = redo;
+
+/* Growing the building outward. A band is the gap between two hall lines, so
+   another band means another hall line — and because one line drives both a
+   row and a column, the building gains a row AND a column of slots at once,
+   which is what keeps the street grid square. */
+document.getElementById('addband').onclick = () => {
+  mark();
+  const last = L.lines[L.lines.length - 1];
+  const prev = L.lines[L.lines.length - 2];
+  const band = last[0] - (prev[0] + prev[1]);            // match the last band's depth
+  L.lines.push([last[0] + last[1] + Math.max(6, band), last[1]]);
+  for (const ll of L.levelLines) ll.push(L.lines.length - 1);
+  const hi = L.lines[L.lines.length - 1];
+  const need = hi[0] + hi[1] - 1 + 1 + L.pad;
+  if (need > L.size - 1) L.size = need + 1;
+  rebuild(); dirty();
+};
+document.getElementById('addstair').onclick = () => {
+  mark();
+  const r = Math.round((cv.height / 2 - view.y) / view.s);
+  const c = Math.round((cv.width / 2 - view.x) / view.s);
+  const lo = Math.min(lev, L.levels - 2);
+  L.stairs.push({ lo, cells: [[r, c], [r, c + 1], [r, c + 2], [r, c + 3]] });
+  rebuild(); dirty();
+};
+
 document.getElementById('save').onclick = () => {
   const bad = problems.filter((p) => p.sev === 'bad').length;
   if (bad && !confirm(`The plan has ${bad} problem${bad > 1 ? 's' : ''} the generator will refuse.\n\nExport anyway?`)) return;
@@ -955,6 +1117,16 @@ document.getElementById('save').onclick = () => {
 };
 addEventListener('resize', () => { fit(); });
 addEventListener('keydown', (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
+    e.preventDefault(); e.shiftKey ? redo() : undo(); return;
+  }
+  if (!e.metaKey && !e.ctrlKey && document.activeElement === document.body) {
+    const k = { v: 'select', w: 'wall', f: 'floor', c: 'corr', d: 'door', e: 'erase' }[e.key.toLowerCase()];
+    if (k) { const b = document.querySelector(`[data-tool="${k}"]`); if (b) { b.click(); return; } }
+    if (e.key === 'Delete' || e.key === 'Backspace') {
+      if (sel && sel.kind === 'stair') { mark(); L.stairs.splice(sel.i, 1); sel = null; rebuild(); dirty(); return; }
+    }
+  }
   if (e.key >= '0' && e.key <= '2') document.querySelector(`[data-lev="${e.key}"]`).click();
   if (e.key === 'f') fit();
   if (e.key === 'g') document.getElementById('ghost').click();
@@ -973,6 +1145,7 @@ fetch('level.json')
     if (draft && confirm('An unsaved draft from last time was found. Load it?')) L = JSON.parse(draft);
     else L = j;
     L.roomItems = L.roomItems || {};
+  L.edits = L.edits || {};
     document.querySelector('[data-lev="0"]').classList.add('on');
     rebuild(); fit();
   })

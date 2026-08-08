@@ -496,6 +496,7 @@ if (process.argv.includes('--dump')) {
     drops: DROPS.map((d) => ({ lev: d.lev, at: d.at, into: d.into })),
     buttonPrefs: BUTTON_PREFS.map((b) => ({ lev: b.lev, at: b.at })),
     roomItems: {},          // per-room content overrides; the editor fills this
+    edits: {},              // sparse hand edits, "lev,r,c" -> character
   };
   fs.writeFileSync(path.join(__dirname, 'level.json'), JSON.stringify(level, null, 2));
   console.log('wrote tools/level.json');
@@ -518,6 +519,28 @@ BUTTON_PREFS.forEach((b, i) => {
   G[b.lev][placed[0]][placed[1]] = 'ABCDEF'[i];
   BUTTONS.push({ door: i + 1, lev: b.lev, at: placed });
 });
+
+/* ---- hand edits ---------------------------------------------------------
+   Everything above is generated: bands become blocks, blocks become rooms,
+   rooms get doorways. This is where a person overrules it. The editor writes
+   `edits` as a sparse map of "lev,r,c" to the character that cell should be,
+   and it is applied last, so anything drawn by hand wins over anything the
+   plan produced — a wall knocked through, a corridor cut across a room, a
+   doorway closed up, a walkway run out past the edge of the building.
+
+   Sparse on purpose: a level with no hand edits carries none of this, and the
+   plan stays the readable description of the building rather than a bitmap. */
+if (LEVEL && LEVEL.edits) {
+  let applied = 0, outside = 0;
+  for (const k of Object.keys(LEVEL.edits)) {
+    const [l, r, c] = k.split(',').map(Number);
+    if (l < 0 || l >= NLEV || !inb(r, c)) { outside++; continue; }
+    G[l][r][c] = LEVEL.edits[k];
+    applied++;
+  }
+  if (applied) console.log(`  ${applied} hand edit${applied > 1 ? 's' : ''} applied` +
+    (outside ? `, ${outside} outside the grid ignored` : ''));
+}
 
 /* ================================================================ VALIDATE */
 const problems = [];
