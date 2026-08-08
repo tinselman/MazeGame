@@ -663,7 +663,8 @@ function draw() {
   // the movable points: parapet gaps, gate buttons, the foot of each flight
   for (const pt of points()) {
     const x = px(pt.c + .5), y = py(pt.r + .5);
-    const isHot = hotPt && hotPt.kind === pt.kind && hotPt.i === pt.i;
+    const isHot = (hotPt && hotPt.kind === pt.kind && hotPt.i === pt.i) ||
+                  (sel && sel.kind === pt.kind && sel.i === pt.i);
     const col = pt.kind === 'drop' ? '#ff7a5c' : pt.kind === 'button' ? '#6fd3ff' : '#ffd88a';
     if (pt.kind === 'drop') {
       g.strokeStyle = col; g.lineWidth = isHot ? 3 : 2;
@@ -832,6 +833,55 @@ function renderInspector() {
       <p class="hint">The hub is derived from the middle band, so it resizes when you move the hall lines that bound it.</p>`;
     return;
   }
+  if (sel.kind === 'stair') {
+    const st = L.stairs[sel.i];
+    if (!st) { sel = null; return renderInspector(); }
+    const horiz = st.cells[0][0] === st.cells[st.cells.length - 1][0];
+    el.innerHTML = `<div class="sect">stair flight</div>
+      <p class="hint">Climbs from floor ${st.lo} to floor ${st.lo + 1}, ${st.cells.length} steps,
+      running ${horiz ? 'east–west' : 'north–south'} from ${st.cells[0][0]},${st.cells[0][1]}.</p>
+      <div class="sect">which floors</div>
+      <select id="slo">${[...Array(Math.max(1, L.levels - 1))].map((_, i) =>
+        `<option value="${i}"${i === st.lo ? ' selected' : ''}>${i} → ${i + 1}</option>`).join('')}</select>
+      <div class="sect">shape</div>
+      <button class="btn" id="sturn" style="width:100%">turn it ninety degrees</button>
+      <div style="display:flex;gap:6px;margin-top:6px">
+        <button class="btn" id="sshort" style="flex:1">shorter</button>
+        <button class="btn" id="slong" style="flex:1">longer</button>
+      </div>
+      <div class="sect">remove</div>
+      <button class="btn" id="sdel" style="width:100%">delete this flight</button>
+      <p class="hint">Drag the flight on the plan to move it. A flight needs somewhere
+      walkable one cell beyond each end, on the floor that end belongs to — the
+      generator checks that and will say so.</p>`;
+    const rebuildCells = (r0, c0, n, horizontal) => {
+      st.cells = [];
+      for (let k = 0; k < n; k++) st.cells.push(horizontal ? [r0, c0 + k] : [r0 + k, c0]);
+    };
+    document.getElementById('slo').onchange = (ev) => { mark(); st.lo = +ev.target.value; rebuild(); dirty(); };
+    document.getElementById('sturn').onclick = () => {
+      mark(); rebuildCells(st.cells[0][0], st.cells[0][1], st.cells.length, !horiz); rebuild(); dirty();
+    };
+    document.getElementById('sshort').onclick = () => {
+      if (st.cells.length <= 2) return;
+      mark(); rebuildCells(st.cells[0][0], st.cells[0][1], st.cells.length - 1, horiz); rebuild(); dirty();
+    };
+    document.getElementById('slong').onclick = () => {
+      mark(); rebuildCells(st.cells[0][0], st.cells[0][1], st.cells.length + 1, horiz); rebuild(); dirty();
+    };
+    document.getElementById('sdel').onclick = () => {
+      mark(); L.stairs.splice(sel.i, 1); sel = null; rebuild(); dirty();
+    };
+    return;
+  }
+  if (sel.kind === 'button' || sel.kind === 'drop') {
+    const what = sel.kind === 'button' ? 'gate button' : 'parapet gap';
+    el.innerHTML = `<div class="sect">${what}</div>
+      <p class="hint">Drag it on the plan to move it.${sel.kind === 'button'
+        ? ' The generator seeds it on the nearest corridor cell to wherever you leave it.'
+        : ' You step off here and fall to the floor below.'}</p>`;
+    return;
+  }
   if (sel.kind === 'slot') {
     const opts = TYPES.filter(t => t !== '(empty)').map(t => `<option>${t}</option>`).join('');
     el.innerHTML = `<div class="sect">empty slot ${sel.br},${sel.bc} · floor ${lev}</div>
@@ -968,7 +1018,7 @@ cv.addEventListener('mousemove', (e) => {
     if (paint(r, c, paintCh)) { rebuild(); dirty(); }
     return;
   }
-  if (dragPt) { movePoint(dragPt, (e.offsetY - view.y) / view.s, (e.offsetX - view.x) / view.s); return; }
+  if (dragPt) { dragPt.moved = true; movePoint(dragPt, (e.offsetY - view.y) / view.s, (e.offsetX - view.x) / view.s); return; }
   if (moving) {
     moving.to = slotOf(e.offsetX, e.offsetY);
     moving.dragged = true;
@@ -1035,7 +1085,12 @@ cv.addEventListener('mousedown', (e) => {
 addEventListener('mousemove', (e) => { if (drag) moved += Math.abs(e.movementX) + Math.abs(e.movementY); });
 addEventListener('mouseup', (e) => {
   if (painting) { painting = false; return; }
-  if (dragPt) { dragPt = null; return; }
+  if (dragPt) {
+    // a click on a fitting that never moved selects it, so it can be inspected
+    // and deleted; only an actual drag moves it
+    if (!dragPt.moved) { sel = { kind: dragPt.kind, i: dragPt.i }; renderInspector(); draw(); }
+    dragPt = null; return;
+  }
   if (moving) {
     if (moving.dragged && moving.to) moveBlock(moving.p, moving.to);
     else { sel = { kind: 'block', p: moving.p }; renderInspector(); }
@@ -1045,12 +1100,14 @@ addEventListener('mouseup', (e) => {
   if (drag && moved < 4 && e.target === cv) { sel = pick(e.offsetX, e.offsetY); renderInspector(); draw(); }
   drag = false; cv.classList.remove('dragging');
 });
+/* Two fingers scroll the plan around. They do not zoom — a trackpad pinch
+   arrives as a wheel event with ctrlKey set, and it is swallowed here rather
+   than being allowed to resize either the plan or the page, so the only things
+   that change the zoom are the − and + buttons. */
 cv.addEventListener('wheel', (e) => {
   e.preventDefault();
-  const before = { c: (e.offsetX - view.x) / view.s, r: (e.offsetY - view.y) / view.s };
-  view.s = Math.max(3, Math.min(40, view.s + (e.deltaY < 0 ? 1 : -1)));
-  view.x = e.offsetX - before.c * view.s;
-  view.y = e.offsetY - before.r * view.s;
+  view.x -= e.deltaX;
+  view.y -= e.deltaY;
   draw();
 }, { passive: false });
 
