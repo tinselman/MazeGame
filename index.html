@@ -527,6 +527,11 @@ const MAPS = [
 ].map((s) => s.replace(/^\n/, '').replace(/\n$/, '').split('\n'));
 const ROOM_META = [{"lev":0,"r1":11,"c1":11,"r2":15,"c2":15,"type":"warehouse"},{"lev":0,"r1":11,"c1":32,"r2":15,"c2":45,"type":"gallery"},{"lev":0,"r1":11,"c1":51,"r2":15,"c2":54,"type":"cubicles"},{"lev":0,"r1":11,"c1":59,"r2":15,"c2":66,"type":"warehouse"},{"lev":0,"r1":20,"c1":11,"r2":25,"c2":15,"type":"restaurant"},{"lev":0,"r1":20,"c1":32,"r2":25,"c2":45,"type":"hall"},{"lev":0,"r1":20,"c1":51,"r2":25,"c2":54,"type":"museum"},{"lev":0,"r1":32,"c1":11,"r2":45,"c2":15,"type":"cubicles"},{"lev":0,"r1":32,"c1":20,"r2":45,"c2":25,"type":"gallery"},{"lev":0,"r1":32,"c1":51,"r2":45,"c2":54,"type":"museum"},{"lev":0,"r1":32,"c1":59,"r2":45,"c2":66,"type":"living"},{"lev":0,"r1":51,"c1":20,"r2":54,"c2":25,"type":"museum"},{"lev":0,"r1":51,"c1":32,"r2":54,"c2":45,"type":"hall"},{"lev":0,"r1":51,"c1":59,"r2":54,"c2":66,"type":"restaurant"},{"lev":0,"r1":59,"c1":11,"r2":66,"c2":15,"type":"cubicles"},{"lev":0,"r1":59,"c1":20,"r2":66,"c2":25,"type":"warehouse"},{"lev":0,"r1":59,"c1":51,"r2":66,"c2":54,"type":"living"},{"lev":0,"r1":59,"c1":59,"r2":66,"c2":66,"type":"gallery"},{"lev":1,"r1":11,"c1":11,"r2":15,"c2":15,"type":"cubicles"},{"lev":1,"r1":11,"c1":32,"r2":15,"c2":45,"type":"museum"},{"lev":1,"r1":11,"c1":59,"r2":15,"c2":66,"type":"living"},{"lev":1,"r1":20,"c1":20,"r2":25,"c2":25,"type":"gallery"},{"lev":1,"r1":32,"c1":11,"r2":45,"c2":15,"type":"restaurant"},{"lev":1,"r1":32,"c1":20,"r2":45,"c2":25,"type":"warehouse"},{"lev":1,"r1":32,"c1":51,"r2":45,"c2":54,"type":"cubicles"},{"lev":1,"r1":32,"c1":59,"r2":45,"c2":66,"type":"cubicles"},{"lev":1,"r1":51,"c1":51,"r2":54,"c2":54,"type":"warehouse"},{"lev":1,"r1":59,"c1":11,"r2":66,"c2":15,"type":"gallery"},{"lev":1,"r1":59,"c1":51,"r2":66,"c2":54,"type":"office"},{"lev":1,"r1":59,"c1":59,"r2":66,"c2":66,"type":"museum"},{"lev":2,"r1":20,"c1":20,"r2":25,"c2":25,"type":"gallery"},{"lev":2,"r1":20,"c1":51,"r2":25,"c2":54,"type":"living"},{"lev":2,"r1":51,"c1":20,"r2":54,"c2":25,"type":"museum"},{"lev":2,"r1":51,"c1":51,"r2":54,"c2":54,"type":"cubicles"},{"lev":1,"r1":13,"c1":51,"r2":15,"c2":53,"type":"alcove"},{"lev":1,"r1":20,"c1":13,"r2":22,"c2":15,"type":"alcove"},{"lev":1,"r1":52,"c1":59,"r2":54,"c2":61,"type":"alcove"},{"lev":2,"r1":13,"c1":13,"r2":15,"c2":15,"type":"alcove"},{"lev":2,"r1":13,"c1":59,"r2":15,"c2":61,"type":"alcove"},{"lev":2,"r1":32,"c1":59,"r2":34,"c2":61,"type":"alcove"},{"lev":2,"r1":59,"c1":13,"r2":61,"c2":15,"type":"alcove"},{"lev":2,"r1":59,"c1":51,"r2":61,"c2":53,"type":"alcove"}];
 const DROP_POINTS = [{"lev":1,"at":[17,22],"into":[16,22]},{"lev":1,"at":[57,38],"into":[58,38]}];
+/* Hand-placed fittings. Empty means "scatter them the way you always did" —
+   the game falls back to its own rules — so a level that says nothing about
+   machines still gets twelve of them in the corridors. Anything listed here
+   overrides that entirely for its own kind. */
+const PLACED = {};
 /* MAP:END */
 
 const NLEV = MAPS.length;
@@ -6693,11 +6698,13 @@ const worldGuns = [];
     worldGuns.push({ tier: spec.tier, spec, mesh, pos: new THREE.Vector3(),
                      lev: 0, onFloor: false, bob: Math.random() * 6 });
   }
-  // put the next rung out, somewhere you have not been sent yet
+  // put the next rung out, somewhere you have not been sent yet — or exactly
+  // where the level says that rung belongs
   window.__placeNextGun = (tier) => {
     const g = worldGuns.find((w) => w.tier === tier);
     if (!g || g.onFloor) return;
-    const { p, l } = spot();
+    const said = (PLACED.guns || []).find((x) => x.tier === tier);
+    const { p, l } = said ? { p: cellCentre(said.r, said.c), l: said.lev } : spot();
     g.pos.set(p.x, levelY(l) + 1.15, p.z);
     g.lev = l;
     g.onFloor = true;
@@ -6858,7 +6865,15 @@ const vendors = [];
 {
   // Against a wall, facing out of it. A machine in open floor reads as a crate.
   const spots = [];
-  for (let tries = 0; tries < 6000 && spots.length < 12; tries++) {
+  /* A level may say exactly where its machines go. If it does, that is the
+     whole list; if it does not, they scatter through the corridors the way
+     they always have. Same bargain for every hand-placed fitting: authored
+     wins outright for its own kind, and silence means "carry on as before". */
+  for (const v of (PLACED.vendors || [])) {
+    const side = wallSide(v.lev, v.r, v.c) || [0, -1];
+    spots.push({ lev: v.lev, r: v.r, c: v.c, p: cellCentre(v.r, v.c), side });
+  }
+  for (let tries = 0; tries < 6000 && !(PLACED.vendors || []).length && spots.length < 12; tries++) {
     const l = Math.floor(Math.random() * NLEV);
     const r = 2 + Math.floor(Math.random() * (ROWS - 4));
     const c = 2 + Math.floor(Math.random() * (COLS - 4));

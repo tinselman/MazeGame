@@ -120,6 +120,9 @@
     <span class="gap"></span>
     <button class="btn" id="addband" title="add a band row and column, growing the building">+ band</button>
     <button class="btn" id="addstair" title="add a stair flight at the centre of the view">+ stair</button>
+    <button class="btn" id="addvendor" title="add a vending machine">+ machine</button>
+    <button class="btn" id="addgun" title="add a gun">+ gun</button>
+    <button class="btn" id="adddrop" title="add a parapet gap you can fall through">+ gap</button>
     <button class="btn" id="save">export level.json</button>
       </div>
     </div>
@@ -665,7 +668,7 @@ function draw() {
     const x = px(pt.c + .5), y = py(pt.r + .5);
     const isHot = (hotPt && hotPt.kind === pt.kind && hotPt.i === pt.i) ||
                   (sel && sel.kind === pt.kind && sel.i === pt.i);
-    const col = pt.kind === 'drop' ? '#ff7a5c' : pt.kind === 'button' ? '#6fd3ff' : '#ffd88a';
+    const col = (FITTINGS[pt.kind] || {}).colour || '#ffd88a';
     if (pt.kind === 'drop') {
       g.strokeStyle = col; g.lineWidth = isHot ? 3 : 2;
       g.strokeRect(px(pt.c) + .5, py(pt.r) + .5, S, S);
@@ -737,6 +740,18 @@ function moveBlock(p, to) {
 }
 
 /* ---- the movable points: flights, buttons, parapet gaps ----------------- */
+/* Everything with a position, in one list, so selecting, dragging and deleting
+   work the same way whatever you clicked. Stairs, gate buttons and parapet gaps
+   have always lived in the level; machines and guns used to be scattered by the
+   game at run time and are now placeable too — an empty list still means
+   "scatter them", so a level that says nothing about them behaves as before. */
+const FITTINGS = {
+  stair:  { colour: '#ffd88a', title: 'stair flight' },
+  button: { colour: '#6fd3ff', title: 'gate button' },
+  drop:   { colour: '#ff7a5c', title: 'parapet gap' },
+  vendor: { colour: '#8fc492', title: 'vending machine' },
+  gun:    { colour: '#e6e0c0', title: 'gun' },
+};
 function points() {
   const out = [];
   L.stairs.forEach((st, i) => {
@@ -749,9 +764,26 @@ function points() {
   });
   L.drops.forEach((d, i) => {
     if (d.lev !== lev) return;
-    out.push({ kind: 'drop', i, r: d.into[0], c: d.into[1], label: 'drop' });
+    out.push({ kind: 'drop', i, r: d.into[0], c: d.into[1], label: '↓' });
+  });
+  (L.placed.vendors || []).forEach((v, i) => {
+    if (v.lev !== lev) return;
+    out.push({ kind: 'vendor', i, r: v.r, c: v.c, label: 'V' });
+  });
+  (L.placed.guns || []).forEach((g2, i) => {
+    if (g2.lev !== lev) return;
+    out.push({ kind: 'gun', i, r: g2.r, c: g2.c, label: String(g2.tier) });
   });
   return out;
+}
+function deleteFitting(kind, i) {
+  mark();
+  if (kind === 'stair') L.stairs.splice(i, 1);
+  else if (kind === 'button') L.buttonPrefs.splice(i, 1);
+  else if (kind === 'drop') L.drops.splice(i, 1);
+  else if (kind === 'vendor') L.placed.vendors.splice(i, 1);
+  else if (kind === 'gun') L.placed.guns.splice(i, 1);
+  sel = null; rebuild(); dirty();
 }
 function pickPoint(mx, my) {
   let best = null, bestD = 9;
@@ -770,6 +802,8 @@ function movePoint(pt, r, c) {
     const d = L.drops[pt.i];
     const dr = r - d.into[0], dc = c - d.into[1];
     d.into = [r, c]; d.at = [d.at[0] + dr, d.at[1] + dc];
+  } else if (pt.kind === 'vendor') { Object.assign(L.placed.vendors[pt.i], { lev, r, c });
+  } else if (pt.kind === 'gun')    { Object.assign(L.placed.guns[pt.i], { lev, r, c });
   } else if (pt.kind === 'stair') {
     const st = L.stairs[pt.i];
     const dr = r - st.cells[0][0], dc = c - st.cells[0][1];
@@ -874,12 +908,32 @@ function renderInspector() {
     };
     return;
   }
-  if (sel.kind === 'button' || sel.kind === 'drop') {
-    const what = sel.kind === 'button' ? 'gate button' : 'parapet gap';
-    el.innerHTML = `<div class="sect">${what}</div>
-      <p class="hint">Drag it on the plan to move it.${sel.kind === 'button'
-        ? ' The generator seeds it on the nearest corridor cell to wherever you leave it.'
-        : ' You step off here and fall to the floor below.'}</p>`;
+  if (FITTINGS[sel.kind]) {
+    const F = FITTINGS[sel.kind];
+    const notes = {
+      button: 'The generator seeds it on the nearest corridor cell to wherever you leave it.',
+      drop:   'You step off here and fall to the floor below.',
+      vendor: 'Machines belong in corridors. Listing any at all replaces the twelve the game would otherwise scatter, so place them all or none.',
+      gun:    'One gun per rung of the ladder. Listing a rung fixes where that gun waits; rungs you leave out are scattered as before.',
+      stair:  '',
+    };
+    let extra = '';
+    if (sel.kind === 'gun') {
+      const g2 = L.placed.guns[sel.i];
+      const NAMES = { 1: 'pistol', 2: 'shotgun', 3: 'machine gun', 4: 'blaster', 5: 'laser' };
+      extra = `<div class="sect">which gun</div><select id="gt">` +
+        [1, 2, 3, 4, 5].map((t) => `<option value="${t}"${t === g2.tier ? ' selected' : ''}>${t} · ${NAMES[t]}</option>`).join('') +
+        `</select>`;
+    }
+    el.innerHTML = `<div class="sect">${F.title}</div>
+      <p class="hint">On floor ${lev}. Drag it on the plan to move it.</p>
+      ${extra}
+      <div class="sect">remove</div>
+      <button class="btn" id="fdel" style="width:100%">delete this ${F.title}</button>
+      <p class="hint">${notes[sel.kind] || ''} The delete key does the same thing.</p>`;
+    document.getElementById('fdel').onclick = () => deleteFitting(sel.kind, sel.i);
+    const gt = document.getElementById('gt');
+    if (gt) gt.onchange = (ev) => { mark(); L.placed.guns[sel.i].tier = +ev.target.value; rebuild(); dirty(); };
     return;
   }
   if (sel.kind === 'slot') {
@@ -1153,6 +1207,31 @@ document.getElementById('addstair').onclick = () => {
   rebuild(); dirty();
 };
 
+// everything new lands at the middle of the view, ready to be dragged
+function centreCell() {
+  return [Math.round((cv.height / 2 - view.y) / view.s), Math.round((cv.width / 2 - view.x) / view.s)];
+}
+document.getElementById('addvendor').onclick = () => {
+  mark(); const [r, c] = centreCell();
+  L.placed.vendors.push({ lev, r, c });
+  sel = { kind: 'vendor', i: L.placed.vendors.length - 1 };
+  rebuild(); dirty();
+};
+document.getElementById('addgun').onclick = () => {
+  mark(); const [r, c] = centreCell();
+  const used = new Set(L.placed.guns.map((g2) => g2.tier));
+  const tier = [2, 3, 4, 5, 1].find((t) => !used.has(t)) || 2;
+  L.placed.guns.push({ tier, lev, r, c });
+  sel = { kind: 'gun', i: L.placed.guns.length - 1 };
+  rebuild(); dirty();
+};
+document.getElementById('adddrop').onclick = () => {
+  mark(); const [r, c] = centreCell();
+  L.drops.push({ lev, at: [r + 1, c], into: [r, c] });
+  sel = { kind: 'drop', i: L.drops.length - 1 };
+  rebuild(); dirty();
+};
+
 document.getElementById('save').onclick = () => {
   const bad = problems.filter((p) => p.sev === 'bad').length;
   if (bad && !confirm(`The plan has ${bad} problem${bad > 1 ? 's' : ''} the generator will refuse.\n\nExport anyway?`)) return;
@@ -1181,7 +1260,11 @@ addEventListener('keydown', (e) => {
     const k = { v: 'select', w: 'wall', f: 'floor', c: 'corr', d: 'door', e: 'erase' }[e.key.toLowerCase()];
     if (k) { const b = document.querySelector(`[data-tool="${k}"]`); if (b) { b.click(); return; } }
     if (e.key === 'Delete' || e.key === 'Backspace') {
-      if (sel && sel.kind === 'stair') { mark(); L.stairs.splice(sel.i, 1); sel = null; rebuild(); dirty(); return; }
+      if (sel && FITTINGS[sel.kind]) { deleteFitting(sel.kind, sel.i); return; }
+      if (sel && sel.kind === 'block') {
+        mark(); L.plan = L.plan.filter((x) => x !== sel.p); delete L.roomItems[key(sel.p)];
+        sel = null; rebuild(); dirty(); return;
+      }
     }
   }
   if (e.key >= '0' && e.key <= '2') document.querySelector(`[data-lev="${e.key}"]`).click();
@@ -1203,6 +1286,9 @@ fetch('level.json')
     else L = j;
     L.roomItems = L.roomItems || {};
   L.edits = L.edits || {};
+  L.placed = L.placed || {};
+  L.placed.vendors = L.placed.vendors || [];
+  L.placed.guns = L.placed.guns || [];
     document.querySelector('[data-lev="0"]').classList.add('on');
     rebuild(); fit();
   })

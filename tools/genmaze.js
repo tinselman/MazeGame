@@ -497,6 +497,7 @@ if (process.argv.includes('--dump')) {
     buttonPrefs: BUTTON_PREFS.map((b) => ({ lev: b.lev, at: b.at })),
     roomItems: {},          // per-room content overrides; the editor fills this
     edits: {},              // sparse hand edits, "lev,r,c" -> character
+    placed: {},             // hand-placed fittings by kind: vendors, guns
   };
   fs.writeFileSync(path.join(__dirname, 'level.json'), JSON.stringify(level, null, 2));
   console.log('wrote tools/level.json');
@@ -655,7 +656,12 @@ const levelText = (l) => G[l].map((row) => row.join('')).join('\n');
 const mapBlock = [0, 1, 2].map((l) => '`\n' + levelText(l) + '\n`').join(',\n');
 const src = `const MAPS = [\n${mapBlock}\n].map((s) => s.replace(/^\\n/, '').replace(/\\n$/, '').split('\\n'));
 const ROOM_META = ${JSON.stringify(rooms.map((r) => ({ lev: r.lev, r1: r.r1, c1: r.c1, r2: r.r2, c2: r.c2, type: r.type })))};
-const DROP_POINTS = ${JSON.stringify(DROPS)};`;
+const DROP_POINTS = ${JSON.stringify(DROPS)};
+/* Hand-placed fittings. Empty means "scatter them the way you always did" —
+   the game falls back to its own rules — so a level that says nothing about
+   machines still gets twelve of them in the corridors. Anything listed here
+   overrides that entirely for its own kind. */
+const PLACED = ${JSON.stringify(LEVEL && LEVEL.placed ? LEVEL.placed : {})};`;
 
 if (process.argv.includes('--write')) {
   const file = path.join(__dirname, '..', 'index.html');
