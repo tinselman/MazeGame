@@ -79,6 +79,13 @@
   #legend i { width: 11px; height: 11px; display: inline-block; border-radius: 2px;
               vertical-align: -1px; margin-right: 6px; }
   #status { position: absolute; right: 14px; bottom: 12px; z-index: 5; color: var(--dim); }
+  #probs { padding: 9px 14px; border-bottom: 1px solid var(--line); max-height: 190px; overflow-y: auto; }
+  #probs.ok  { color: #6fdba0; }
+  .pr { padding: 4px 7px; margin: 3px 0; border-radius: 4px; cursor: pointer;
+        border-left: 3px solid transparent; background: #191d25; }
+  .pr.bad  { border-left-color: #ff6a4a; color: #ffb9a8; }
+  .pr.warn { border-left-color: #ffc861; color: #ffe0ad; }
+  .pr:hover { background: #222732; }
 </style>
 
 <div id="app">
@@ -106,6 +113,8 @@
     <div id="status">loading…</div>
   </div>
   <div id="side">
+    <h2>the plan</h2>
+    <div id="probs">…</div>
     <h2>inspector</h2>
     <div id="insp"><p class="hint">Click a room, a vault, an atrium or a corridor.</p></div>
   </div>
@@ -148,7 +157,10 @@ const COL = {
 };
 
 let L = null, lev = 0, view = { x: 0, y: 0, s: 11 }, sel = null, hover = null, ghost = false;
-let hot = null, grabbing = null;   // the hall edge under the pointer, and the one being dragged
+let hot = null, hotPt = null, grabbing = null;   // the hall edge under the pointer, and the one being dragged
+let moving = null;                 // a block being dragged to another slot
+let dragPt = null;                 // a stair, button or drop being dragged
+let problems = [];                 // what the validator says about the plan as it stands
 const cv = document.getElementById('cv'), g = cv.getContext('2d');
 
 /* ---- geometry, derived exactly the way genmaze.js derives it ------------ */
@@ -209,6 +221,33 @@ function buildGrid() {
       rect(p.lev, R.r1 + 1, R.c1 + 1, R.r2 - 1, R.c2 - 1, '+');
     }
   }
+  /* Doorways, punched exactly the way the generator punches them: two on
+     opposite sides so a room is a through-route, and a third on a
+     perpendicular one for choice. Without these every room reads as sealed and
+     the reachability check condemns the whole building. */
+  const punch = (l, rm, side, at) => {
+    if (side === 'N') rect(l, rm.r1 - 1, at, rm.r1 - 1, at + 1, '.');
+    if (side === 'S') rect(l, rm.r2 + 1, at, rm.r2 + 1, at + 1, '.');
+    if (side === 'W') rect(l, at, rm.c1 - 1, at + 1, rm.c1 - 1, '.');
+    if (side === 'E') rect(l, at, rm.c2 + 1, at + 1, rm.c2 + 1, '.');
+  };
+  for (const p of L.plan) {
+    if (p.t === 'atrium' || p.t === 'chamber' || p.enclosed === false) continue;
+    const R = blockRect(p.br, p.bc);
+    const rm = { r1: R.r1 + 1, c1: R.c1 + 1, r2: R.r2 - 1, c2: R.c2 - 1 };
+    const midR = Math.floor((rm.r1 + rm.r2) / 2), midC = Math.floor((rm.c1 + rm.c2) / 2);
+    const horiz = (rm.c2 - rm.c1) >= (rm.r2 - rm.r1);
+    if (horiz) { punch(p.lev, rm, 'W', midR); punch(p.lev, rm, 'E', midR); punch(p.lev, rm, 'N', midC); }
+    else       { punch(p.lev, rm, 'N', midC); punch(p.lev, rm, 'S', midC); punch(p.lev, rm, 'W', midR); }
+  }
+  // a vault's gate: shut in play, but it opens, so reachability counts it
+  for (const p of L.plan) {
+    if (p.t !== 'chamber') continue;
+    const R = blockRect(p.br, p.bc);
+    const cc = Math.floor(((R.c1 + 1) + (R.c2 - 1)) / 2);
+    grid[p.lev][R.r1][cc] = 'd';
+  }
+
   // hub
   rect(0, HUB.r1, HUB.c1, HUB.r2, HUB.c2, '#');
   rect(0, HUB.r1 + 1, HUB.c1 + 1, HUB.r2 - 1, HUB.c2 - 1, 'H');
@@ -227,6 +266,14 @@ function buildGrid() {
     const wc1 = a.h === 'W' ? R.c1 : R.c2 - span, wc2 = wc1 + span;
     rect(a.lev, wr1, wc1, wr2, wc2, '#');
     rect(a.lev, wr1 + 1, wc1 + 1, wr2 - 1, wc2 - 1, 'A');
+    const arm = { r1: wr1 + 1, c1: wc1 + 1, r2: wr2 - 1, c2: wc2 - 1 };
+    const pn = (side, at) => {
+      if (side === 'N') rect(a.lev, arm.r1 - 1, at, arm.r1 - 1, at + 1, '.');
+      if (side === 'S') rect(a.lev, arm.r2 + 1, at, arm.r2 + 1, at + 1, '.');
+      if (side === 'W') rect(a.lev, at, arm.c1 - 1, at + 1, arm.c1 - 1, '.');
+      if (side === 'E') rect(a.lev, at, arm.c2 + 1, at + 1, arm.c2 + 1, '.');
+    };
+    pn(a.v, wc1 + 1); pn(a.h, wr1 + 1);
   }
   // exterior galleries
   const G = L.galleries, nHall = L.lines[0][0], l2Hall = L.lines[1][0] + L.lines[1][1] - 1;
@@ -320,6 +367,81 @@ function moveHandle(h, to) {
   rebuild(); dirty();
 }
 
+/* ---- the same rules the generator enforces, run as you edit -------------
+   The generator refuses a plan that cannot be played, and until now it only
+   said so on the command line after an export. These are the checks that
+   actually catch editing mistakes, run over the grid this page already builds:
+
+     supported   a room upstairs needs something beneath it, or it floats
+     atrium      nothing may sit where an atrium cuts through
+     twice       two blocks cannot claim the same slot on one floor
+     dead end    every walkable cell needs two ways out, or you can be trapped
+     orphan      every walkable cell must be reachable from the start
+
+   Vault gating is deliberately left to the generator: it depends on door
+   swing and button placement, and getting a half-answer here would be worse
+   than getting none.                                                        */
+function validate() {
+  const out = [];
+  const occupied = [], atriums = new Set();
+  for (let l = 0; l < L.levels; l++) occupied.push(new Set());
+  for (const p of L.plan) {
+    const k = p.br + ',' + p.bc;
+    if (p.t === 'atrium') atriums.add(k);
+    if (occupied[p.lev].has(k)) out.push({ sev: 'bad', lev: p.lev, br: p.br, bc: p.bc,
+      msg: `block ${k} is used twice on floor ${p.lev}` });
+    occupied[p.lev].add(k);
+  }
+  for (const p of L.plan) {
+    const k = p.br + ',' + p.bc;
+    if (p.lev > 0 && atriums.has(k)) out.push({ sev: 'bad', lev: p.lev, br: p.br, bc: p.bc,
+      msg: `${p.t} sits where an atrium cuts through` });
+    if (p.lev > 0 && p.t !== 'atrium' && !occupied[p.lev - 1].has(k)) out.push({
+      sev: 'bad', lev: p.lev, br: p.br, bc: p.bc, msg: `${p.t} has nothing beneath it` });
+  }
+
+  // dead ends and orphans, over the grid we already have
+  const walk = (ch) => ch !== '#' && ch !== ' ';   // 'd' is a gate: shut in play, but it opens
+  let deadEnds = 0, firstDead = null;
+  for (let l = 0; l < L.levels; l++) {
+    for (let r = 1; r < L.size - 1; r++) for (let c = 1; c < L.size - 1; c++) {
+      if (!walk(GRID[l][r][c])) continue;
+      let n = GRID[l][r][c] === '/' ? 1 : 0;      // a flight continues vertically
+      for (const [dr, dc] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
+        if (walk(GRID[l][r + dr][c + dc])) n++;
+      }
+      if (n < 2) { deadEnds++; if (!firstDead) firstDead = { l, r, c }; }
+    }
+  }
+  if (deadEnds) out.push({ sev: 'bad', lev: firstDead.l, cell: firstDead,
+    msg: `${deadEnds} dead end${deadEnds > 1 ? 's' : ''} — first at ${firstDead.r},${firstDead.c} on floor ${firstDead.l}` });
+
+  // reachability from the hub, ignoring doors (they open)
+  const seen = new Set(), q = [];
+  const startR = HUB.r1 + 2, startC = HUB.c1 + 2;
+  if (walk(GRID[0][startR][startC])) { q.push([0, startR, startC]); seen.add(`0,${startR},${startC}`); }
+  while (q.length) {
+    const [l, r, c] = q.pop();
+    const climb = GRID[l][r][c] === '/';
+    for (const [dl, dr, dc] of [[0, -1, 0], [0, 1, 0], [0, 0, -1], [0, 0, 1],
+                                ...(climb ? [[1, 0, 0], [-1, 0, 0]] : [])]) {
+      const nl = l + dl, nr = r + dr, nc = c + dc;
+      if (nl < 0 || nl >= L.levels || nr < 1 || nc < 1 || nr >= L.size - 1 || nc >= L.size - 1) continue;
+      const k = `${nl},${nr},${nc}`;
+      if (seen.has(k) || !walk(GRID[nl][nr][nc])) continue;
+      seen.add(k); q.push([nl, nr, nc]);
+    }
+  }
+  let orphans = 0, firstOrph = null;
+  for (let l = 0; l < L.levels; l++) for (let r = 1; r < L.size - 1; r++) for (let c = 1; c < L.size - 1; c++) {
+    if (!walk(GRID[l][r][c])) continue;
+    if (!seen.has(`${l},${r},${c}`)) { orphans++; if (!firstOrph) firstOrph = { l, r, c }; }
+  }
+  if (orphans) out.push({ sev: 'warn', lev: firstOrph.l, cell: firstOrph,
+    msg: `${orphans} cell${orphans > 1 ? 's' : ''} cut off from the hub — first at ${firstOrph.r},${firstOrph.c} on floor ${firstOrph.l}` });
+  return out;
+}
+
 /* ---- drawing ------------------------------------------------------------ */
 function cellColour(ch) {
   switch (ch) {
@@ -330,6 +452,7 @@ function cellColour(ch) {
     case 'A': return COL.alcove;
     case 'g': return COL.gallery;
     case '/': return COL.stair;
+    case 'd': return '#c07bff';
     case '#': return COL.wall;
     default:  return null;
   }
@@ -434,24 +557,121 @@ function draw() {
     g.fillText(up ? '▲' : '▼', px(b[1] + .5), py(b[0] + .5));
   }
 
-  // drops
-  for (const d of L.drops) {
-    if (d.lev !== lev) continue;
-    g.strokeStyle = '#ff7a5c'; g.lineWidth = 2;
-    g.strokeRect(px(d.into[1]) + .5, py(d.into[0]) + .5, S, S);
+  // the movable points: parapet gaps, gate buttons, the foot of each flight
+  for (const pt of points()) {
+    const x = px(pt.c + .5), y = py(pt.r + .5);
+    const isHot = hotPt && hotPt.kind === pt.kind && hotPt.i === pt.i;
+    const col = pt.kind === 'drop' ? '#ff7a5c' : pt.kind === 'button' ? '#6fd3ff' : '#ffd88a';
+    if (pt.kind === 'drop') {
+      g.strokeStyle = col; g.lineWidth = isHot ? 3 : 2;
+      g.strokeRect(px(pt.c) + .5, py(pt.r) + .5, S, S);
+    } else {
+      g.fillStyle = col;
+      g.beginPath(); g.arc(x, y, Math.max(3, S * (isHot ? .48 : .35)), 0, 7); g.fill();
+      g.fillStyle = '#08121a';
+      g.fillText(pt.label, x, y);
+    }
   }
-  // gate buttons
-  for (let i = 0; i < L.buttonPrefs.length; i++) {
-    const b = L.buttonPrefs[i];
-    if (b.lev !== lev) continue;
-    g.fillStyle = '#6fd3ff';
-    g.beginPath(); g.arc(px(b.at[1] + .5), py(b.at[0] + .5), Math.max(3, S * .35), 0, 7); g.fill();
-    g.fillStyle = '#08121a';
-    g.fillText('ABCDEF'[i], px(b.at[1] + .5), py(b.at[0] + .5));
+
+  // anything the plan is unhappy about, marked where it is
+  for (const pr of problems) {
+    if (pr.lev !== lev) continue;
+    g.strokeStyle = pr.sev === 'bad' ? '#ff6a4a' : '#ffc861';
+    g.lineWidth = 2;
+    if (pr.cell) {
+      g.beginPath(); g.arc(px(pr.cell.c + .5), py(pr.cell.r + .5), S * 1.4, 0, 7); g.stroke();
+    } else if (pr.br !== undefined) {
+      const R = blockRect(pr.br, pr.bc);
+      g.strokeRect(px(R.c1) + .5, py(R.r1) + .5, (R.c2 - R.c1 + 1) * S, (R.r2 - R.r1 + 1) * S);
+    }
+  }
+
+  // a room being carried to a new slot
+  if (moving && moving.to) {
+    const R = blockRect(moving.to.br, moving.to.bc);
+    g.fillStyle = '#6fd3ff28';
+    g.fillRect(px(R.c1), py(R.r1), (R.c2 - R.c1 + 1) * S, (R.r2 - R.r1 + 1) * S);
+    g.strokeStyle = COL.sel; g.lineWidth = 2.5;
+    g.strokeRect(px(R.c1) + .5, py(R.r1) + .5, (R.c2 - R.c1 + 1) * S, (R.r2 - R.r1 + 1) * S);
   }
 
   document.getElementById('status').textContent =
     `${L.size}×${L.size} · floor ${lev} · ${L.plan.filter(p => p.lev === lev).length} blocks · zoom ${S}px/cell`;
+}
+
+/* ---- moving a room ------------------------------------------------------
+   A room IS a block, so moving one means giving it a different band address.
+   Drop it on an empty slot and it moves; drop it on an occupied one and the
+   two swap, which is almost always what you meant. Nothing is resized by this
+   — a room takes the size of the slot it lands in, because the size belongs to
+   the halls, not to the room. */
+function blockAt(lv, br, bc) {
+  return L.plan.find((p) => p.lev === lv && p.br === br && p.bc === bc) || null;
+}
+function slotOf(mx, my) {
+  const c = Math.floor((mx - view.x) / view.s), r = Math.floor((my - view.y) / view.s);
+  for (let br = 0; br < BANDS.length; br++) for (let bc = 0; bc < BANDS.length; bc++) {
+    const R = blockRect(br, bc);
+    if (r >= R.r1 && r <= R.r2 && c >= R.c1 && c <= R.c2) return { br, bc };
+  }
+  return null;
+}
+function moveBlock(p, to) {
+  if (p.br === to.br && p.bc === to.bc) return;
+  const other = blockAt(p.lev, to.br, to.bc);
+  const fromKey = key(p);
+  const otherKey = other ? key(other) : null;
+  if (other) { other.br = p.br; other.bc = p.bc; }
+  p.br = to.br; p.bc = to.bc;
+  // contents follow their room
+  const items = L.roomItems[fromKey], oItems = otherKey ? L.roomItems[otherKey] : null;
+  delete L.roomItems[fromKey];
+  if (otherKey) delete L.roomItems[otherKey];
+  if (items) L.roomItems[key(p)] = items;
+  if (oItems && other) L.roomItems[key(other)] = oItems;
+  rebuild(); dirty();
+}
+
+/* ---- the movable points: flights, buttons, parapet gaps ----------------- */
+function points() {
+  const out = [];
+  L.stairs.forEach((st, i) => {
+    if (st.lo !== lev && st.lo + 1 !== lev) return;
+    out.push({ kind: 'stair', i, r: st.cells[0][0], c: st.cells[0][1], label: st.lo + '→' + (st.lo + 1) });
+  });
+  L.buttonPrefs.forEach((b, i) => {
+    if (b.lev !== lev) return;
+    out.push({ kind: 'button', i, r: b.at[0], c: b.at[1], label: 'ABCDEF'[i] });
+  });
+  L.drops.forEach((d, i) => {
+    if (d.lev !== lev) return;
+    out.push({ kind: 'drop', i, r: d.into[0], c: d.into[1], label: 'drop' });
+  });
+  return out;
+}
+function pickPoint(mx, my) {
+  let best = null, bestD = 9;
+  for (const pt of points()) {
+    const x = view.x + (pt.c + .5) * view.s, y = view.y + (pt.r + .5) * view.s;
+    const d = Math.hypot(mx - x, my - y);
+    if (d < bestD) { bestD = d; best = pt; }
+  }
+  return best;
+}
+function movePoint(pt, r, c) {
+  r = Math.max(0, Math.min(L.size - 1, Math.round(r)));
+  c = Math.max(0, Math.min(L.size - 1, Math.round(c)));
+  if (pt.kind === 'button') { L.buttonPrefs[pt.i].at = [r, c]; }
+  else if (pt.kind === 'drop') {
+    const d = L.drops[pt.i];
+    const dr = r - d.into[0], dc = c - d.into[1];
+    d.into = [r, c]; d.at = [d.at[0] + dr, d.at[1] + dc];
+  } else if (pt.kind === 'stair') {
+    const st = L.stairs[pt.i];
+    const dr = r - st.cells[0][0], dc = c - st.cells[0][1];
+    st.cells = st.cells.map(([rr, cc]) => [rr + dr, cc + dc]);
+  }
+  rebuild(); dirty();
 }
 
 /* ---- what is under the pointer ------------------------------------------ */
@@ -478,6 +698,8 @@ function pick(mx, my) {
     if (r >= R.r1 && r <= R.r2 && c >= R.c1 && c <= R.c2) return { kind: 'block', p, r, c };
   }
   if (lev === 0 && r >= HUB.r1 && r <= HUB.r2 && c >= HUB.c1 && c <= HUB.c2) return { kind: 'hub', r, c };
+  const slot = slotOf(mx, my);
+  if (slot) return { kind: 'slot', br: slot.br, bc: slot.bc, r, c };
   return { kind: 'cell', r, c, ch: GRID[lev][r][c] };
 }
 
@@ -504,6 +726,20 @@ function renderInspector() {
       <div class="row"><span class="k">extent</span><span>${HUB.r1}–${HUB.r2} × ${HUB.c1}–${HUB.c2}</span></div>
       <div class="row"><span class="k">exits</span><span>${L.hubExits.length}</span></div>
       <p class="hint">The hub is derived from the middle band, so it resizes when you move the hall lines that bound it.</p>`;
+    return;
+  }
+  if (sel.kind === 'slot') {
+    const opts = TYPES.filter(t => t !== '(empty)').map(t => `<option>${t}</option>`).join('');
+    el.innerHTML = `<div class="sect">empty slot ${sel.br},${sel.bc} · floor ${lev}</div>
+      <p class="hint">Nothing is planned here on this floor.</p>
+      <div class="sect">put a room here</div>
+      <select id="mk"><option value="">choose a type…</option>${opts}</select>`;
+    document.getElementById('mk').onchange = (e) => {
+      if (!e.target.value) return;
+      L.plan.push({ lev, br: sel.br, bc: sel.bc, t: e.target.value });
+      sel = { kind: 'block', p: L.plan[L.plan.length - 1] };
+      rebuild(); dirty();
+    };
     return;
   }
   if (sel.kind === 'cell') {
@@ -550,7 +786,10 @@ function renderInspector() {
   const groups = Object.entries(PALETTE).map(([gname, list]) =>
     `<optgroup label="${gname}">${list.map(i => `<option>${i}</option>`).join('')}</optgroup>`).join('');
   html += `<div class="sect">add</div><select id="addsel"><option value="">choose…</option>${groups}</select>
-    <p class="hint">Dashed items are what the type gives you. ◆ marks something the game's rules use.</p>`;
+    <p class="hint">Dashed items are what the type gives you. ◆ marks something the game's rules use.</p>
+    <div class="sect">this block</div>
+    <button class="btn" id="del" style="width:100%">remove the room from this slot</button>
+    <p class="hint">Drag a room onto another slot to move it — drop it on an occupied one and the two swap.</p>`;
   el.innerHTML = html;
 
   document.getElementById('ty').onchange = (e) => { p.t = e.target.value; rebuild(); dirty(); };
@@ -569,6 +808,11 @@ function renderInspector() {
     setOverride(p, (o) => { o.add = o.add.filter(x => x !== n.dataset.un); }));
   el.querySelectorAll('[data-re]').forEach(n => n.onclick = () =>
     setOverride(p, (o) => { o.remove = o.remove.filter(x => x !== n.dataset.re); }));
+  document.getElementById('del').onclick = () => {
+    L.plan = L.plan.filter((x) => x !== p);
+    delete L.roomItems[key(p)];
+    sel = null; rebuild(); dirty();
+  };
 }
 
 /* ---- plumbing ----------------------------------------------------------- */
@@ -578,7 +822,28 @@ function dirty() {
   document.getElementById('save').classList.add('on');
   localStorage.setItem('cm-level-draft', JSON.stringify(L));
 }
-function rebuild() { derive(); const b = buildGrid(); GRID = b.grid; FLIGHTS = b.flights; draw(); renderInspector(); }
+function rebuild() {
+  derive();
+  const b = buildGrid(); GRID = b.grid; FLIGHTS = b.flights;
+  problems = validate();
+  renderProblems();
+  draw(); renderInspector();
+}
+function renderProblems() {
+  const el = document.getElementById('probs');
+  if (!problems.length) {
+    el.innerHTML = '<span class="ok">✓ the plan holds up</span>';
+    el.className = 'ok'; return;
+  }
+  el.className = problems.some(p => p.sev === 'bad') ? 'bad' : 'warn';
+  el.innerHTML = problems.slice(0, 6).map(p =>
+    `<div class="pr ${p.sev}" data-lev="${p.lev}">${p.msg}</div>`).join('') +
+    (problems.length > 6 ? `<div class="pr">…and ${problems.length - 6} more</div>` : '');
+  el.querySelectorAll('.pr[data-lev]').forEach(n => n.onclick = () => {
+    const q = document.querySelector(`[data-lev="${n.dataset.lev}"].btn`);
+    if (q) q.click();
+  });
+}
 
 function fit() {
   // The canvas already sits inside the stage, which excludes the side panel —
@@ -591,6 +856,12 @@ function fit() {
 }
 
 cv.addEventListener('mousemove', (e) => {
+  if (dragPt) { movePoint(dragPt, (e.offsetY - view.y) / view.s, (e.offsetX - view.x) / view.s); return; }
+  if (moving) {
+    moving.to = slotOf(e.offsetX, e.offsetY);
+    moving.dragged = true;
+    draw(); return;
+  }
   if (grabbing) {
     // vertical drag moves a row edge, horizontal drag moves the column edge —
     // it is the same line either way, so whichever axis you pull, it follows
@@ -602,9 +873,12 @@ cv.addEventListener('mousemove', (e) => {
   if (drag) {
     view.x += e.movementX; view.y += e.movementY; draw(); return;
   }
+  const pp = pickPoint(e.offsetX, e.offsetY);
+  if ((pp && (!hotPt || hotPt.kind !== pp.kind || hotPt.i !== pp.i)) || (!pp && hotPt)) { hotPt = pp; draw(); }
+  if (pp) { cv.style.cursor = 'move'; return; }
   const hh = pickHandle(e.offsetX, e.offsetY);
   if ((hh && (!hot || hot.i !== hh.i || hot.edge !== hh.edge)) || (!hh && hot)) { hot = hh; draw(); }
-  cv.style.cursor = hh ? 'move' : (drag ? 'grabbing' : 'grab');
+  cv.style.cursor = hh ? 'ns-resize' : (drag ? 'grabbing' : 'grab');
   if (hh) return;
   const h = pick(e.offsetX, e.offsetY);
   const changed = JSON.stringify(h && h.kind === 'block' ? key(h.p) : h && h.kind) !==
@@ -614,16 +888,30 @@ cv.addEventListener('mousemove', (e) => {
 });
 let drag = false, moved = 0;
 cv.addEventListener('mousedown', (e) => {
+  const pp = pickPoint(e.offsetX, e.offsetY);
+  if (pp) { dragPt = pp; return; }
   const hh = pickHandle(e.offsetX, e.offsetY);
   if (hh) {
     const hy = view.y + hh.at * view.s;
     grabbing = { ...hh, axis: Math.abs(e.offsetY - hy) < 7 ? 'row' : 'col' };
     return;
   }
+  // grabbing a block picks it up; a click that never moves just selects it
+  const hit = pick(e.offsetX, e.offsetY);
+  if (hit && hit.kind === 'block' && hit.p.lev === lev) {
+    moving = { p: hit.p, to: null, dragged: false };
+    return;
+  }
   drag = true; moved = 0; cv.classList.add('dragging');
 });
 addEventListener('mousemove', (e) => { if (drag) moved += Math.abs(e.movementX) + Math.abs(e.movementY); });
 addEventListener('mouseup', (e) => {
+  if (dragPt) { dragPt = null; return; }
+  if (moving) {
+    if (moving.dragged && moving.to) moveBlock(moving.p, moving.to);
+    else { sel = { kind: 'block', p: moving.p }; renderInspector(); }
+    moving = null; draw(); return;
+  }
   if (grabbing) { grabbing = null; return; }
   if (drag && moved < 4 && e.target === cv) { sel = pick(e.offsetX, e.offsetY); renderInspector(); draw(); }
   drag = false; cv.classList.remove('dragging');
@@ -647,10 +935,23 @@ document.getElementById('zin').onclick = () => { view.s = Math.min(40, view.s + 
 document.getElementById('zout').onclick = () => { view.s = Math.max(3, view.s - 2); draw(); };
 document.getElementById('zfit').onclick = fit;
 document.getElementById('save').onclick = () => {
+  const bad = problems.filter((p) => p.sev === 'bad').length;
+  if (bad && !confirm(`The plan has ${bad} problem${bad > 1 ? 's' : ''} the generator will refuse.\n\nExport anyway?`)) return;
   const blob = new Blob([JSON.stringify(L, null, 2)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob); a.download = 'level.json'; a.click();
   document.getElementById('save').classList.remove('on');
+  document.getElementById('insp').innerHTML =
+    `<div class="sect">exported</div>
+     <p class="hint">level.json has downloaded. To rebuild the building from it:</p>
+     <ol class="hint" style="padding-left:18px">
+       <li>Move it over <code>tools/level.json</code> in the project.</li>
+       <li>Run <code>node tools/genmaze.js</code> to check it.</li>
+       <li>Run <code>node tools/genmaze.js --write</code> to splice the new maps into the game.</li>
+       <li>Reload the game and walk it.</li>
+     </ol>
+     <p class="hint">The generator is the final word: it checks vault gating and stair
+     footings, which this page deliberately leaves to it.</p>`;
 };
 addEventListener('resize', () => { fit(); });
 addEventListener('keydown', (e) => {
