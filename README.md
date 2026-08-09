@@ -601,6 +601,27 @@ dead and flickering ones, the wall switch, skirting and cornice, coffered beams,
 arcade. Those are listed under **it also gets**, as information rather than as choices,
 because there is no per-room switch for them to hunt for.
 
+### Build me
+
+**build me** writes the plan straight over `tools/level.json` and puts the one command you
+still have to run on your clipboard. The first click asks which file — navigate to
+`tools/level.json` and pick it — and after that it is remembered, so it is a click and a
+paste. If the browser has lapsed the permission it asks again; it never makes you find the
+file twice.
+
+The page cannot run the generator itself. It is a file in a browser with no way to reach a
+terminal, and that is a boundary worth keeping — so the last step is yours:
+
+```
+node tools/genmaze.js --write
+```
+
+If you run it from somewhere other than the project folder, **change the command** stores
+whatever you type instead, absolute path and all. Or say *build it* to Claude and it runs.
+
+On a browser without the file-writing API, **build me** falls back to downloading the plan
+and says so rather than pretending it saved.
+
 ### Keeping and reloading a plan
 
 **export level.json** downloads the plan. **open a plan…** reads one back. The editor also
@@ -608,8 +629,18 @@ keeps a draft in the browser as you work, but that is one browser's memory — c
 data or move machine and it is gone, so the exported file is the copy that lasts. Opening
 one is undoable, and a file that is not a plan is refused rather than half-loaded.
 
-To put a plan into the game, save the exported file over `tools/level.json` and run the
-generator. It always reads that path regardless of where you run it from.
+### The walkways
+
+The overpass bridges and the exterior gallery are in the plan like everything else, and
+behave like everything else: click to select, drag to move, delete to remove. They are
+drawn dashed because they cross the floor rather than sit on it — the three overpasses
+carry you over the atrium voids on floor one, and the gallery leaves the building
+altogether with nothing at all beneath it.
+
+The one part the generator keeps is how far their ramps and legs run inwards to reach the
+building, because that depends on where the floorplate has ended up. Move the building and
+they follow. The editor will not let you park one over a parapet gap, which is a hole you
+are meant to be able to fall through.
 
 Legend:
 

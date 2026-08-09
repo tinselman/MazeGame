@@ -17,6 +17,12 @@
     padding:4px 9px;border-radius:5px;cursor:pointer;font:inherit}
   .btn:hover{background:#222936}
   .btn.on{background:var(--hi);border-color:var(--hi);color:#10161f}
+  /* the one button that puts the plan into the game */
+  .btn.go{background:#2b6b45;border-color:#3d8f5e;color:#eaf6ee;font-weight:600}
+  .btn.go:hover{background:#347c51}
+  .btn.go.armed{background:#3d8f5e}
+  code.cmd{display:block;background:#10151d;border:1px solid var(--line);
+    border-radius:5px;padding:6px 8px;margin:5px 0;word-break:break-all;font-size:11px}
   .btn:disabled{opacity:.35;cursor:default}
   .lbl{color:var(--dim);margin-left:6px}
   .gap{width:12px;display:inline-block}
@@ -86,6 +92,7 @@
       <button class="btn" id="amach">machine</button>
       <button class="btn" id="agun">gun</button>
       <span class="gap"></span>
+      <button class="btn go" id="build">build me</button>
       <button class="btn" id="open">open a plan…</button>
       <button class="btn" id="save">export level.json</button>
       <button class="btn" id="revert">revert</button>
@@ -1083,7 +1090,7 @@ cv.addEventListener('mousemove',(e)=>{
     else if(f.kind==='gun'){ Object.assign(L.placed.guns[f.i],{lev,r:cl(r),c:cl(c)}); }
     moved++; rebuild(); return;
   }
-  if(panning){ view.x+=e.movementX; view.y+=e.movementY; draw(); return; }
+  if(panning){ userView=true; view.x+=e.movementX; view.y+=e.movementY; draw(); return; }
   const hit=pick(e.offsetX,e.offsetY);
   let cur='default';
   if(hit.kind==='room'||hit.kind==='corridor'){
@@ -1097,7 +1104,7 @@ addEventListener('mouseup',()=>{
   if(drag){ if(moved){ reframe(); rebuild(); } dirty(); }
   drag=null; panning=false; cv.style.cursor='default';
 });
-cv.addEventListener('wheel',(e)=>{ e.preventDefault(); view.x-=e.deltaX; view.y-=e.deltaY; draw(); },{passive:false});
+cv.addEventListener('wheel',(e)=>{ e.preventDefault(); userView=true; view.x-=e.deltaX; view.y-=e.deltaY; draw(); },{passive:false});
 addEventListener('keydown',(e)=>{
   if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='z'){ e.preventDefault(); e.shiftKey?redo():undo(); return; }
   if(e.key==='Delete'||e.key==='Backspace'){
@@ -1116,8 +1123,8 @@ function setLevQuiet(l){
 }
 function setLev(l){ setLevQuiet(l); sel=null; rebuild(); }
 document.querySelectorAll('.flr').forEach(b=>b.onclick=()=>setLev(+b.dataset.lev));
-el('zin').onclick=()=>{view.s=Math.min(40,view.s+2); draw();};
-el('zout').onclick=()=>{view.s=Math.max(3,view.s-2); draw();};
+el('zin').onclick=()=>{userView=true; view.s=Math.min(40,view.s+2); draw();};
+el('zout').onclick=()=>{userView=true; view.s=Math.max(3,view.s-2); draw();};
 el('fit').onclick=fit;
 /* The canvas is already the stage, sidebar excluded — so only the toolbar and a
    margin come off. It also reads zero until the pane has been laid out, which is
@@ -1182,12 +1189,112 @@ el('file').onchange=async(e)=>{
   el('insp').innerHTML=`<div class="sect">opened ${f.name}</div>
     <p class="hint">${L.rooms.length} rooms across ${L.levels} floors. Undo puts back what was here before.</p>`;
 };
-el('save').onclick=()=>{
-  const bad=problems.filter(p=>p.sev==='bad').length;
-  if(bad && !confirm(`${bad} problem${bad>1?'s':''} the generator will refuse. Export anyway?`)) return;
+/* ---- build me -----------------------------------------------------------
+   The page cannot run the generator: it is a file in a browser, with no way to
+   reach a terminal, and that is a boundary worth keeping. What it can do is
+   remove every step on this side of it — write the plan straight over
+   tools/level.json, and put the one command you still have to run on your
+   clipboard. Grant the file once and it is remembered; after that "build me"
+   is a click and a paste.
+
+   The handle lives in IndexedDB because a file handle is not a string and
+   cannot go in local storage. */
+const idb = {
+  open: () => new Promise((res, rej) => {
+    const r = indexedDB.open('cm-editor', 1);
+    r.onupgradeneeded = () => r.result.createObjectStore('h');
+    r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+  }),
+  async get(k){ const db = await idb.open(); return new Promise((res, rej) => {
+    const q = db.transaction('h').objectStore('h').get(k);
+    q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); }); },
+  async set(k, v){ const db = await idb.open(); return new Promise((res, rej) => {
+    const q = db.transaction('h', 'readwrite').objectStore('h').put(v, k);
+    q.onsuccess = () => res(); q.onerror = () => rej(q.error); }); },
+  async del(k){ const db = await idb.open(); return new Promise((res) => {
+    db.transaction('h', 'readwrite').objectStore('h').delete(k).onsuccess = () => res(); }); },
+};
+const CMD_KEY = 'cm-build-cmd';
+const buildCmd = () => localStorage.getItem(CMD_KEY) || 'node tools/genmaze.js --write';
+
+// The permission does not survive a reload, but re-asking inside the click that
+// wanted it is one dialog, not a nuisance.
+async function planFile(repick){
+  let h = repick ? null : await idb.get('level');
+  if(h){
+    const mode = {mode:'readwrite'};
+    if(await h.queryPermission(mode) === 'granted') return h;
+    if(await h.requestPermission(mode) === 'granted') return h;
+  }
+  if(!window.showSaveFilePicker) return null;
+  h = await window.showSaveFilePicker({
+    id: 'cm-level', suggestedName: 'level.json',
+    types: [{description: 'Crystal Maze plan', accept: {'application/json': ['.json']}}],
+  });
+  // Remembering it is a convenience. Failing to remember it — private window,
+  // storage full, whatever — must not cost you the save you actually asked for.
+  try { await idb.set('level', h); } catch (e) { /* you will be asked again */ }
+  return h;
+}
+async function buildMe(repick){
+  const bad = problems.filter(p=>p.sev==='bad').length;
+  if(bad && !confirm(`${bad} problem${bad>1?'s':''} the generator will refuse. Save anyway?`)) return;
+  const b = el('build'); b.classList.add('armed'); b.textContent = 'saving…';
+  let h = null, err = null;
+  try { h = await planFile(repick); }
+  catch(e){ if(e.name === 'AbortError'){ b.classList.remove('armed'); b.textContent = 'build me'; return; } err = e; }
+  try {
+    if(h){ const w = await h.createWritable();
+           await w.write(JSON.stringify(L, null, 2)); await w.close(); }
+  } catch(e){ err = e; h = null; }
+  b.classList.remove('armed'); b.textContent = 'build me';
+
+  const cmd = buildCmd();
+  let copied = false;
+  try { await navigator.clipboard.writeText(cmd); copied = true; } catch(e){}
+
+  if(h && !err){
+    el('save').classList.remove('on');
+    n2(`<div class="sect">saved to ${h.name}</div>
+      <p class="hint">The plan is written. ${copied
+        ? 'The command is on your clipboard — paste it in a terminal:'
+        : 'Run this in a terminal:'}</p>
+      <code class="cmd">${cmd}</code>
+      <p class="hint">Or say <b>build it</b> to Claude and it will run for you.</p>
+      <div class="row"><button class="btn" id="cmdedit">change the command</button>
+      <button class="btn" id="repick">save somewhere else</button></div>`);
+  } else {
+    // no picker, or it failed: fall back to the download and say so plainly
+    saveDownload();
+    n2(`<div class="sect">${err ? 'could not write the file' : 'downloaded instead'}</div>
+      <p class="hint">${err ? err.message + ' — so it has been downloaded instead.'
+        : 'This browser will not let a page write to a file, so the plan has been downloaded.'}
+      Save it over <b>tools/level.json</b>, then run:</p>
+      <code class="cmd">${cmd}</code>
+      ${copied ? '<p class="hint">That command is on your clipboard.</p>' : ''}
+      <div class="row"><button class="btn" id="cmdedit">change the command</button></div>`);
+  }
+  const ce = el('cmdedit');
+  if(ce) ce.onclick = () => {
+    const v = prompt('The command that builds the game. Use an absolute path if you run it '
+      + 'from somewhere other than the project folder.', cmd);
+    if(v != null){ localStorage.setItem(CMD_KEY, v.trim() || 'node tools/genmaze.js --write'); buildMe(false); }
+  };
+  const rp = el('repick');
+  if(rp) rp.onclick = async () => { await idb.del('level'); buildMe(true); };
+}
+const n2 = (html) => { el('insp').innerHTML = html; };
+el('build').onclick = () => buildMe(false);
+
+function saveDownload(){
   const b=new Blob([JSON.stringify(L,null,2)],{type:'application/json'});
   const a=document.createElement('a'); a.href=URL.createObjectURL(b); a.download='level.json'; a.click();
   el('save').classList.remove('on');
+}
+el('save').onclick=()=>{
+  const bad=problems.filter(p=>p.sev==='bad').length;
+  if(bad && !confirm(`${bad} problem${bad>1?'s':''} the generator will refuse. Export anyway?`)) return;
+  saveDownload();
   el('insp').innerHTML=`<div class="sect">exported</div>
     <p class="hint">It is in your downloads as <b>level.json</b>. To put it in the game, save it
     over <b>tools/level.json</b> and run:</p>
@@ -1207,10 +1314,13 @@ el('legend').innerHTML = ['room','corridor','hub','chamber','alcove','atrium']
 /* The canvas measures zero until the pane it lives in has been laid out, and
    there is no one event that reliably says "now". So: fit the first time it has
    a real width, whether that news arrives by observer or by looking again. */
-let everSized=false;
+let everSized=false, userView=false;   // has the view been set by hand yet
 function onSized(){
   if(!L) return;
-  if(!everSized && cv.clientWidth>0){ everSized=true; fit(); } else draw();
+  /* Keep fitting until you have set the view yourself. The pane can be any size
+     when the page loads — sometimes none at all — and a plan drawn three pixels
+     to the cell because of that is not a view anybody chose. */
+  if(cv.clientWidth>0 && !userView){ everSized=true; fit(); } else draw();
 }
 new ResizeObserver(onSized).observe(cv);
 addEventListener('resize',onSized);
