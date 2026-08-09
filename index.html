@@ -455,13 +455,13 @@ const MAPS = [
        ................................................................       
        ................................................................       
        ................................................................       
-       ...       ..        ....             .  ...      ..          ...       
-       ...       ..        ....             .  ...      ..          ...       
-       ...  #####..        ....             .  ...      ..#####     ...       
-       ...  #*++#..        ....             .  ...      ..#*++#     ...       
-       ...  #+++...        ....             .  ...      ...+++#     ...       
-       ...  #+++...        ....             .  ...      ...+++#     ...       
-       ...  #####..        ....             .  ...      ..#####     ...       
+       ...       ..        ....                ...      ..          ...       
+       ...       ..        ....                ...      ..          ...       
+       ...  #####..        ....                ...      ..#####     ...       
+       ...  #*++#..        ....                ...      ..#*++#     ...       
+       ...  #+++...        ....                ...      ...+++#     ...       
+       ...  #+++...        ....                ...      ...+++#     ...       
+       ...  #####..        ....                ...      ..#####     ...       
        ................................................................       
        ................................................................       
        ...       ..###..###....                ...##..##..          ...       
@@ -2436,9 +2436,14 @@ const furniture = [];
         put('partition', px + cw / 2, y, pz, Math.PI / 2, g(i + j + 2), cd / 1.66);
         put('desk', px, y, pz - cd / 4, 0, g(i + j + 3));
         put('chair', px, y, pz + cd / 5, Math.PI, g(i + j + 4));
-        put('monitor', px, y + 0.76, pz - cd / 4 - 0.1, 0, g(i + j + 5));
-        put('keyboard', px + 0.42, y + 0.78, pz - cd / 4 + 0.16, 0.2, g(i + j + 6));
-        if (has('terminals')) screens.push({ x: px, y: y + 1.12, z: pz - cd / 4 + 0.05, lev: rm.lev });
+        // all three stand ON the desk, at desk height, so they go when it goes
+        if (has('desk')) {
+          put('monitor', px, y + 0.76, pz - cd / 4 - 0.1, 0, g(i + j + 5));
+          put('keyboard', px + 0.42, y + 0.78, pz - cd / 4 + 0.16, 0.2, g(i + j + 6));
+          // and the screen glow belongs to the monitor's casing, not the room
+          if (has('terminals') && has('monitor'))
+            screens.push({ x: px, y: y + 1.12, z: pz - cd / 4 + 0.05, lev: rm.lev });
+        }
       }
 
     } else if (t === 'hall') {
@@ -2474,11 +2479,19 @@ const furniture = [];
     /* Anything else you asked for that the type would not have placed. The
        branches above each lay their furniture out to their own plan; a sofa in
        a warehouse has no such plan, so it is simply set down clear of the
-       middle, in the same deterministic scatter the rest of the room uses. */
-    const extra = ((rm.items && rm.items.add) || []).filter((k) => !FITTING_KINDS.has(k));
+       middle, in the same deterministic scatter the rest of the room uses.
+
+       Asked for AND taken away is not a contradiction to resolve here: the
+       panel shows it struck through, so taken away is what was meant, and
+       placing it anyway would put back the thing you had just crossed out. */
+    const extra = ((rm.items && rm.items.add) || [])
+      .filter((k) => !FITTING_KINDS.has(k) && !off.has(k));
     extra.forEach((kind, i) => {
       const a = (i / Math.max(1, extra.length)) * Math.PI * 2 + wobble(rm.r1, rm.c1, i) * 0.9;
-      place(kind, cx + Math.cos(a) * w * 0.3, y, cz + Math.sin(a) * d * 0.3, a, g(20 + i));
+      const px = cx + Math.cos(a) * w * 0.3, pz = cz + Math.sin(a) * d * 0.3;
+      place(kind, px, y, pz, a, g(20 + i));
+      // a case of glass wants its glass wherever it is standing
+      for (const also of TOGETHER[kind] || []) place(also, px, y, pz, 0, 0xffffff);
     });
   }
 
@@ -2709,6 +2722,9 @@ const furniture = [];
       };
       emitters.push(emitter);
       chandeliers.push({
+        // the switch this answers to, known here for certain rather than
+        // guessed later by how close something happens to be
+        roomRef: rm.switchRoom,
         pos: new THREE.Vector3(cxx, top - 0.45, czz), lev: rm.lev, emitter,
         ceiling: mkSheet(9, top - 0.12, false), floor: mkSheet(11, y + 0.05, true),
         drops: dropMesh, glow: 0,
@@ -2875,8 +2891,12 @@ const furniture = [];
        below — if you want lanterns over the racking, that is your building and
        your call, and the reason the rule exists belongs in the kit's hint text
        rather than in a veto. */
-    const picked = lanternAsked.filter((rm) => !taken.has(rm));
-    for (const rm of picked) taken.add(rm);
+    /* `taken` keeps the automatic draw off rooms that already have swags. A
+       room that asked for lanterns by name is not subject to that: it gets
+       them, and gives up the swags it won in the other draw, because two
+       strings of lights along one ceiling is nobody's intention. */
+    const picked = lanternAsked.slice();
+    for (const rm of picked) { taken.add(rm); const i = xmasRooms.indexOf(rm); if (i >= 0) xmasRooms.splice(i, 1); }
     const cands = [[], [], []];
     for (const meta of ROOM_META) {
       if (taken.has(meta) || meta.type === 'alcove') continue;
@@ -6619,8 +6639,14 @@ function updateChandeliers(dt, now) {
   const fwd = new THREE.Vector3(-Math.sin(player.yaw), 0, -Math.cos(player.yaw));
   const beam = player.battery > 0 && started && !ending;
   for (const ch of chs) {
-    const room = ch.roomRef || (ch.roomRef = props.switches.find(
-      (sw) => sw.chandelier && Math.hypot(sw.pos.x - ch.pos.x, sw.pos.z - ch.pos.z) < 26));
+    /* Bound when the chandelier was hung. It used to be looked up here by
+       distance in plan alone, with no floor in it — and props.switches runs
+       ground floor first, so an upstairs chandelier answered to the switch of
+       whatever room sat under it. A room whose chandelier is controlled two
+       storeys down is worse than one with no chandelier at all: its strip
+       lights are cut to a third on the grounds that the chandelier lights it,
+       and the chandelier never comes on. */
+    const room = ch.roomRef;
     const lit = room ? room.on : false;
     ch.emitter.on = lit;
     ch.emitter.intensity += ((lit ? 26 : 0) - ch.emitter.intensity) * (1 - Math.exp(-2.2 * dt));

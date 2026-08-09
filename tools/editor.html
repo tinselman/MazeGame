@@ -234,7 +234,9 @@ function adopt(plan){
   L.roomItems = L.roomItems || {};
   L.stairs = L.stairs || []; L.drops = L.drops || [];
   L.buttonPrefs = L.buttonPrefs || []; L.hubExits = L.hubExits || [];
-  sel = null;
+  sel = null; drag = null;
+  // a plan with fewer floors than the one you were looking at
+  if (lev >= L.levels) setLevQuiet(L.levels - 1);
 }
 // enough of a check that opening the wrong file says so instead of white-screening
 function looksLikeAPlan(o){
@@ -304,6 +306,11 @@ function reframe(){
     for(const d of L.drops){ d.at=[d.at[0]+dr,d.at[1]+dc]; d.into=[d.into[0]+dr,d.into[1]+dc]; }
     for(const v of L.placed.vendors){ v.r+=dr; v.c+=dc; }
     for(const x of L.placed.guns){ x.r+=dr; x.c+=dc; }
+    // the walkways are positions in the same grid and move with everything else
+    for(const o of (L.overpasses||[])){
+      if(o.axis==='c'){ o.at+=dr; o.a+=dc; o.b+=dc; } else { o.at+=dc; o.a+=dr; o.b+=dr; } }
+    if(L.galleries){ L.galleries.row+=dr; L.galleries.west+=dc;
+                     L.galleries.east+=dc; L.galleries.stairCol+=dc; }
     L.edits=Object.fromEntries(Object.entries(L.edits).map(([k,v])=>{
       const [l,r,c]=k.split(',').map(Number); return [`${l},${r+dr},${c+dc}`,v]; }));
     maxR+=dr; maxC+=dc;
@@ -577,6 +584,9 @@ function pick(mx,my){
     for(const d of doorSlots(sel.o)) if(on(d.cells))
       return {kind:'door', o:sel.o, side:d.side, at:d.at};
   }
+  // walkways sit above the floor they cross, so they are picked before it
+  const gh = ghostAt(mx,my);
+  if(gh) return gh;
   const list = movables(lev);
   for(let i=list.length-1;i>=0;i--) if(rectAt(list[i],mx,my))
     return {kind: L.corridors.includes(list[i])?'corridor':'room', o:list[i]};
@@ -606,34 +616,53 @@ function fittings(){
    generator, not placed here. They are drawn anyway, as ghosts, because a plan
    that hides them is a plan you can walk a room straight through without ever
    seeing what you broke. */
+/* The walkways. They are in the level file like everything else, so they are
+   yours to move and to remove — the only thing the generator decides for itself
+   is how far the ramps and legs run inwards to reach the building, because that
+   depends on where the floorplate has ended up. */
+const overpassRect = (o) => o.axis==='c' ? {r1:o.at,c1:o.a,r2:o.at,c2:o.b}
+                                         : {r1:o.a,c1:o.at,r2:o.b,c2:o.at};
 function ghosts(){
   const out=[];
-  for(const o of (L.overpasses||[])){
-    if(o.lo+1!==lev) continue;
-    out.push(o.axis==='c' ? {r1:o.at,c1:o.a,r2:o.at,c2:o.b,n:'overpass'}
-                          : {r1:o.a,c1:o.at,r2:o.b,c2:o.at,n:'overpass'});
-  }
+  (L.overpasses||[]).forEach((o,i)=>{
+    if(o.lo+1!==lev) return;
+    out.push({...overpassRect(o), kind:'overpass', i, o,
+              n:`overpass, floor ${o.lo+1}`});
+  });
   const G=L.galleries;
-  if(G && L.levels>=3){
+  if(G && L.levels>=3 && (lev===1||lev===2)){
     const GR=G.row, sc=G.stairCol, W2=sc+4, E2=W2+4;
-    const nHall=L.pad+1, l2Hall=L.pad+12;   // the halls the walkways rejoin
+    const leg={kind:'gallery', i:0, o:G, n:'exterior gallery'};
     if(lev===1){
-      out.push({r1:GR,c1:G.west,r2:GR,c2:G.east,n:'gallery walkway'});
-      out.push({r1:GR,c1:G.west,r2:nHall,c2:G.west,n:'gallery walkway'});
-      out.push({r1:GR,c1:G.east,r2:nHall,c2:G.east,n:'gallery walkway'});
+      out.push({r1:GR,c1:G.west,r2:GR,c2:G.east,...leg});
+      out.push({r1:GR,c1:G.west,r2:GR+3,c2:G.west,...leg,derived:true});
+      out.push({r1:GR,c1:G.east,r2:GR+3,c2:G.east,...leg,derived:true});
+    } else {
+      out.push({r1:GR,c1:W2,r2:GR,c2:E2,...leg});
+      out.push({r1:GR,c1:E2,r2:GR+3,c2:E2,...leg,derived:true});
     }
-    if(lev===2){
-      out.push({r1:GR,c1:W2,r2:GR,c2:E2,n:'gallery walkway'});
-      out.push({r1:GR,c1:E2,r2:l2Hall,c2:E2,n:'gallery walkway'});
-    }
-    if(lev===1||lev===2) out.push({r1:GR,c1:sc,r2:GR,c2:sc+3,n:'gallery stair'});
+    out.push({r1:GR,c1:sc,r2:GR,c2:sc+3,kind:'gallery',i:0,o:G,n:'gallery stair'});
   }
   return out;
+}
+const ghostAt=(mx,my)=>ghosts().find(g=>
+  mx>=px(g.c1)&&mx<px(g.c2+1)&&my>=py(g.r1)&&my<py(g.r2+1));
+// the same rectangles for any floor, for checks rather than for drawing
+function walkwayCells(l){
+  const was=lev; lev=l; const out=ghosts(); lev=was; return out;
 }
 
 /* ---- checks, run as you edit -------------------------------------------- */
 function validate(){
   const out=[];
+  /* A parapet gap is a hole you drop through, so it needs open air under it.
+     Run a walkway across one and the drop lands on decking instead — the
+     generator refuses the plan for it, and finding that out at build time is
+     later than you want to find it out. */
+  for(const d of (L.drops||[])) for(const g of walkwayCells(d.lev))
+    if(d.into[0]>=g.r1&&d.into[0]<=g.r2&&d.into[1]>=g.c1&&d.into[1]<=g.c2)
+      out.push({sev:'bad',lev:d.lev,o:d,r:d.into[0],c:d.into[1],
+                msg:`the parapet gap at ${d.into[0]},${d.into[1]} is under a walkway — nothing to fall through`});
   const list=[];
   for(const rm of L.rooms) if(rm.t!=='void'&&rm.t!=='atrium') list.push(rm);
   for(let i=0;i<list.length;i++) for(let j=i+1;j<list.length;j++){
@@ -847,6 +876,33 @@ function renderInsp(){
     el('del').onclick=()=>{mark(); L.corridors=L.corridors.filter(x=>x!==o); sel=null; rebuild(); dirty();};
     return;
   }
+  if(sel.kind==='overpass'){
+    const o=sel.o, R=overpassRect(o);
+    n.innerHTML=`<div class="sect">overpass · floor ${o.lo+1}</div>
+      <p class="hint">A bridge ${o.axis==='c'?'running east–west along row '+o.at:'running north–south along column '+o.at},
+      ${Math.abs(o.b-o.a)+1} cells long, rising ${o.rise}. It carries you over the hole below —
+      which is why it is here, and why deleting it closes that route off.</p>
+      <div class="sect">rise</div>
+      <select id="orise">${[2,3,4,5].map(v=>`<option${v===o.rise?' selected':''}>${v}</option>`).join('')}</select>
+      <div class="sect">remove</div>
+      <button class="btn" id="del" style="width:100%">delete this overpass</button>`;
+    el('orise').onchange=(e)=>{mark(); o.rise=+e.target.value; rebuild(); dirty();};
+    el('del').onclick=()=>{mark(); L.overpasses.splice(sel.i,1); sel=null; rebuild(); dirty();};
+    return;
+  }
+  if(sel.kind==='gallery'){
+    const G=sel.o;
+    n.innerHTML=`<div class="sect">exterior gallery</div>
+      <p class="hint">The walkway that leaves the building altogether: out along row ${G.row},
+      cols ${G.west} to ${G.east}, with a flight at column ${G.stairCol} climbing to a second
+      run above and a bridge back in. There is nothing at all beneath it.</p>
+      <p class="hint">Drag it to move the whole excursion. How far the legs run back in is
+      worked out at build time from wherever the floorplate has ended up, so they always land.</p>
+      <div class="sect">remove</div>
+      <button class="btn" id="del" style="width:100%">delete the gallery</button>`;
+    el('del').onclick=()=>{mark(); delete L.galleries; sel=null; rebuild(); dirty();};
+    return;
+  }
   if(sel.kind==='room'){
     const rm=sel.o;
     const doors=doorsOf(rm);
@@ -873,16 +929,26 @@ function renderInsp(){
       <div class="sect">remove</div>
       <button class="btn" id="del" style="width:100%">delete this room</button>`;
     wireContents(rm);
-    el('ty').onchange=e=>{mark(); rm.t=e.target.value; rebuild(); dirty();};
+    el('ty').onchange=e=>{mark(); rm.t=e.target.value;
+      /* The contents were an argument with the old type. Keep only the part
+         the new type can still hear: a removal for something it never places
+         is a note nothing reads, and an addition it places anyway would put
+         the same thing down twice. */
+      const ov=L.roomItems[rm.id];
+      if(ov){ const base=DEFAULTS[rm.t]||[];
+        ov.remove=(ov.remove||[]).filter(k=>base.includes(k));
+        ov.add=(ov.add||[]).filter(k=>!base.includes(k));
+        if(!ov.add.length && !ov.remove.length) delete L.roomItems[rm.id]; }
+      rebuild(); dirty();};
     el('enc').onchange=e=>{mark(); if(e.target.value==='0') rm.enclosed=false; else delete rm.enclosed; rebuild(); dirty();};
     const da=el('dauto'); if(da) da.onclick=()=>{mark(); delete rm.doors; rebuild(); dirty();};
-    el('del').onclick=()=>{mark(); L.rooms=L.rooms.filter(x=>x!==rm); sel=null; rebuild(); dirty();};
+    el('del').onclick=()=>{mark(); delete L.roomItems[rm.id]; L.rooms=L.rooms.filter(x=>x!==rm); sel=null; rebuild(); dirty();};
     return;
   }
   const gh = ghosts().find(x=>sel.r>=x.r1&&sel.r<=x.r2&&sel.c>=x.c1&&sel.c<=x.c2);
   n.innerHTML=`<div class="sect">cell ${sel.r},${sel.c}</div>
     <p class="hint">Nothing placed here. It is ${({'.':'corridor','#':'wall','+':'room floor','/':'stair',' ':'nothing','H':'hub floor','v':'vault'})[GRID[lev][sel.r]?.[sel.c]]||'nothing'}.</p>`
-    + (gh?`<div class="sect">${gh.n}</div><p class="hint">Drawn dashed because the generator cuts it, not this page — it is not yours to move. Put a room through it and the walkway loses its landing.</p>`:'');
+    + (gh?`<div class="sect">${gh.n}</div><p class="hint">Click it to select it.</p>`:'');
 }
 /* The contents of a room, and the two ways to change them: take away something
    the type gives you, or add something it does not. Nothing is written into the
@@ -946,6 +1012,9 @@ function delFitting(){
   else if(k==='drop') L.drops.splice(sel.i,1);
   else if(k==='vendor') L.placed.vendors.splice(sel.i,1);
   else if(k==='gun') L.placed.guns.splice(sel.i,1);
+  else if(k==='overpass') L.overpasses.splice(sel.i,1);
+  // one gallery, not a list — removing it removes the whole excursion outside
+  else if(k==='gallery') delete L.galleries;
   sel=null; rebuild(); dirty();
 }
 
@@ -955,6 +1024,13 @@ cv.addEventListener('mousedown',(e)=>{
   const hit=pick(e.offsetX,e.offsetY);
   moved=0;
   if(hit.kind==='door'){ toggleDoor(hit.o,hit.side,hit.at); return; }
+  if(hit.kind==='overpass'||hit.kind==='gallery'){
+    sel=hit; mark();
+    const [r,c]=toCell(e.offsetX,e.offsetY);
+    drag={kind:'walkway', f:hit, r0:r, c0:c,
+          from: hit.kind==='overpass' ? {...hit.o} : {...hit.o}};
+    renderInsp(); draw(); return;
+  }
   if(FIT[hit.kind]){ sel=hit; drag={kind:'fitting',f:hit,r0:toCell(e.offsetX,e.offsetY)[0],c0:toCell(e.offsetX,e.offsetY)[1]};
     mark(); renderInsp(); draw(); return; }
   if(hit.kind==='room'||hit.kind==='corridor'){
@@ -974,6 +1050,22 @@ cv.addEventListener('mousemove',(e)=>{
     const [r,c]=toCell(e.offsetX,e.offsetY);
     solveDrag(drag, r-drag.r0, c-drag.c0);
     moved++; return;
+  }
+  if(drag&&drag.kind==='walkway'){
+    /* Solved from where it stood when the drag began, so dragging out and back
+       puts it exactly where it was rather than somewhere it drifted to. */
+    const [r,c]=toCell(e.offsetX,e.offsetY);
+    const dr=r-drag.r0, dc=c-drag.c0, cl=(v)=>Math.max(1,Math.min(L.size-2,v));
+    if(drag.f.kind==='overpass'){
+      const o=L.overpasses[drag.f.i], was=drag.from;
+      if(was.axis==='c'){ o.at=cl(was.at+dr); o.a=cl(was.a+dc); o.b=cl(was.b+dc); }
+      else              { o.at=cl(was.at+dc); o.a=cl(was.a+dr); o.b=cl(was.b+dr); }
+    } else {
+      const G=L.galleries, was=drag.from;
+      G.row=cl(was.row+dr);
+      G.west=cl(was.west+dc); G.east=cl(was.east+dc); G.stairCol=cl(was.stairCol+dc);
+    }
+    moved++; rebuild(); return;
   }
   if(drag&&drag.kind==='fitting'){
     const [r,c]=toCell(e.offsetX,e.offsetY);
@@ -1010,16 +1102,19 @@ addEventListener('keydown',(e)=>{
   if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='z'){ e.preventDefault(); e.shiftKey?redo():undo(); return; }
   if(e.key==='Delete'||e.key==='Backspace'){
     if(!sel) return;
-    if(FIT[sel.kind]) { delFitting(); e.preventDefault(); }
-    else if(sel.kind==='room'){ mark(); L.rooms=L.rooms.filter(x=>x!==sel.o); sel=null; rebuild(); dirty(); e.preventDefault(); }
+    if(FIT[sel.kind]||sel.kind==='overpass'||sel.kind==='gallery') { delFitting(); e.preventDefault(); }
+    else if(sel.kind==='room'){ mark(); delete L.roomItems[sel.o.id]; L.rooms=L.rooms.filter(x=>x!==sel.o); sel=null; rebuild(); dirty(); e.preventDefault(); }
     else if(sel.kind==='corridor'){ mark(); L.corridors=L.corridors.filter(x=>x!==sel.o); sel=null; rebuild(); dirty(); e.preventDefault(); }
   }
 });
 
 /* ---- toolbar ------------------------------------------------------------ */
-function setLev(l){ lev=l; sel=null;
-  document.querySelectorAll('.flr').forEach(b=>b.classList.toggle('on',+b.dataset.lev===l));
-  rebuild(); }
+// change floors without drawing — for when the plan itself is being replaced
+function setLevQuiet(l){
+  lev=Math.max(0,Math.min((L?L.levels:3)-1,l));
+  document.querySelectorAll('.flr').forEach(b=>b.classList.toggle('on',+b.dataset.lev===lev));
+}
+function setLev(l){ setLevQuiet(l); sel=null; rebuild(); }
 document.querySelectorAll('.flr').forEach(b=>b.onclick=()=>setLev(+b.dataset.lev));
 el('zin').onclick=()=>{view.s=Math.min(40,view.s+2); draw();};
 el('zout').onclick=()=>{view.s=Math.max(3,view.s-2); draw();};
@@ -1107,7 +1202,7 @@ el('legend').innerHTML = ['room','corridor','hub','chamber','alcove','atrium']
   .map(k=>`<span><span class="sw" style="background:${COL[k]||'#4a525f'}"></span>${k}</span>`).join('')
   + ['stair','button','drop','vendor','gun'].map(k=>
     `<span><span class="sw" style="background:${FIT[k].c}"></span>${FIT[k].n}</span>`).join('')
-  + `<span><span class="sw" style="background:#8a99b055;border:1px dashed #8a99b0"></span>generator's own</span>`;
+  + `<span><span class="sw" style="background:#8a99b055;border:1px dashed #8a99b0"></span>walkway</span>`;
 
 /* The canvas measures zero until the pane it lives in has been laid out, and
    there is no one event that reliably says "now". So: fit the first time it has

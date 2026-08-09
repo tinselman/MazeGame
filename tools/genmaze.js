@@ -311,11 +311,11 @@ if (ROOMS_FIRST) {
     if (rm.t === 'void') { rect(rm.lev, R.r1, R.c1, R.r2, R.c2, VOID); continue; }
     if (rm.enclosed === false) {
       rect(rm.lev, R.r1, R.c1, R.r2, R.c2, rm.t === 'water' ? '~' : '+');
-      rooms.push({ lev: rm.lev, r1: R.r1, c1: R.c1, r2: R.r2, c2: R.c2, type: rm.t, open: true, ...(items ? { items } : {}) });
+      rooms.push({ lev: rm.lev, r1: R.r1, c1: R.c1, r2: R.r2, c2: R.c2, type: rm.t, open: true, ...(items ? { items } : {}), ...(rm.doors ? { doors: rm.doors } : {}) });
     } else {
       rect(rm.lev, R.r1, R.c1, R.r2, R.c2, WALL);
       rect(rm.lev, R.r1 + 1, R.c1 + 1, R.r2 - 1, R.c2 - 1, rm.t === 'water' ? '~' : '+');
-      rooms.push({ lev: rm.lev, r1: R.r1 + 1, c1: R.c1 + 1, r2: R.r2 - 1, c2: R.c2 - 1, type: rm.t, ...(items ? { items } : {}) });
+      rooms.push({ lev: rm.lev, r1: R.r1 + 1, c1: R.c1 + 1, r2: R.r2 - 1, c2: R.c2 - 1, type: rm.t, ...(items ? { items } : {}), ...(rm.doors ? { doors: rm.doors } : {}) });
     }
   }
 }
@@ -517,14 +517,27 @@ const GALLERY_ROW = GALLERIES.row;          // three cells clear of the wall
 // floors has nowhere to put them. Without this a small hand-made level dies
 // writing into a storey that does not exist.
 if (NLEV >= 3 && (!LEVEL || LEVEL.galleries)) {
-  const nHall = LINES[0][0];                // the level-1 hall it leaves from
-  const l2Hall = LINES[1][0] + LINES[1][1] - 1;
+  /* Where a walkway comes back in. This used to be read off the band model's
+     hall lines — LINES[0] and LINES[1] — which a rooms-first plan does not
+     have, so the numbers came from the fallback constants and were right only
+     because those constants happened to line up with the building as it stands.
+     Move a room far enough to shift the floorplate and the walkway would stop
+     short in mid-air, an island the validator would then report as orphaned
+     rather than as the thing that actually broke.
+
+     So it is found instead of assumed: run in from the walkway until you are
+     standing on something that is already part of the building. */
+  const solid = (chr) => chr !== WALL && chr !== VOID;
+  const landIn = (lev, col) => {
+    for (let r = GALLERY_ROW + 1; r < SIZE - 1; r++) if (solid(G[lev][r][col])) return r;
+    return GALLERY_ROW + 1;                 // nothing to land on; caught downstream
+  };
   const WEST = GALLERIES.west, EAST = GALLERIES.east;
 
   // level 1: out, along, and back in
   rect(1, GALLERY_ROW, WEST, GALLERY_ROW, EAST, '.');
-  rect(1, GALLERY_ROW, WEST, nHall, WEST, '.');
-  rect(1, GALLERY_ROW, EAST, nHall, EAST, '.');
+  rect(1, GALLERY_ROW, WEST, landIn(1, WEST), WEST, '.');
+  rect(1, GALLERY_ROW, EAST, landIn(1, EAST), EAST, '.');
 
   // Level two: a short run from the head of the stair to the bridge. Both ends
   // have to go somewhere — the west end onto the flight (a stair cell counts as
@@ -532,8 +545,8 @@ if (NLEV >= 3 && (!LEVEL || LEVEL.galleries)) {
   const sc = GALLERIES.stairCol;            // the flight, cols sc..sc+3
   const W2 = sc + 4, E2 = W2 + 4;
   rect(2, GALLERY_ROW, W2, GALLERY_ROW, E2, '.');
-  // the bridge back over the north hall, onto the level-two loop
-  rect(2, GALLERY_ROW, E2, l2Hall, E2, '.');
+  // the bridge back in, onto the level-two loop
+  rect(2, GALLERY_ROW, E2, landIn(2, E2), E2, '.');
 
   // The stair pass has already run by this point, so the flight is cut here by
   // hand; it still joins STAIRS so the validator checks its footings.
@@ -569,6 +582,29 @@ if (LEVEL && LEVEL.buttonPrefs) { BUTTON_PREFS.length = 0; for (const b of LEVEL
    plan editor and the generated map agree cell for cell with no arithmetic in
    between. */
 if (process.argv.includes('--dump')) {
+  /* This was the one-time bootstrap: it wrote the constants above out as JSON so
+     there was a level file to edit in the first place. It has outlived its model
+     — what it emits is the BAND plan, `lines` and `plan` and blocks, and the
+     level file is rooms now. Writing it over a rooms-first plan does not merely
+     lose the room rectangles, the doorways, the hand-placed fittings and the
+     per-room contents; because the result has no `rooms` key, the generator
+     quietly falls back to the band model and builds a different building
+     without complaining. So it refuses to be the thing that destroys your work. */
+  const target = path.join(__dirname, 'level.json');
+  if (fs.existsSync(target) && !process.argv.includes('--force')) {
+    const cur = (() => { try { return JSON.parse(fs.readFileSync(target, 'utf8')); } catch (e) { return null; } })();
+    console.error('--dump would overwrite tools/level.json.');
+    if (cur && cur.rooms) {
+      console.error(`  That file is a rooms-first plan: ${cur.rooms.length} rooms, ` +
+        `${Object.keys(cur.roomItems || {}).length} with authored contents, ` +
+        `${(cur.placed && cur.placed.vendors || []).length + (cur.placed && cur.placed.guns || []).length} hand-placed fittings.`);
+      console.error('  What --dump writes is the older band-line plan, which the generator');
+      console.error('  reads as a DIFFERENT building. There is no way back from this.');
+    }
+    console.error('  Export from tools/editor.html to change the plan. If you really want the');
+    console.error('  bootstrap file, move level.json aside first, or pass --force.');
+    process.exit(1);
+  }
   const authoredStairs = STAIRS.slice(0, STAIRS.length - OVERPASSES.length * 2);
   const level = {
     note: 'Crystal Maze level. Coordinates are final grid cells (padding applied).',
@@ -585,7 +621,7 @@ if (process.argv.includes('--dump')) {
     overpasses: OVERPASSES.map((o) => ({ lo: o.lo, axis: o.axis, at: o.at, a: o.a, b: o.b, rise: o.rise })),
     drops: DROPS.map((d) => ({ lev: d.lev, at: d.at, into: d.into })),
     buttonPrefs: BUTTON_PREFS.map((b) => ({ lev: b.lev, at: b.at })),
-    roomItems: {},          // per-room content overrides; the editor fills this
+    roomItems: {},          // per-room contents, keyed by room id; the editor writes these
     edits: {},              // sparse hand edits, "lev,r,c" -> character
     placed: {},             // hand-placed fittings by kind: vendors, guns
   };
