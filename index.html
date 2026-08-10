@@ -1069,13 +1069,56 @@ function beatPlan(n) {
    Held clear of the walls by a body's width, because the room you land in can be
    smaller than the one you left and the honest answer to "you were at 98% of a
    fourteen-cell room, now be at 98% of a four-cell one" is a wall. */
+/* What a console asks for. A lane on one floor, or every floor a storey up or
+   down — the same shape of answer beatPlan gives, so the same machinery moves
+   the building either way.
+
+   `axis` is 'r' for a file sliding north or south, 'c' for a rank sliding east
+   or west. `dir` is +1 toward the far side. Slots the building holds still are
+   stepped over exactly as they are on a beat, so a file with an atrium in it
+   cycles through what is left. */
+function lanePlan(lev, axis, k, dir) {
+  const to = Array.from({ length: NLEV }, () => new Map());
+  const held = SLOTS.heldOn(lev);
+  const cells = [];
+  const n = axis === 'r' ? SLOTS.R.length : SLOTS.C.length;
+  for (let m = 0; m < n; m++) {
+    const ij = axis === 'r' ? [m, k] : [k, m];
+    if (!held.has(ij.join(','))) cells.push(ij);
+  }
+  if (cells.length >= 2) for (let a = 0; a < cells.length; a++) {
+    to[lev].set(cells[a].join(','), cells[(a + dir + cells.length) % cells.length]);
+  }
+  return { to, at: (l, key) => to[l].get(key), floor: (key, l) => l };
+}
+/* Every floor up, or every floor down, and nothing sliding. Skips any floor on
+   which the slot would be a sealed vault, the same way the beat's ascent does —
+   otherwise a room rises into a chamber and has nowhere to be. */
+function floorPlan(dir) {
+  const to = Array.from({ length: NLEV }, () => new Map());
+  return { to, at: () => null, floor: (key, l) => {
+    for (let k = 1; k <= NLEV; k++) {
+      const n2 = ((l + dir * k) % NLEV + NLEV) % NLEV;
+      if (!SLOTS.vault[n2].has(key)) return n2;
+    }
+    return l;
+  } };
+}
+
 function ridePlan(plan) {
   const [r, c] = cellOf(player.pos);
   const i = SLOTS.rowOf(r), j = SLOTS.colOf(c);
   if (i < 0 || j < 0) return null;                    // in a corridor: not carried
   const key = `${i},${j}`;
-  const dest = plan.at(player.lev, key);
-  if (!dest) return null;                             // a held slot: it does not move
+  /* A held slot is an atrium or the hub: a hole through the building and the
+     middle of it, neither of which goes anywhere, so you stand still while
+     everything else moves. Anywhere else you ride — and you ride even when the
+     slot itself is staying put, because a storey rising takes the room you are
+     in with it whether or not that room slides sideways too. */
+  if (SLOTS.held.has(key)) return null;
+  const dest = plan.at(player.lev, key) || [i, j];
+  const toLev = plan.floor(dest.join(','), player.lev);
+  if (dest[0] === i && dest[1] === j && toLev === player.lev) return null;   // nothing to ride
   const from = SLOTS.rect(i, j), to = SLOTS.rect(dest[0], dest[1]);
   const span = (a, b) => Math.max(1e-6, (b - a + 1) * CELL);
   const u = (player.pos.x - from.c1 * CELL) / span(from.c1, from.c2);
@@ -1084,7 +1127,7 @@ function ridePlan(plan) {
   const insetV = (RADIUS + 0.25) / span(to.r1, to.r2);
   const cl = (t, m) => Math.max(m, Math.min(1 - m, t));
   return {
-    lev: plan.floor(dest.join(','), player.lev),
+    lev: toLev,
     x: to.c1 * CELL + cl(u, inset) * span(to.c1, to.c2),
     z: to.r1 * CELL + cl(v, insetV) * span(to.r1, to.r2),
     from: [i, j], to: dest,
@@ -2105,7 +2148,7 @@ camera.add(torchFill);
 scene.add(camera);
 
 /* ============================================================ PROPS */
-const props = { switches: [], buttons: [], doors: [], crystals: [], pedestals: [], portals: [] };
+const props = { switches: [], buttons: [], doors: [], crystals: [], pedestals: [], portals: [], consoles: [] };
 const fixtures = [];
 const matFixOff = new THREE.MeshPhongMaterial({ color: 0x3a3a3a, specular: 0x111111, shininess: 20 });
 const matFixGlim = new THREE.MeshPhongMaterial({ color: 0x4a453c, emissive: 0x2a2113, emissiveIntensity: 1 });
@@ -2440,8 +2483,33 @@ const furniture = [];
   /* Which room is being laid out. Every piece of furniture is stamped with it,
      because when the building moves it is rooms that move — and a heap of
      instances with no idea which room they belong to cannot be moved at all. */
+  /* The eight slots on every floor that carry a control console, and where in
+     the slot it stands. Worked out here, above the furnishing, because the
+     furniture has to know to leave room for it — the first version put a
+     console in a warehouse and the racking swallowed it whole. */
+  const CONSOLE_SLOTS = (() => {
+    const everRoom = SLOTS.movable.filter(([i, j]) =>
+      ![0, 1, 2].some((l) => SLOTS.vault[l].has(`${i},${j}`)));
+    const step = Math.max(1, Math.floor(everRoom.length / 8));
+    const out = [];
+    for (let n = 0; out.length < 8 && n < everRoom.length; n += step) out.push(everRoom[n]);
+    for (const c of everRoom) if (out.length < 8 && !out.includes(c)) out.push(c);
+    return out;
+  })();
+  const consoleKeys = new Set(CONSOLE_SLOTS.map((x) => x.join(',')));
+  // the far corner from the light switch, which lives at the near one
+  const consoleSpot = (R) => ({
+    x: (R.c2 - 0.1) * CELL, z: (R.r2 - 0.1) * CELL,
+  });
+  const CONSOLE_CLEAR = 1.5;            // nothing of the room's own inside this
+
   let layingOut = null;
+  let clearOf = null;                   // a console's keep-clear, while laying out
   const place = (kind, x, y, z, rot = 0, tone = 0x8f8f8f, scale = 1) => {
+    if (clearOf) {
+      const dx = x - clearOf.x, dz = z - clearOf.z;
+      if (dx * dx + dz * dz < CONSOLE_CLEAR * CONSOLE_CLEAR) return;
+    }
     if (!groups.has(kind)) groups.set(kind, []);
     groups.get(kind).push({ p: new THREE.Vector3(x, y, z), rot, tone, scale, room: layingOut });
   };
@@ -2507,6 +2575,8 @@ const furniture = [];
 
   function furnish(rm, layoutOnly) {
     layingOut = rm.home || rm;            // the room, wherever it is standing now
+    const slotKey = `${SLOTS.rowOf(rm.r1)},${SLOTS.colOf(rm.c1)}`;
+    clearOf = consoleKeys.has(slotKey) ? consoleSpot(rm) : null;
     const y = levelY(rm.lev);
     const x0 = (rm.c1) * CELL, x1 = (rm.c2 + 1) * CELL;
     const z0 = (rm.r1) * CELL, z1 = (rm.r2 + 1) * CELL;
@@ -2915,20 +2985,27 @@ const furniture = [];
   /* One beat. Every room is sent to its new slot and its new floor at once —
      the destinations all come from where things stood before, so there is no
      order to get wrong and no room can arrive somewhere another has not left. */
-  window.__rearrange = (n) => {
-    const plan = beatPlan(n);
+  /* One move, whatever asked for it. The beat asks for all five lanes and a
+     storey; a console in a room asks for one lane, or a storey on its own. They
+     are the same operation and go through the same door — which is the only way
+     the two can be trusted to agree about what the building is. */
+  const applyPlan = (plan) => {
     for (const rm of ROOMS) {
       const d = plan.at(rm.lev, rm.slot.join(','));
-      if (!d) continue;                       // a vault, or a slot held still
+      const toLev = plan.floor(( d || rm.slot).join(','), rm.lev);
+      if (!d && toLev === rm.lev) continue;   // a vault, or a slot held still
       const was = SLOTS.rect(rm.slot[0], rm.slot[1]), wasLev = rm.lev;
-      rm.slot = d; rm.lev = plan.floor(d.join(','), rm.lev);
-      const now = SLOTS.rect(d[0], d[1]);
+      if (d) rm.slot = d;
+      rm.lev = toLev;
+      const now = SLOTS.rect(rm.slot[0], rm.slot[1]);
       // how far it has to travel, so the furniture can be seen doing it
       rm.slide = { fx: (was.c1 - now.c1) * CELL, fz: (was.r1 - now.r1) * CELL,
                    fy: levelY(wasLev) - levelY(rm.lev), k: 1 };
     }
     relayout();
   };
+  window.__rearrange = (n) => applyPlan(beatPlan(n));
+  window.__applyPlan = applyPlan;
   /* The travelling itself. Everything is already where it is going and is being
      held back by the distance it came, by a fraction that runs from all of it
      to none of it. Nothing is animated toward anywhere: the destination is the
@@ -3328,6 +3405,70 @@ const furniture = [];
       window.__lanterns = { meshRound: R.shell, glowRound: R.glow,
                             meshSquare: S.shell, glowSquare: S.glow,
                             lanterns, strings };
+    }
+  }
+
+  /* ---- the controls -------------------------------------------------------
+     Eight rooms on every floor have a console in them, and a console steers the
+     building. Face a direction and press E: north or south slides the file this
+     room stands in, east or west slides its rank, and looking up or down takes
+     every storey with it.
+
+     It belongs to the SLOT, not to the room — like the light fittings and for
+     the same reason. It is part of the building, and a control that travelled
+     with the furniture would be a control you could not find twice.
+
+     The direction comes from where you are looking rather than from six things
+     to aim at, because six targets inside arm's reach of each other is six ways
+     to press the wrong one. The arrows are there to say what is possible; the
+     one you are facing lights, so the answer is legible before you commit. */
+  {
+    const ARROW = (() => {
+      const g = new THREE.CylinderGeometry(0, 0.115, 0.2, 3);
+      g.rotateX(Math.PI / 2);
+      return g;
+    })();
+    const matBody = new THREE.MeshPhongMaterial({ color: 0x8d8d8d, specular: 0x181818, shininess: 26 });
+    // the one exception a console makes to colour-from-light: it has to read as
+    // live at a glance, in a corridor-dark room, or nobody will ever press it
+    const matArrow = new THREE.MeshPhongMaterial({ color: 0x7f7f7f, emissive: 0x1b2b3a, emissiveIntensity: 1 });
+    const DIRS = [
+      { key: 'N', v: [0, 0, -1], yaw: 0 },
+      { key: 'S', v: [0, 0, 1], yaw: Math.PI },
+      { key: 'W', v: [-1, 0, 0], yaw: Math.PI / 2 },
+      { key: 'E', v: [1, 0, 0], yaw: -Math.PI / 2 },
+      { key: 'U', v: [0, 1, 0], yaw: 0 },
+      { key: 'D', v: [0, -1, 0], yaw: 0 },
+    ];
+    /* Eight slots a floor, spread so you are never far from one. Taken in a
+       fixed order off the movable list rather than scattered, so the same eight
+       places hold a console on every storey and you learn where they are. */
+    const pick = CONSOLE_SLOTS;
+    for (let lev = 0; lev < NLEV; lev++) for (const [i, j] of pick) {
+      if (SLOTS.vault[lev].has(`${i},${j}`)) continue;      // not in a sealed vault
+      const R = SLOTS.rect(i, j);
+      const spot = consoleSpot(R);
+      const px2 = spot.x, pz2 = spot.z;
+      const y = levelY(lev);
+      const g = new THREE.Group();
+      g.position.set(px2, y, pz2);
+      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.1, 1.0, 8), matBody);
+      post.position.y = 0.5;
+      const head = new THREE.Mesh(new THREE.SphereGeometry(0.19, 12, 9), matBody);
+      head.position.y = 1.06;
+      g.add(post, head);
+      const arrows = {};
+      for (const d of DIRS) {
+        const m = new THREE.Mesh(ARROW, matArrow.clone());
+        m.position.set(d.v[0] * 0.3, 1.06 + d.v[1] * 0.3, d.v[2] * 0.3);
+        if (d.v[1] > 0) m.rotation.x = -Math.PI / 2;
+        else if (d.v[1] < 0) m.rotation.x = Math.PI / 2;
+        else m.rotation.y = d.yaw;
+        g.add(m); arrows[d.key] = m;
+      }
+      scene.add(g);
+      props.consoles.push({ lev, slot: [i, j], group: g, arrows,
+                            pos: new THREE.Vector3(px2, y + 1.06, pz2) });
     }
   }
 
@@ -5144,6 +5285,26 @@ function warpToChamber(id) {
   return true;
 }
 
+/* Which of the six you are asking for. Looking well up or well down means the
+   storeys; otherwise it is whichever of the four compass points your heading is
+   nearest. Nothing is ever ambiguous — every direction you could face resolves
+   to exactly one arrow. */
+function facing() {
+  if (player.pitch > 0.62) return 'U';
+  if (player.pitch < -0.62) return 'D';
+  const f = [-Math.sin(player.yaw), -Math.cos(player.yaw)];
+  return Math.abs(f[0]) > Math.abs(f[1]) ? (f[0] > 0 ? 'E' : 'W')
+                                         : (f[1] > 0 ? 'S' : 'N');
+}
+function t2Console() {
+  let best = null, bestD = REACH * REACH;
+  for (const k of props.consoles) {
+    if (k.lev !== player.lev) continue;
+    const d = k.pos.distanceToSquared(player.pos.clone().setY(k.pos.y));
+    if (d < bestD) { bestD = d; best = k; }
+  }
+  return best;
+}
 function nearestTarget() {
   let best = null, bestD = REACH * REACH;
   const consider = (obj, pos, kind) => {
@@ -5156,6 +5317,7 @@ function nearestTarget() {
     for (const e of s.extras || []) consider({ ...s, pos: e.pos }, e.pos, 'switch');
   }
   for (const b of props.buttons) consider(b, b.pos, 'button');   // toggles, so always offered
+  for (const k of props.consoles) consider(k, k.pos, 'console');
   for (const v of vendors) if (!v.awake) consider(v, v.pos, 'vendor');
   for (const c of props.crystals) if (!c.taken) consider(c, c.pos, 'crystal');
   for (const c of props.crystals) {
@@ -5181,6 +5343,33 @@ function interact() {
   if (!started || ending) return;
   const t = nearestTarget();
   if (!t) return;
+
+  if (t.kind === 'console') {
+    if (shiftT >= 0) { sfx.click(); say('it is already moving'); return; }
+    const d = facing(), k = t.obj;
+    const ride = d === 'U' || d === 'D'
+      ? ridePlan(floorPlan(d === 'U' ? 1 : -1))
+      : ridePlan(lanePlan(player.lev, (d === 'N' || d === 'S') ? 'r' : 'c',
+                          (d === 'N' || d === 'S') ? k.slot[1] : k.slot[0],
+                          (d === 'S' || d === 'E') ? 1 : -1));
+    window.__applyPlan(d === 'U' || d === 'D'
+      ? floorPlan(d === 'U' ? 1 : -1)
+      : lanePlan(player.lev, (d === 'N' || d === 'S') ? 'r' : 'c',
+                 (d === 'N' || d === 'S') ? k.slot[1] : k.slot[0],
+                 (d === 'S' || d === 'E') ? 1 : -1));
+    if (ride) {
+      player.pos.set(ride.x, EYE, ride.z);
+      player.lev = ride.lev;
+      player.vel.set(0, 0, 0); player.falling = false;
+      rebuildReveal();
+    }
+    shiftT = 0; window.__slideRooms(0);
+    sfx.warp();
+    say({ N: 'this file of rooms goes north', S: 'this file of rooms goes south',
+          W: 'this rank of rooms goes west', E: 'this rank of rooms goes east',
+          U: 'every storey rises one', D: 'every storey drops one' }[d], 3);
+    return;
+  }
 
   if (t.kind === 'switch') {
     // `consider` may have handed us a shallow copy for one of an atrium's
@@ -8226,9 +8415,24 @@ function frame(dt) {
     el.battery.className = charging ? 'charging' : b < 0.15 ? 'critical' : b < 0.35 ? 'low' : '';
     el.levelbadge.textContent = 'LEVEL ' + player.lev;
 
+    /* The arrow you are asking for, lit. Only on the console within reach —
+       every other one in the building stays cold, or the whole floor would look
+       like it was about to do something. */
+    {
+      const near = t2Console();
+      const want = near ? facing() : null;
+      for (const k of props.consoles) for (const key of Object.keys(k.arrows)) {
+        const lit = k === near && key === want;
+        k.arrows[key].material.emissive.setHex(lit ? 0x2f7fd0 : 0x1b2b3a);
+      }
+    }
     const t2 = nearestTarget();
     if (t2) {
-      const verb = t2.kind === 'switch' ? 'turn on the lights'
+      const verb = t2.kind === 'console'
+          ? { N: 'send this file of rooms north', S: 'send this file of rooms south',
+              W: 'send this rank of rooms west', E: 'send this rank of rooms east',
+              U: 'raise every storey', D: 'lower every storey' }[facing()]
+        : t2.kind === 'switch' ? 'turn on the lights'
         : t2.kind === 'button'
           ? (props.doors.find((d) => d.id === t2.obj.id)?.open ? 'close the gate' : 'open the gate')
         : t2.kind === 'vendor' ? 'wake the machine'
