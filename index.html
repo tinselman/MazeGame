@@ -1217,6 +1217,10 @@ const wallIndex = new Map();
 }
 scene.add(wallMesh);
 
+/* The arcade lives in its own block and used to escape to nothing. It is part
+   of a room's wall, so it has to be reachable and indexed like the rest. */
+let windowMesh = null;
+const windowIndex = new Map();
 // A wall block with an arched opening cut through it. Same geometry every
 // time, so the whole set is one InstancedMesh and costs a single draw call.
 {
@@ -1251,7 +1255,7 @@ scene.add(wallMesh);
   for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) / CELL, uv.getY(i) / WALL_H);
   uv.needsUpdate = true;
 
-  const windowMesh = new THREE.InstancedMesh(geo, matWall, windowCells.length);
+  windowMesh = new THREE.InstancedMesh(geo, matWall, windowCells.length);
   windowMesh.castShadow = windowMesh.receiveShadow = true;
   const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(1, 1, 1);
   windowCells.forEach(([l, r, c, rot], i) => {
@@ -1259,6 +1263,8 @@ scene.add(wallMesh);
     q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), rot);
     m.compose(new THREE.Vector3(p.x, levelY(l), p.z), q, s);
     windowMesh.setMatrixAt(i, m);
+    // an arch is part of its room's wall and travels with it
+    windowIndex.set(`${l},${r},${c}`, { i, rot });
   });
   windowMesh.instanceMatrix.needsUpdate = true;
   scene.add(windowMesh);
@@ -3039,6 +3045,11 @@ const furniture = [];
     for (const rm of ROOMS) if (rm.slide) rm.slide.k = t >= 1 ? 0 : held;
     writeProps();
     if (window.__writeScreens) window.__writeScreens();
+    /* The shells last, and they are written on the FINAL frame too — at k=0 the
+       map is the identity, so that write is what puts every block back exactly
+       where it was built. There is no separate restore because there does not
+       need to be one. */
+    if (window.__writeShells) window.__writeShells();
     if (t >= 1) for (const rm of ROOMS) rm.slide = null;
   };
   window.__ROOMS = ROOMS;
@@ -3525,6 +3536,106 @@ const furniture = [];
       }
     }
   }
+
+  /* ---- walls that travel ---------------------------------------------------
+     A room takes its walls with it, and the way it does is the same trick the
+     furniture uses: everything is already where it is going, and is held back
+     by the distance it came.
+
+     What is animated is the DESTINATION slot's own wall blocks, not a copy and
+     not the ones the room is leaving. That is what makes it exact rather than
+     approximate — at the end of the slide the offset is zero and the matrix is
+     the one the block was built with, so the last frame of the journey IS the
+     restore. There is nothing to put back and nothing to snap.
+
+     It also solves the size change for free. A room sliding from a five-cell
+     slot into a fourteen-cell one cannot map thirteen wall blocks onto
+     thirty-one; but scaling the destination's thirty-one down to the source's
+     footprint and letting them grow is a plain affine map, and an axis-aligned
+     box tiling a rectangle stays a tiling under it — so the shell is watertight
+     at every instant rather than only at the ends. */
+  const SHELL = new Map();                 // "lev,i,j" -> the blocks of that ring
+  for (let lev = 0; lev < NLEV; lev++) for (const [i, j] of SLOTS.movable) {
+    const R = SLOTS.rect(i, j);
+    const wall = [], win = [], trim = [];
+    for (let r = R.r1 - 1; r <= R.r2 + 1; r++) for (let c = R.c1 - 1; c <= R.c2 + 1; c++) {
+      if (r > R.r1 - 1 && r < R.r2 + 1 && c > R.c1 - 1 && c < R.c2 + 1) continue;  // ring only
+      const k = `${lev},${r},${c}`;
+      const wi = wallIndex.get(k);
+      if (wi !== undefined) wall.push({ i: wi, key: k, p: cellCentre(r, c) });
+      const wn = windowIndex.get(k);
+      if (wn !== undefined) win.push({ ...wn, key: k, p: cellCentre(r, c) });
+    }
+    SHELL.set(`${lev},${i},${j}`, { wall, win, R });
+  }
+  // the outside of a slot, ring included — the box the shell has to fill
+  const shellBox = (R) => ({
+    x0: (R.c1 - 1) * CELL, z0: (R.r1 - 1) * CELL,
+    w: (R.c2 - R.c1 + 3) * CELL, d: (R.r2 - R.r1 + 3) * CELL,
+  });
+
+  /* The room you are standing in goes see-through while it travels, so you
+     watch the building go by rather than the inside of four walls.
+
+     matWall is shared by five things — the walls, the arcade, the stair sides,
+     the blast debris and the rubble rim — so it cannot simply be made
+     transparent. Instead a second mesh, its own material, draws just your
+     room's ring; the real blocks are scaled to nothing for the duration and put
+     back by the same identity that restores everything else. */
+  const matSeeThru = new THREE.MeshPhongMaterial({
+    color: 0xb4b4b4, specular: 0x2a2a2a, shininess: 14, map: texWall,
+    transparent: true, opacity: 0.25, depthWrite: false,
+  });
+  const ghostWall = new THREE.InstancedMesh(
+    new THREE.BoxGeometry(CELL, WALL_H, CELL), matSeeThru, 64);
+  ghostWall.count = 0;
+  ghostWall.renderOrder = 2;
+  scene.add(ghostWall);
+  let seeThru = null;                    // the slot whose walls you are inside
+
+  const mS = new THREE.Matrix4(), qS = new THREE.Quaternion(), yS = new THREE.Vector3(0, 1, 0);
+  const vS = new THREE.Vector3(), sS = new THREE.Vector3();
+  window.__writeShells = () => {
+    let touched = false, touchedWin = false, ghost = 0;
+    for (const rm of ROOMS) {
+      const sh = SHELL.get(`${rm.lev},${rm.slot[0]},${rm.slot[1]}`);
+      if (!sh) continue;
+      const k = rm.slide ? rm.slide.k : 0;
+      const to = shellBox(sh.R);
+      // where it came from: the same box shifted back by the distance travelled
+      const fx = rm.slide ? rm.slide.fx : 0, fz = rm.slide ? rm.slide.fz : 0;
+      const fy = rm.slide ? rm.slide.fy : 0;
+      const from = rm.slide ? { x0: to.x0 + fx, z0: to.z0 + fz,
+                                w: rm.slide.w || to.w, d: rm.slide.d || to.d } : to;
+      const sx = 1 + k * (from.w / to.w - 1), sz = 1 + k * (from.d / to.d - 1);
+      const ox = to.x0 + k * (from.x0 - to.x0), oz = to.z0 + k * (from.z0 - to.z0);
+      const y0 = levelY(rm.lev) + k * fy;
+      const mine = seeThru && seeThru === `${rm.lev},${rm.slot[0]},${rm.slot[1]}`;
+      for (const b of sh.wall) {
+        vS.set(ox + (b.p.x - to.x0) * sx, y0 + WALL_H / 2, oz + (b.p.z - to.z0) * sz);
+        sS.set(sx, 1, sz);
+        mS.compose(vS, qS.identity(), sS);
+        if (mine && ghost < 64) { ghostWall.setMatrixAt(ghost++, mS); mS.makeScale(0, 0, 0); }
+        wallMesh.setMatrixAt(b.i, mS);
+        touched = true;
+      }
+      for (const b of sh.win) {
+        vS.set(ox + (b.p.x - to.x0) * sx, y0, oz + (b.p.z - to.z0) * sz);
+        // the arch is turned, so its own axes take the scale the other way round
+        const flat = Math.abs(Math.sin(b.rot)) > 0.5;
+        sS.set(flat ? sz : sx, 1, flat ? sx : sz);
+        qS.setFromAxisAngle(yS, b.rot);
+        mS.compose(vS, qS, sS);
+        windowMesh.setMatrixAt(b.i, mS);
+        touchedWin = true;
+      }
+    }
+    if (touched) wallMesh.instanceMatrix.needsUpdate = true;
+    if (touchedWin && windowMesh) windowMesh.instanceMatrix.needsUpdate = true;
+    ghostWall.count = ghost;
+    ghostWall.instanceMatrix.needsUpdate = true;
+  };
+  window.__seeThru = (key) => { seeThru = key; };
 
   window.__props = { groups, propMeshes, chandelierRooms };
 
@@ -6055,11 +6166,25 @@ function fireBeat() {
   announce(beatNo % 2 === 1 ? 'THE COLUMNS' : 'THE ROWS', '#ffd27a', 2.0);
   say('the building went somewhere else, and took you with it', 3.4);
 }
+/* Which room's walls to see through: the one you are standing in, worked out
+   after the move so it is the room you have arrived with rather than the one
+   you set off from. */
+function markSeeThru() {
+  const [r, c] = cellOf(player.pos);
+  const i = SLOTS.rowOf(r), j = SLOTS.colOf(c);
+  window.__seeThru(i >= 0 && j >= 0 && !SLOTS.held.has(`${i},${j}`)
+    ? `${player.lev},${i},${j}` : null);
+}
 function updateShift(dt) {
   if (shiftT < 0) return;
   shiftT += dt;
+  markSeeThru();
   window.__slideRooms(shiftT / SHIFT_DUR);
-  if (shiftT >= SHIFT_DUR) shiftT = -1;
+  if (shiftT >= SHIFT_DUR) {
+    shiftT = -1;
+    window.__seeThru(null);
+    window.__slideRooms(1);        // once more with nothing held back or hidden
+  }
 }
 
 // Caught in the corridor. Not shot — unmade, and put back at the centre.
