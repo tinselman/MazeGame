@@ -118,6 +118,20 @@
     opacity: 0; transition: opacity .6s; pointer-events: none;
   }
   #hudclockwrap.on { opacity: .92; }
+  /* how long until the building rearranges itself */
+  #beatwrap {
+    position: absolute; left: 50%; top: 20px; transform: translateX(-50%);
+    display: flex; align-items: baseline; gap: 9px;
+    padding: 5px 14px; border-radius: 14px;
+    background: rgba(12,15,20,.5); border: 1px solid rgba(255,255,255,.09);
+    opacity: .55; transition: opacity .3s linear, border-color .3s linear;
+  }
+  #beatwrap .lbl { font-size: 9px; letter-spacing: .2em; text-transform: uppercase; opacity: .6; }
+  #beatwrap #beat { font-size: 15px; font-weight: 600; letter-spacing: .06em; }
+  #beatwrap.warn { opacity: 1; border-color: rgba(255,196,90,.5); color: #ffd27a; }
+  #beatwrap.warn #beat { animation: beatpulse .5s ease-in-out infinite; }
+  #beatwrap.lava { border-color: rgba(255,80,50,.7); color: #ff7a5c; background: rgba(60,12,6,.6); }
+  @keyframes beatpulse { 0%,100% { opacity: 1 } 50% { opacity: .35 } }
   #hudclock { width: 118px; height: 32px; display: block; }
   /* detail, over the chart — the pointer has to be free to reach it, so press
      escape first. everything here is hidden while the pointer is captured. */
@@ -232,6 +246,7 @@
   <div id="hitflash"></div>
   <div id="swoosh"></div>
   <div id="hudclockwrap"><canvas id="hudclock"></canvas></div>
+  <div id="beatwrap"><span class="lbl">the building moves in</span><span id="beat">2m</span></div>
   <div id="gunhud"></div>
   <canvas id="powers"></canvas>
   <div id="powertip"><b></b><span></span></div>
@@ -1089,7 +1104,7 @@ function sideMesh(sides, material) {
   return mesh;
 }
 
-const floorQuads = [], hubFloorQuads = [], ceilQuads = [], slabQuads = [], waterQuads = [];
+const floorQuads = [], hubFloorQuads = [], ceilQuads = [], slabQuads = [], waterQuads = [], hallQuads = [];
 const fasciaSides = [], hubFasciaSides = [];
 /* Every floor cell is a solid volume — top, bottom and four sides — rather than
    two unconnected planes. Faces buried between neighbouring cells are culled,
@@ -1100,6 +1115,14 @@ const fasciaSides = [], hubFasciaSides = [];
    from the side they happen to face: the stairwell had its ceiling suppressed
    but kept its floor, so the hole existed climbing up and vanished looking
    back down. A closed volume has no such preferred direction. */
+/* Somewhere the corridor cannot reach you. An atrium is walkable at the bottom
+   and cut clean through every storey above, which no room and no corridor is —
+   so that one test names all four of them without a list to keep in step. */
+function isSanctuary(l, r, c) {
+  if (l !== 0 || at(0, r, c) !== '.') return false;
+  for (let k = 1; k < NLEV; k++) if (at(k, r, c) !== VOID) return false;
+  return true;
+}
 const isUpperStair = (l, r, c) => at(l, r, c) === '/' && at(l - 1, r, c) === '/';
 // A stairwell is a genuine hole punched through the upper floor: no slab at all,
 // which is what lets the rim be capped like every other edge.
@@ -1110,7 +1133,17 @@ for (let l = 0; l < NLEV; l++) for (let r = 0; r < ROWS; r++) for (let c = 0; c 
   const ch = at(l, r, c);
 
   if (isWalkableChar(ch)) {                            // top: the walking surface
-    (inHub(l, r, c) ? hubFloorQuads : floorQuads).push([r, c, levelY(l), true]);
+    /* The corridor gets a floor of its own. Every two minutes it is going to
+       turn yellow and then red, and being stood on it when it goes red is
+       fatal — so it has to be a surface the game can light on its own, which
+       means its own mesh and its own material.
+
+       An atrium is floored with corridor and is NOT corridor: it is one of the
+       places you run TO. It is the only three-storey hole that is walkable at
+       the bottom, so that is how it is told apart. */
+    const hall = ch === '.' && !isSanctuary(l, r, c);
+    (inHub(l, r, c) ? hubFloorQuads : hall ? hallQuads : floorQuads)
+      .push([r, c, levelY(l), true]);
     if (ch === '~') waterQuads.push([r, c, levelY(l) + WATER_Y, true]);
   }
   if (l > 0) slabQuads.push([r, c, levelY(l) - SLAB, false]);   // bottom: the ceiling below
@@ -1145,6 +1178,12 @@ for (let r = HUB.r1; r <= HUB.r2; r++) for (let c = HUB.c1; c <= HUB.c2; c++) {
   }
 }
 const floorMeshRef = quadMesh(floorQuads, matFloor);
+/* The corridor floor, on its own material so it can be made to glow. Same grey
+   as the rest until the clock starts running out. */
+const matHall = new THREE.MeshPhongMaterial({ color: 0x9a9a9a, specular: 0x141414,
+  shininess: 6, map: texFloor, emissive: new THREE.Color(0x000000) });
+const hallMeshRef = quadMesh(hallQuads, matHall);
+scene.add(hallMeshRef);
 const ceilMeshRef  = quadMesh(ceilQuads, matCeil);
 scene.add(floorMeshRef);
 scene.add(ceilMeshRef);
@@ -4750,6 +4789,8 @@ const el = {
   swoosh: document.getElementById('swoosh'),
   crosshair: document.getElementById('crosshair'),
   hudclockwrap: document.getElementById('hudclockwrap'),
+  beatwrap: document.getElementById('beatwrap'),
+  beat: document.getElementById('beat'),
   gunhud: document.getElementById('gunhud'),
   powers: document.getElementById('powers'),
   cloak: document.getElementById('cloak'),
@@ -5340,6 +5381,85 @@ for (let i = 0; i < MAX_ANTI; i++) {
 }
 
 let clockT = ANTI_PERIOD, antiOn = true, hitFlash = 0, caughtT = 0;
+
+/* ---- the beat ------------------------------------------------------------
+   The building rearranges itself every two minutes, and it does not care where
+   you are standing when it does. Fifteen seconds out the corridor floor starts
+   to glow, and it goes on getting hotter until the beat lands, at which point
+   the corridor is lava and anyone still in it is gone.
+
+   Rooms are safe. So are the atriums and the hub — the four three-storey holes
+   and the middle are the places the building leaves alone, which is what makes
+   running for one a decision rather than a formality. */
+const BEAT_PERIOD = 120;          // two minutes
+const BEAT_WARN = 15;             // when the corridor starts to warn you
+const BEAT_LAVA = 0.9;            // the last moment, when it is already too late
+let beatT = BEAT_PERIOD;
+let beatNo = 0;                   // even beats slide the columns, odd ones the rows
+let lavaGlow = 0;                 // 0 cold, 1 lava — drives the corridor's emissive
+
+// Where you are standing, and whether the corridor can have you.
+function inSanctuary() {
+  const [r, c] = cellOf(player.pos);
+  const l = player.lev;
+  if (inHub(l, r, c)) return true;
+  const ch = at(l, r, c);
+  if (ch !== '.') return isWalkableChar(ch);      // a room floor, water, a door
+  return isSanctuary(0, r, c);                    // an atrium plaza
+}
+
+/* The corridor heating up. Yellow while there is still time to move, and then
+   over the last moment into a red that is plainly not a warning any more. */
+function updateBeat(dt) {
+  if (ending || !started) return;
+  beatT -= dt;
+  const warn = beatT <= BEAT_WARN ? 1 - Math.max(0, beatT) / BEAT_WARN : 0;
+  if (beatT <= 0) { beatT = BEAT_PERIOD; beatNo++; fireBeat(); }
+  // it throbs, and the throb quickens as the beat approaches
+  const pulse = 0.5 + 0.5 * Math.sin(clock.elapsedTime * (5 + warn * 14));
+  const heat = warn * warn;                        // slow to start, then quickly
+  lavaGlow = heat * (0.55 + 0.45 * pulse);
+  const lava = beatT <= BEAT_LAVA || lavaFlash > 0;
+  const g = Math.max(lavaGlow, lavaFlash);
+  matHall.emissive.setRGB(g * (lava ? 0.95 : 0.62), g * (lava ? 0.07 : 0.44), g * 0.04);
+  if (lavaFlash > 0) lavaFlash = Math.max(0, lavaFlash - dt * 1.7);
+  el.beat.textContent = beatT > 60
+    ? `${Math.ceil(beatT / 60)}m` : `${Math.ceil(beatT)}`;
+  el.beatwrap.classList.toggle('warn', beatT <= BEAT_WARN);
+  el.beatwrap.classList.toggle('lava', beatT <= BEAT_LAVA);
+}
+let lavaFlash = 0;
+
+/* The beat lands. The rearrangement itself is the next piece of work; what is
+   already true is that the corridor kills, which is the half of it you have to
+   feel before any of the rest is worth building. */
+function fireBeat() {
+  lavaFlash = 1;
+  sfx.warp();
+  if (!inSanctuary()) return disintegrate();
+  announce(beatNo % 2 ? 'THE ROWS' : 'THE COLUMNS', '#ffd27a', 2.2);
+}
+
+// Caught in the corridor. Not shot — unmade, and put back at the centre.
+function disintegrate() {
+  hitFlash = 1;
+  caughtT = 1.4;
+  if (player.carrying) {
+    const c = player.carrying;
+    c.taken = false; c.mesh.visible = true; c.emitter.on = true;
+    player.carrying = null;
+    carriedMesh.visible = false; carriedEmitter.on = false;
+    el.carried.classList.remove('on');
+  }
+  /* Everything. Being shot demotes you to a loaded pistol; the corridor leaves
+     you the pistol and nothing to put in it — there is no unarmed state in this
+     game, and an empty gun says it better than a missing one would. */
+  gunState.tier = 1; gunState.ammo = 0; gunState.charge = 0;
+  rebuildReveal();
+  beginSwoosh();
+  announce('CAUGHT IN THE OPEN', '#ff4a35', 5.4);
+  say('the corridor took you. nothing you were carrying came back', 6);
+}
 drawClockFace(ANTI_PERIOD);        // 4:00 before you have taken a step
 
 /* Sight, as opposed to walking. `isSolid` treats a void as solid because you
@@ -7904,7 +8024,7 @@ function frame(dt) {
   }
   const sdt = slowT > 0 ? dt * SLOW_SCALE : dt;
 
-  if (started) { updateAntis(dt, sdt); updateGuns(dt); updatePowers(dt); }
+  if (started) { updateBeat(dt); updateAntis(dt, sdt); updateGuns(dt); updatePowers(dt); }
   updateTracers(sdt);
   updateChunks(sdt);
   updateShards(sdt);
@@ -7950,6 +8070,13 @@ window.__maze = {
   grantAll() { while (held.length < POWERS.length) grantPower(); },
   clock: () => clockT,
   setClock(s) { clockT = s; clockShown = -1; },
+  // the building's own clock, and a way to stand in front of it
+  get beatT() { return beatT; },
+  get beatNo() { return beatNo; },
+  get lavaGlow() { return matHall.emissive.getHex(); },
+  setBeat(s) { beatT = s; },
+  fireBeat() { beatT = BEAT_PERIOD; beatNo++; fireBeat(); },
+  inSanctuary,
   antiOff() { antiOn = false; for (const a of antis) if (a.live) retireAnti(a); },
   // Drives real frames, not updateEnding alone — the platform rise is applied
   // in frame(), so stepping the ending by hand never lifted the camera.
