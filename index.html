@@ -2498,10 +2498,16 @@ const furniture = [];
   })();
   const consoleKeys = new Set(CONSOLE_SLOTS.map((x) => x.join(',')));
   // the far corner from the light switch, which lives at the near one
-  const consoleSpot = (R) => ({
-    x: (R.c2 - 0.1) * CELL, z: (R.r2 - 0.1) * CELL,
-  });
-  const CONSOLE_CLEAR = 1.5;            // nothing of the room's own inside this
+  /* Where the arrows are, so the furnishing can leave the ground in front of
+     them clear. They live on the north and west walls, so the strip you stand
+     in to press one runs along each of those. */
+  const consoleWalls = (R) => [
+    { z: R.r1 * CELL, x0: (R.c1 + (R.c2 - R.c1 + 1) / 2) * CELL - 2.6,
+                      x1: (R.c1 + (R.c2 - R.c1 + 1) / 2) * CELL + 2.6 },
+    { x: R.c1 * CELL, z0: (R.r1 + (R.r2 - R.r1 + 1) / 2) * CELL - 1.6,
+                      z1: (R.r1 + (R.r2 - R.r1 + 1) / 2) * CELL + 1.6 },
+  ];
+  const CONSOLE_CLEAR = 1.35;           // how far out from the wall to keep clear
 
   let layingOut = null;
   /* True only while the headroom pass is laying every kind of room out in
@@ -2509,11 +2515,12 @@ const furniture = [];
      the two cannot be told apart by that alone — and telling them apart is
      the difference between the screens surviving a move and vanishing. */
   let probing = false;
-  let clearOf = null;                   // a console's keep-clear, while laying out
+  let clearOf = null;                   // the arrow walls, while laying out
   const place = (kind, x, y, z, rot = 0, tone = 0x8f8f8f, scale = 1) => {
-    if (clearOf) {
-      const dx = x - clearOf.x, dz = z - clearOf.z;
-      if (dx * dx + dz * dz < CONSOLE_CLEAR * CONSOLE_CLEAR) return;
+    if (clearOf) for (const w of clearOf) {
+      if (w.z !== undefined) {
+        if (z - w.z < CONSOLE_CLEAR && z >= w.z - 0.4 && x > w.x0 && x < w.x1) return;
+      } else if (x - w.x < CONSOLE_CLEAR && x >= w.x - 0.4 && z > w.z0 && z < w.z1) return;
     }
     if (!groups.has(kind)) groups.set(kind, []);
     groups.get(kind).push({ p: new THREE.Vector3(x, y, z), rot, tone, scale, room: layingOut });
@@ -2581,7 +2588,7 @@ const furniture = [];
   function furnish(rm, layoutOnly) {
     layingOut = rm.home || rm;            // the room, wherever it is standing now
     const slotKey = `${SLOTS.rowOf(rm.r1)},${SLOTS.colOf(rm.c1)}`;
-    clearOf = consoleKeys.has(slotKey) ? consoleSpot(rm) : null;
+    clearOf = consoleKeys.has(slotKey) ? consoleWalls(rm) : null;
     const y = levelY(rm.lev);
     const x0 = (rm.c1) * CELL, x1 = (rm.c2 + 1) * CELL;
     const z0 = (rm.r1) * CELL, z1 = (rm.r2 + 1) * CELL;
@@ -3435,57 +3442,87 @@ const furniture = [];
      the same reason. It is part of the building, and a control that travelled
      with the furniture would be a control you could not find twice.
 
-     The direction comes from where you are looking rather than from six things
-     to aim at, because six targets inside arm's reach of each other is six ways
-     to press the wrong one. The arrows are there to say what is possible; the
-     one you are facing lights, so the answer is legible before you commit. */
+     Two walls carry them. The north wall's pair moves the rank running
+     east-west along it — the row of rooms you are standing in — and the west
+     wall's pair moves the file running north-south. Left and right mean what
+     they mean when you are facing that wall, so the arrow points the way the
+     rooms will go. Beside the north pair is one more, for taking every storey
+     up a floor; the top wraps round to the bottom.
+
+     Each arrow is its own thing to walk up to and press. Where two are within
+     reach at once the one you are LOOKING at wins, because standing between a
+     left and a right and getting the coin-toss is the one outcome a control
+     like this must never have. */
   {
-    const ARROW = (() => {
-      const g = new THREE.CylinderGeometry(0, 0.115, 0.2, 3);
+    const plate = new THREE.BoxGeometry(0.42, 0.42, 0.05);
+    const head = (() => {
+      const g = new THREE.CylinderGeometry(0, 0.14, 0.17, 3);
       g.rotateX(Math.PI / 2);
       return g;
     })();
-    const matBody = new THREE.MeshPhongMaterial({ color: 0x8d8d8d, specular: 0x181818, shininess: 26 });
-    // the one exception a console makes to colour-from-light: it has to read as
-    // live at a glance, in a corridor-dark room, or nobody will ever press it
-    const matArrow = new THREE.MeshPhongMaterial({ color: 0x7f7f7f, emissive: 0x1b2b3a, emissiveIntensity: 1 });
-    const DIRS = [
-      { key: 'N', v: [0, 0, -1], yaw: 0 },
-      { key: 'S', v: [0, 0, 1], yaw: Math.PI },
-      { key: 'W', v: [-1, 0, 0], yaw: Math.PI / 2 },
-      { key: 'E', v: [1, 0, 0], yaw: -Math.PI / 2 },
-      { key: 'U', v: [0, 1, 0], yaw: 0 },
-      { key: 'D', v: [0, -1, 0], yaw: 0 },
-    ];
-    /* Eight slots a floor, spread so you are never far from one. Taken in a
-       fixed order off the movable list rather than scattered, so the same eight
-       places hold a console on every storey and you learn where they are. */
-    const pick = CONSOLE_SLOTS;
-    for (let lev = 0; lev < NLEV; lev++) for (const [i, j] of pick) {
+    const matPlate = new THREE.MeshPhongMaterial({ color: 0x7d7d7d, specular: 0x1a1a1a, shininess: 30 });
+    // the one exception these make to colour-from-light: an unlit control in a
+    // dark room is a control nobody ever finds
+    const matGlyph = new THREE.MeshPhongMaterial({ color: 0x8a8a8a, emissive: 0x24384a, emissiveIntensity: 1 });
+
+    const EYE_H = 1.45;
+    for (let lev = 0; lev < NLEV; lev++) for (const [i, j] of CONSOLE_SLOTS) {
       if (SLOTS.vault[lev].has(`${i},${j}`)) continue;      // not in a sealed vault
       const R = SLOTS.rect(i, j);
-      const spot = consoleSpot(R);
-      const px2 = spot.x, pz2 = spot.z;
-      const y = levelY(lev);
-      const g = new THREE.Group();
-      g.position.set(px2, y, pz2);
-      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.1, 1.0, 8), matBody);
-      post.position.y = 0.5;
-      const head = new THREE.Mesh(new THREE.SphereGeometry(0.19, 12, 9), matBody);
-      head.position.y = 1.06;
-      g.add(post, head);
-      const arrows = {};
-      for (const d of DIRS) {
-        const m = new THREE.Mesh(ARROW, matArrow.clone());
-        m.position.set(d.v[0] * 0.3, 1.06 + d.v[1] * 0.3, d.v[2] * 0.3);
-        if (d.v[1] > 0) m.rotation.x = -Math.PI / 2;
-        else if (d.v[1] < 0) m.rotation.x = Math.PI / 2;
-        else m.rotation.y = d.yaw;
-        g.add(m); arrows[d.key] = m;
+      const y = levelY(lev) + EYE_H;
+      const midX = (R.c1 + (R.c2 - R.c1 + 1) / 2) * CELL;
+      const midZ = (R.r1 + (R.r2 - R.r1 + 1) / 2) * CELL;
+      const zN = R.r1 * CELL + 0.1;                 // inside face of the north wall
+      const xW = R.c1 * CELL + 0.1;                 // inside face of the west wall
+      /* A plate has to have masonry behind it. The wall ring is broken by
+         doorways and by the arcade of windows, and the first version put the
+         arrows wherever the arithmetic said — which for some rooms was hanging
+         in the middle of an opening with the corridor showing through. So each
+         one is walked along its wall until it finds a cell that is solid. */
+      const solidOn = (wall, want, from) => {
+        for (let d = 0; d < 9; d++) for (const sgn of [1, -1]) {
+          const t = from + sgn * d;
+          if (wall === 'N' ? at(lev, R.r1 - 1, t) === '#' : at(lev, t, R.c1 - 1) === '#') return t;
+        }
+        return want;
+      };
+      const cN = (t) => (t + 0.5) * CELL, cW = (t) => (t + 0.5) * CELL;
+      const midC = Math.round((R.c1 + R.c2) / 2), midR = Math.round((R.r1 + R.r2) / 2);
+      const nL = solidOn('N', midC - 1, midC - 1), nR = solidOn('N', midC + 1, midC + 1);
+      const nU = solidOn('N', midC + 3, midC + 3);
+      const wS = solidOn('W', midR + 1, midR + 1), wN = solidOn('W', midR - 1, midR - 1);
+      const set = [];
+      // north wall: the rank along it, and the way up
+      set.push({ key: 'W', at: [cN(nL), y, zN], yaw: 0, lane: 'rank', dir: -1 });
+      set.push({ key: 'E', at: [cN(nR), y, zN], yaw: 0, lane: 'rank', dir: 1 });
+      set.push({ key: 'U', at: [cN(nU), y, zN], yaw: 0, lane: 'up', dir: 1 });
+      // west wall: the file along it
+      set.push({ key: 'S', at: [xW, y, cW(wS)], yaw: Math.PI / 2, lane: 'file', dir: 1 });
+      set.push({ key: 'N', at: [xW, y, cW(wN)], yaw: Math.PI / 2, lane: 'file', dir: -1 });
+
+      for (const a of set) {
+        const g = new THREE.Group();
+        g.position.set(a.at[0], a.at[1], a.at[2]);
+        g.rotation.y = a.yaw;
+        const p = new THREE.Mesh(plate, matPlate);
+        g.add(p);
+        const h = new THREE.Mesh(head, matGlyph.clone());
+        h.position.z = 0.1;
+        /* The glyph points where the rooms will go. The cone is built pointing
+           out of the plate, so turning it about Y lays it flat and aims it
+           along the wall — turning it about Z, which is what this did first,
+           spins it on its own axis and leaves it pointing at your face.
+
+           E and N are to the right as you stand at their wall, W and S to the
+           left, which is why the pairs are mirrored rather than matched. */
+        if (a.key === 'U') h.rotation.x = -Math.PI / 2;
+        else h.rotation.y = (a.key === 'E' || a.key === 'N') ? Math.PI / 2 : -Math.PI / 2;
+        g.add(h);
+        scene.add(g);
+        props.consoles.push({ lev, slot: [i, j], key: a.key, lane: a.lane, dir: a.dir,
+                              glyph: h, group: g,
+                              pos: new THREE.Vector3(a.at[0], a.at[1], a.at[2]) });
       }
-      scene.add(g);
-      props.consoles.push({ lev, slot: [i, j], group: g, arrows,
-                            pos: new THREE.Vector3(px2, y + 1.06, pz2) });
     }
   }
 
@@ -5360,7 +5397,23 @@ function nearestTarget() {
     for (const e of s.extras || []) consider({ ...s, pos: e.pos }, e.pos, 'switch');
   }
   for (const b of props.buttons) consider(b, b.pos, 'button');   // toggles, so always offered
-  for (const k of props.consoles) consider(k, k.pos, 'console');
+  /* Arrows are chosen by aim, not by distance. A left and a right a metre and
+     a half apart are both within reach from between them, and picking the
+     nearer would make the answer depend on where your feet happened to be. */
+  {
+    const fwd = new THREE.Vector3(-Math.sin(player.yaw), 0, -Math.cos(player.yaw));
+    const to = new THREE.Vector3();
+    let pick = null, pickScore = 0.25;
+    for (const k of props.consoles) {
+      if (k.lev !== player.lev) continue;
+      to.copy(k.pos).sub(player.pos); to.y = 0;
+      const d = to.length();
+      if (d > REACH) continue;
+      const score = to.normalize().dot(fwd) - d * 0.05;
+      if (score > pickScore) { pickScore = score; pick = k; }
+    }
+    if (pick) { bestD = 0; best = { obj: pick, kind: 'console' }; }
+  }
   for (const v of vendors) if (!v.awake) consider(v, v.pos, 'vendor');
   for (const c of props.crystals) if (!c.taken) consider(c, c.pos, 'crystal');
   for (const c of props.crystals) {
@@ -5389,17 +5442,13 @@ function interact() {
 
   if (t.kind === 'console') {
     if (shiftT >= 0) { sfx.click(); say('it is already moving'); return; }
-    const d = facing(), k = t.obj;
-    const ride = d === 'U' || d === 'D'
-      ? ridePlan(floorPlan(d === 'U' ? 1 : -1))
-      : ridePlan(lanePlan(player.lev, (d === 'N' || d === 'S') ? 'r' : 'c',
-                          (d === 'N' || d === 'S') ? k.slot[1] : k.slot[0],
-                          (d === 'S' || d === 'E') ? 1 : -1));
-    window.__applyPlan(d === 'U' || d === 'D'
-      ? floorPlan(d === 'U' ? 1 : -1)
-      : lanePlan(player.lev, (d === 'N' || d === 'S') ? 'r' : 'c',
-                 (d === 'N' || d === 'S') ? k.slot[1] : k.slot[0],
-                 (d === 'S' || d === 'E') ? 1 : -1));
+    const k = t.obj, d = k.key;
+    // the file runs north-south and is indexed by column; the rank by row
+    const plan = () => k.lane === 'up' ? floorPlan(1)
+      : lanePlan(player.lev, k.lane === 'file' ? 'r' : 'c',
+                 k.lane === 'file' ? k.slot[1] : k.slot[0], k.dir);
+    const ride = ridePlan(plan());
+    window.__applyPlan(plan());
     if (ride) {
       player.pos.set(ride.x, EYE, ride.z);
       player.lev = ride.lev;
@@ -5410,7 +5459,7 @@ function interact() {
     sfx.warp();
     say({ N: 'this file of rooms goes north', S: 'this file of rooms goes south',
           W: 'this rank of rooms goes west', E: 'this rank of rooms goes east',
-          U: 'every storey rises one', D: 'every storey drops one' }[d], 3);
+          U: 'every storey rises one' }[d], 3);
     return;
   }
 
@@ -8476,20 +8525,17 @@ function frame(dt) {
     /* The arrow you are asking for, lit. Only on the console within reach —
        every other one in the building stays cold, or the whole floor would look
        like it was about to do something. */
-    {
-      const near = t2Console();
-      const want = near ? facing() : null;
-      for (const k of props.consoles) for (const key of Object.keys(k.arrows)) {
-        const lit = k === near && key === want;
-        k.arrows[key].material.emissive.setHex(lit ? 0x2f7fd0 : 0x1b2b3a);
-      }
-    }
     const t2 = nearestTarget();
+    {
+      const on = t2 && t2.kind === 'console' ? t2.obj : null;
+      for (const k of props.consoles)
+        k.glyph.material.emissive.setHex(k === on ? 0x3d92e8 : 0x24384a);
+    }
     if (t2) {
       const verb = t2.kind === 'console'
           ? { N: 'send this file of rooms north', S: 'send this file of rooms south',
               W: 'send this rank of rooms west', E: 'send this rank of rooms east',
-              U: 'raise every storey', D: 'lower every storey' }[facing()]
+              U: 'raise every storey' }[t2.obj.key]
         : t2.kind === 'switch' ? 'turn on the lights'
         : t2.kind === 'button'
           ? (props.doors.find((d) => d.id === t2.obj.id)?.open ? 'close the gate' : 'open the gate')
