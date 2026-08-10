@@ -2437,9 +2437,13 @@ const furniture = [];
 {
   const groups = new Map();      // kind -> [{p, rot, tone, scale}]
   const screens = [];
+  /* Which room is being laid out. Every piece of furniture is stamped with it,
+     because when the building moves it is rooms that move — and a heap of
+     instances with no idea which room they belong to cannot be moved at all. */
+  let layingOut = null;
   const place = (kind, x, y, z, rot = 0, tone = 0x8f8f8f, scale = 1) => {
     if (!groups.has(kind)) groups.set(kind, []);
-    groups.get(kind).push({ p: new THREE.Vector3(x, y, z), rot, tone, scale });
+    groups.get(kind).push({ p: new THREE.Vector3(x, y, z), rot, tone, scale, room: layingOut });
   };
   // deterministic jitter, so a room looks scattered but identical every play
   const wobble = (r, c, n) => ((Math.sin(r * 12.9898 + c * 78.233 + n * 3.77) * 43758.5453) % 1 + 1) % 1;
@@ -2501,7 +2505,8 @@ const furniture = [];
     }
   }
 
-  function furnish(rm) {
+  function furnish(rm, layoutOnly) {
+    layingOut = rm.home || rm;            // the room, wherever it is standing now
     const y = levelY(rm.lev);
     const x0 = (rm.c1) * CELL, x1 = (rm.c2 + 1) * CELL;
     const z0 = (rm.r1) * CELL, z1 = (rm.r2 + 1) * CELL;
@@ -2688,6 +2693,7 @@ const furniture = [];
        settled here, at the end, from what the type asks for adjusted by what
        the room was told — which is also what lets you hang a chandelier in a
        warehouse, a thing no branch above would ever do. */
+    if (layoutOnly) return;               // fittings belong to the slot, not the room
     const want = new Set(FITTINGS[t] || []);
     for (const k of (rm.items && rm.items.remove) || []) want.delete(k);
     for (const k of (rm.items && rm.items.add) || []) if (FITTING_KINDS.has(k)) want.add(k);
@@ -2801,11 +2807,46 @@ const furniture = [];
   const propMeshes = [];
   const m4 = new THREE.Matrix4(), q4 = new THREE.Quaternion(), yA = new THREE.Vector3(0, 1, 0);
   const col = new THREE.Color(), sc = new THREE.Vector3();
+
+  /* Room enough for the building to move.
+
+     A room's furniture is laid out to the room it is standing in, so a gallery
+     that slides from a four-cell slot into a fourteen-cell one needs a great
+     many more plinths than it arrived with. The instanced meshes are allocated
+     once and cannot grow, so they are sized for the worst case now: for every
+     slot, the most of each kind that any room could ever put in it.
+
+     Worked out by actually laying every kind of room out in every slot rather
+     than by guessing a factor — a hundred and eighty layouts, all of them pure
+     arithmetic, and the answer is then true rather than probably true. */
+  const HEADROOM = (() => {
+    const cap = new Map();
+    const kinds = [...groups.keys()];
+    const types = [...new Set(ROOM_META.map((m) => m.type))];
+    const keep = new Map([...groups].map(([k, l]) => [k, l]));
+    for (const [i, j] of SLOTS.movable) {
+      const rect = SLOTS.rect(i, j);
+      const best = new Map();
+      for (const t of types) {
+        groups.clear();
+        furnish({ ...rect, lev: 0, type: t }, true);
+        for (const [k, l] of groups) best.set(k, Math.max(best.get(k) || 0, l.length));
+      }
+      for (const [k, n] of best) cap.set(k, (cap.get(k) || 0) + n);
+    }
+    groups.clear();
+    for (const [k, l] of keep) groups.set(k, l);
+    for (const k of kinds) if (!cap.has(k)) cap.set(k, (groups.get(k) || []).length);
+    return cap;
+  })();
+
   for (const [kind, list] of groups) {
     const geo = MODELS[kind];
     if (!geo || !list.length) continue;
     const glassy = kind === 'vitrineGlass';
-    const mesh = new THREE.InstancedMesh(geo, glassy ? matGlass : matProp, list.length);
+    const room = Math.max(list.length, HEADROOM.get(kind) || 0);
+    const mesh = new THREE.InstancedMesh(geo, glassy ? matGlass : matProp, room);
+    mesh.count = list.length;
     mesh.castShadow = mesh.receiveShadow = !glassy;
     list.forEach((it, i) => {
       q4.setFromAxisAngle(yA, it.rot);
@@ -2824,6 +2865,82 @@ const furniture = [];
     // so a blast can knock it over, and a bullet can find it
     furniture.push({ mesh, list, rad: Math.max(0.5, mesh.geometry.boundingSphere.radius * 0.72) });
   }
+
+  /* ---- the building moving ------------------------------------------------
+     Where every room's contents are standing. The walls are not in here and
+     never move: every slot in the ladder has the same shell on every floor, so
+     there is nothing to rebuild — what travels is the furniture, and what it
+     finds when it arrives is a room of a different size. A gallery that slides
+     from a four-cell slot into a fourteen-cell one lays itself out again and
+     comes up with three times the plinths. That is the "items appear" of it,
+     and it is not an effect layered on top: it is what laying a room out in a
+     bigger room actually does. */
+  const ROOMS = ROOM_META.map((m) => ({
+    type: m.type, items: m.items,
+    slot: [SLOTS.rowOf(m.r1), SLOTS.colOf(m.c1)], lev: m.lev,
+    slide: null,                        // {fx,fz,fy} it is still travelling from
+  }));
+
+  const writeProps = () => {
+    for (const pm of propMeshes) {
+      const list = groups.get(pm.userData.kind) || [];
+      const n = Math.min(list.length, pm.instanceMatrix.count);
+      for (let i = 0; i < n; i++) {
+        const it = list[i], off = it.room && it.room.slide;
+        q4.setFromAxisAngle(yA, it.rot);
+        sc.set(it.scale, 1, it.scale);
+        m4.compose(off ? tmpV.set(it.p.x + off.fx * off.k, it.p.y + off.fy * off.k,
+                                  it.p.z + off.fz * off.k) : it.p, q4, sc);
+        pm.setMatrixAt(i, m4);
+        pm.setColorAt(i, col.setHex(it.tone));
+      }
+      pm.count = n;
+      pm.instanceMatrix.needsUpdate = true;
+      if (pm.instanceColor) pm.instanceColor.needsUpdate = true;
+    }
+    // the blast and bullet code reads these lists; they must not go stale
+    for (const f of furniture) f.list = groups.get(f.mesh.userData.kind) || [];
+  };
+  const tmpV = new THREE.Vector3();
+
+  const relayout = () => {
+    groups.clear();
+    for (const rm of ROOMS) {
+      const rect = SLOTS.rect(rm.slot[0], rm.slot[1]);
+      furnish({ ...rect, lev: rm.lev, type: rm.type, items: rm.items, home: rm }, true);
+    }
+    writeProps();
+  };
+
+  /* One beat. Every room is sent to its new slot and its new floor at once —
+     the destinations all come from where things stood before, so there is no
+     order to get wrong and no room can arrive somewhere another has not left. */
+  window.__rearrange = (n) => {
+    const plan = beatPlan(n);
+    for (const rm of ROOMS) {
+      const d = plan.at(rm.lev, rm.slot.join(','));
+      if (!d) continue;                       // a vault, or a slot held still
+      const was = SLOTS.rect(rm.slot[0], rm.slot[1]), wasLev = rm.lev;
+      rm.slot = d; rm.lev = plan.floor(d.join(','), rm.lev);
+      const now = SLOTS.rect(d[0], d[1]);
+      // how far it has to travel, so the furniture can be seen doing it
+      rm.slide = { fx: (was.c1 - now.c1) * CELL, fz: (was.r1 - now.r1) * CELL,
+                   fy: levelY(wasLev) - levelY(rm.lev), k: 1 };
+    }
+    relayout();
+  };
+  /* The travelling itself. Everything is already where it is going and is being
+     held back by the distance it came, by a fraction that runs from all of it
+     to none of it. Nothing is animated toward anywhere: the destination is the
+     truth from the first frame, and the journey is a debt being paid off. */
+  window.__slideRooms = (u) => {
+    const t = Math.max(0, Math.min(1, u));
+    const held = 1 - (1 - (1 - t) * (1 - t) * (1 - t));   // ease out, cubic
+    for (const rm of ROOMS) if (rm.slide) rm.slide.k = t >= 1 ? 0 : held;
+    writeProps();
+    if (t >= 1) for (const rm of ROOMS) rm.slide = null;
+  };
+  window.__ROOMS = ROOMS;
 
   /* ---- the two chandelier rooms ------------------------------------------
      Two of the banquet halls are lit by chandelier rather than by strip light,
@@ -5614,11 +5731,39 @@ let lavaFlash = 0;
 /* The beat lands. The rearrangement itself is the next piece of work; what is
    already true is that the corridor kills, which is the half of it you have to
    feel before any of the rest is worth building. */
+/* The beat lands: the building rearranges, and you go with the room you are in.
+
+   The whole sequence is about two seconds. Everything is put where it is going
+   at once and then seen travelling there, which is why it can be quick without
+   being confusing — nothing is ever in an in-between state that the game has to
+   reason about, only drawn in one. */
+const SHIFT_DUR = 2.0;
+let shiftT = -1;
 function fireBeat() {
   lavaFlash = 1;
   sfx.warp();
   if (!inSanctuary()) return disintegrate();
-  announce(beatNo % 2 ? 'THE ROWS' : 'THE COLUMNS', '#ffd27a', 2.2);
+
+  // where you come out, worked out before anything moves
+  const ride = ridePlan(beatPlan(beatNo - 1));
+  window.__rearrange(beatNo - 1);
+  if (ride) {
+    player.pos.set(ride.x, EYE, ride.z);
+    player.lev = ride.lev;
+    player.vel.set(0, 0, 0);
+    player.falling = false;
+    rebuildReveal();
+  }
+  shiftT = 0;
+  window.__slideRooms(0);
+  announce(beatNo % 2 === 1 ? 'THE COLUMNS' : 'THE ROWS', '#ffd27a', 2.0);
+  say('the building went somewhere else, and took you with it', 3.4);
+}
+function updateShift(dt) {
+  if (shiftT < 0) return;
+  shiftT += dt;
+  window.__slideRooms(shiftT / SHIFT_DUR);
+  if (shiftT >= SHIFT_DUR) shiftT = -1;
 }
 
 // Caught in the corridor. Not shot — unmade, and put back at the centre.
@@ -8205,7 +8350,7 @@ function frame(dt) {
   }
   const sdt = slowT > 0 ? dt * SLOW_SCALE : dt;
 
-  if (started) { updateBeat(dt); updateAntis(dt, sdt); updateGuns(dt); updatePowers(dt); }
+  if (started) { updateBeat(dt); updateShift(dt); updateAntis(dt, sdt); updateGuns(dt); updatePowers(dt); }
   updateTracers(sdt);
   updateChunks(sdt);
   updateShards(sdt);
