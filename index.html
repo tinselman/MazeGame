@@ -1393,11 +1393,19 @@ for (let l = 0; l < NLEV; l++) for (let r = 0; r < ROWS; r++) for (let c = 0; c 
       : (inHub(l, r, c) ? hubFloorQuads : hall ? hallQuads : floorQuads)
         .push([r, c, levelY(l), true]));
     if (ch === '~') waterQuads.push([r, c, levelY(l) + WATER_Y, true]);
+    /* And its ceiling, which is the room's own and not the underside of the
+       floor above. Those two are the same plane — levelY(l)+WALL_H is exactly
+       levelY(l+1)-SLAB — so before this a room's ceiling belonged to the storey
+       over its head, and taking it along would have torn the floor out from
+       under whoever was standing up there. Now each room owns the lid of its
+       own box and can leave with it. */
+    if (mine) (roomFloorQuads[mine] = roomFloorQuads[mine] || [])
+      .push([r, c, levelY(l) + WALL_H, false]);
   }
   if (l > 0) {
-    const mine = roomSlab(l, r, c);
-    if (mine) (roomFloorQuads[mine] = roomFloorQuads[mine] || []).push([r, c, levelY(l) - SLAB, false]);
-    else slabQuads.push([r, c, levelY(l) - SLAB, false]);       // bottom: the ceiling below
+    /* The underside of this floor. If a room is below, that room's ceiling is
+       already on this plane and this would only z-fight with it. */
+    if (!roomSlab(l - 1, r, c)) slabQuads.push([r, c, levelY(l) - SLAB, false]);
   }
 
   // Sides, wherever the neighbour has no slab to butt against. One predicate
@@ -1418,7 +1426,8 @@ for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
   if (top < 0) continue;
   let covered = false;
   for (let l = top + 1; l < NLEV; l++) if (at(l, r, c) !== VOID) covered = true;
-  if (!covered) ceilQuads.push([r, c, levelY(NLEV - 1) + WALL_H, false]);
+  // a top-floor room has already roofed itself, above
+  if (!covered && !roomSlab(NLEV - 1, r, c)) ceilQuads.push([r, c, levelY(NLEV - 1) + WALL_H, false]);
 }
 
 // The hub floor is a lift: it climbs during the finale, so its skirt must be a
@@ -3003,8 +3012,8 @@ const furniture = [];
      comes up with three times the plinths. That is the "items appear" of it,
      and it is not an effect layered on top: it is what laying a room out in a
      bigger room actually does. */
-  const ROOMS = ROOM_META.map((m) => ({
-    type: m.type, items: m.items,
+  const ROOMS = ROOM_META.map((m, n) => ({
+    n, type: m.type, items: m.items,
     slot: [SLOTS.rowOf(m.r1), SLOTS.colOf(m.c1)], lev: m.lev,
     slide: null,                        // {fx,fz,fy} it is still travelling from
   }));
@@ -3016,7 +3025,15 @@ const furniture = [];
       for (let i = 0; i < n; i++) {
         const it = list[i], off = it.room && it.room.slide;
         q4.setFromAxisAngle(yA, it.rot);
-        sc.set(it.scale, 1, it.scale);
+        /* Coming into being, or going out of it. The journey runs k from 1 to
+           0, so `grew` runs 0 to 1 — a newcomer swells up out of the floor over
+           it, and something the room can no longer hold shrinks away over the
+           same stretch. A dying thing with no journey left is simply gone. */
+        const grew = off ? 1 - off.k : 1;
+        let f = it.scale;
+        if (it.born) f *= grew * grew;
+        else if (it.dying) f *= Math.max(0, 1 - grew) ** 2;
+        sc.set(f, it.born || it.dying ? f : 1, f);
         m4.compose(off ? tmpV.set(it.p.x + off.fx * off.k, it.p.y + off.fy * off.k,
                                   it.p.z + off.fz * off.k) : it.p, q4, sc);
         pm.setMatrixAt(i, m4);
@@ -3031,12 +3048,57 @@ const furniture = [];
   };
   const tmpV = new THREE.Vector3();
 
+  /* Laying a room out again in a slot of a different size means it wants more
+     of everything, or less. Rather than have the difference blink into being,
+     newcomers are grown from nothing and the departed are kept for the length
+     of the journey and shrunk away — so a room arriving somewhere larger
+     visibly fills up, and one arriving somewhere smaller visibly loses what
+     will not fit. */
+  const tally = (g) => {
+    const t = new Map();
+    for (const [kind, list] of g) for (const it of list) {
+      if (!it.room || it.dying) continue;
+      const k = `${it.room.n}|${kind}`;
+      t.set(k, (t.get(k) || 0) + 1);
+    }
+    return t;
+  };
+  /* The first pass is not a change. Everything the building starts with was
+     laid out against the ROOM_META entries rather than these, so nothing
+     matches and every stick of furniture would come swelling out of the floor
+     the moment the game began. */
+  let settled = false;
   const relayout = () => {
+    const was = settled ? tally(groups) : null;
+    const old = new Map([...groups].map(([k, l]) => [k, l.filter((it) => it.room && !it.dying)]));
+
     groups.clear();
     screens.length = 0;
     for (const rm of ROOMS) {
       const rect = SLOTS.rect(rm.slot[0], rm.slot[1]);
       furnish({ ...rect, lev: rm.lev, type: rm.type, items: rm.items, home: rm }, true);
+    }
+    const now = tally(groups);
+    if (!settled) { settled = true; writeProps(); if (window.__writeScreens) window.__writeScreens(); return; }
+    // anything past what the room used to hold has just come into being
+    {
+      const seen = new Map();
+      for (const [kind, list] of groups) for (const it of list) {
+        if (!it.room) continue;
+        const k = `${it.room.n}|${kind}`;
+        const n = (seen.get(k) || 0) + 1; seen.set(k, n);
+        if (n > (was.get(k) || 0)) it.born = true;
+      }
+    }
+    // and anything the room can no longer hold is kept a moment and let go
+    for (const [kind, list] of old) {
+      const seen = new Map(), keep = groups.get(kind);
+      if (!keep) continue;
+      for (const it of list) {
+        const k = `${it.room.n}|${kind}`;
+        const n = (seen.get(k) || 0) + 1; seen.set(k, n);
+        if (n > (now.get(k) || 0)) { it.dying = true; keep.push(it); }
+      }
     }
     writeProps();
     if (window.__writeScreens) window.__writeScreens();
@@ -3064,6 +3126,7 @@ const furniture = [];
     }
     relayout();
   };
+  relayout();                            // stamp everything with its room, once
   window.__rearrange = (n) => applyPlan(beatPlan(n));
   window.__applyPlan = applyPlan;
   /* The travelling itself. Everything is already where it is going and is being
@@ -3081,7 +3144,15 @@ const furniture = [];
        where it was built. There is no separate restore because there does not
        need to be one. */
     if (window.__writeShells) window.__writeShells();
-    if (t >= 1) for (const rm of ROOMS) rm.slide = null;
+    if (t >= 1) {
+      for (const rm of ROOMS) rm.slide = null;
+      // the departed have finished departing
+      for (const [, list] of groups) {
+        for (let i = list.length - 1; i >= 0; i--) if (list[i].dying) list.splice(i, 1);
+        for (const it of list) it.born = false;
+      }
+      writeProps();
+    }
   };
   window.__ROOMS = ROOMS;
 
@@ -6239,11 +6310,20 @@ function updateShift(dt) {
   if (shiftT < 0) return;
   shiftT += dt;
   markSeeThru();
-  window.__slideRooms(shiftT / SHIFT_DUR);
+  const u = shiftT / SHIFT_DUR;
+  window.__slideRooms(u);
+  /* A little of the streaking the hub uses when it drags you home — the same
+     radial pull, at about a fifth of it. Enough to say the world is moving
+     past you, not enough to be the thing you are looking at. */
+  const streak = Math.sin(Math.min(1, u) * Math.PI);
+  el.swoosh.style.opacity = String(streak * 0.22);
+  el.swoosh.style.transform = `scale(${1 + streak * 0.10})`;
   if (shiftT >= SHIFT_DUR) {
     shiftT = -1;
     window.__seeThru(null);
     window.__slideRooms(1);        // once more with nothing held back or hidden
+    el.swoosh.style.opacity = '0';
+    el.swoosh.style.transform = 'scale(1)';
   }
 }
 
