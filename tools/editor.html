@@ -21,6 +21,12 @@
   .btn.go{background:#2b6b45;border-color:#3d8f5e;color:#eaf6ee;font-weight:600}
   .btn.go:hover{background:#347c51}
   .btn.go.armed{background:#3d8f5e}
+  #which{position:fixed;inset:0;z-index:40;background:rgba(8,10,14,.78);
+    display:flex;align-items:center;justify-content:center}
+  #which .card{width:430px;background:var(--panel);border:1px solid var(--line);
+    border-radius:9px;padding:18px 20px}
+  #which h3{margin:0 0 9px;font-size:13px;letter-spacing:.04em}
+  #which p{margin:8px 0;line-height:1.5}
   code.cmd{display:block;background:#10151d;border:1px solid var(--line);
     border-radius:5px;padding:6px 8px;margin:5px 0;word-break:break-all;font-size:11px}
   .btn:disabled{opacity:.35;cursor:default}
@@ -250,10 +256,74 @@ function looksLikeAPlan(o){
   return o && typeof o === 'object' && Array.isArray(o.rooms)
       && o.hub && typeof o.size === 'number' && typeof o.levels === 'number';
 }
+/* A draft belongs to the file it was started from. When the file moves on
+   underneath it — someone regenerates the plan, or it is rebuilt on a different
+   model entirely — the draft is still perfectly good work, but it is work on a
+   building that no longer exists, and quietly showing it as though it were the
+   current plan is the worst of the three things this page could do.
+
+   So the file is fingerprinted when a draft is taken, and checked when it is
+   restored. Cheap hash: this is telling two versions apart, not defending
+   against anything. */
+function fingerprint(t){
+  let h = 5381;
+  for (let i = 0; i < t.length; i++) h = ((h * 33) ^ t.charCodeAt(i)) >>> 0;
+  return h.toString(36) + '.' + t.length;
+}
+// Is this draft describing the older freeform plan rather than the ladder?
+function looksFreeform(p){
+  return (p.rooms || []).some((r) => r.t === 'alcove' || r.t === 'void');
+}
 async function load(fresh) {
-  const draft = fresh ? null : localStorage.getItem('cm-draft');
-  adopt(draft ? JSON.parse(draft) : await (await fetch('level.json?' + Date.now())).json());
+  const raw = await (await fetch('level.json?' + Date.now())).text();
+  const onDisk = JSON.parse(raw), stamp = fingerprint(raw);
+  const draftText = fresh ? null : localStorage.getItem('cm-draft');
+  const draft = draftText ? JSON.parse(draftText) : null;
+
+  /* A draft from before this check exists has no fingerprint to compare, and
+     the fact that it merely DIFFERS from the file proves nothing — a draft you
+     have been working on is supposed to differ. What does prove something is
+     that it describes the older freeform plan, which no file on disk can be any
+     more. So: fingerprint if there is one, and the model otherwise. */
+  const drifted = draft && (draft.__src ? draft.__src !== stamp
+                                        : looksFreeform(draft) && !looksFreeform(onDisk));
+  if (drifted) return askWhichPlan(draft, onDisk, stamp);
+  adopt(draft || onDisk);
+  L.__src = stamp;
   rebuild(); fit();
+}
+/* Neither answer is thrown away without being offered: the draft can be taken
+   out as a file before the plan on disk replaces it. */
+function askWhichPlan(draft, onDisk, stamp){
+  const old = looksFreeform(draft);
+  const box = document.createElement('div');
+  box.id = 'which';
+  box.innerHTML = `<div class="card">
+    <h3>this draft is older than the plan</h3>
+    <p>You have unsaved work in this browser, and <b>tools/level.json</b> has changed
+    since you started it${old ? ' — onto a different model. Your draft is the older '
+      + 'freeform plan, where rooms floated anywhere; the file is now a five-by-five '
+      + 'grid, which is what the game is built from and what the moving building needs.'
+      : '.'}</p>
+    <p class="hint">Your draft: ${draft.rooms.length} rectangles, ${(draft.stairs||[]).length} stairwells.
+    &nbsp;·&nbsp; On disk: ${onDisk.rooms.length} rectangles, ${(onDisk.stairs||[]).length} stairwells.</p>
+    <div class="row">
+      <button class="btn go" id="wDisk">use the plan on disk</button>
+      <button class="btn" id="wMine">keep my draft</button>
+    </div>
+    <button class="btn" id="wSave" style="width:100%;margin-top:6px">download my draft first</button>
+    <p class="hint">Keeping your draft does not change the file. Nothing is lost either way
+    until you press <b>build me</b>.</p>
+  </div>`;
+  document.body.appendChild(box);
+  const go = (plan, src) => { box.remove(); adopt(plan); L.__src = src; rebuild(); fit(); };
+  el('wDisk').onclick = () => { localStorage.removeItem('cm-draft'); go(onDisk, stamp); };
+  el('wMine').onclick = () => go(draft, stamp);       // adopted, and now current
+  el('wSave').onclick = () => {
+    const b = new Blob([JSON.stringify(draft, null, 2)], {type:'application/json'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(b); a.download = 'level-draft.json'; a.click();
+  };
 }
 function dirty(){ localStorage.setItem('cm-draft', JSON.stringify(L)); el('save').classList.add('on'); }
 
