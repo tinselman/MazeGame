@@ -1032,15 +1032,26 @@ function beatPlan(n) {
   for (let l = 0; l < NLEV; l++) {
     const held = SLOTS.heldOn(l);
     for (let k = 0; k < (files ? SLOTS.C.length : SLOTS.R.length); k++) {
-      const cells = [];
+      /* A lane is broken into RUNS of adjacent slots, and each run shifts
+         within itself. Skipping over an atrium the way this used to meant the
+         room beside it had to cross three slots while its neighbours crossed
+         one — in the same two seconds — so a rank came apart in flight instead
+         of moving like something connected. Inside a run every step is to the
+         next slot along, so the whole run travels together. */
+      const runs = [];
+      let run = [];
       for (let m = 0; m < (files ? SLOTS.R.length : SLOTS.C.length); m++) {
         const ij = files ? [m, k] : [k, m];
-        if (!held.has(ij.join(','))) cells.push(ij);
+        if (held.has(ij.join(','))) { if (run.length) runs.push(run); run = []; continue; }
+        run.push(ij);
       }
-      if (cells.length < 2) continue;
+      if (run.length) runs.push(run);
       const dir = k % 2 === 0 ? 1 : -1;      // this lane one way, the next the other
-      for (let a = 0; a < cells.length; a++) {
-        to[l].set(cells[a].join(','), cells[(a + dir + cells.length) % cells.length]);
+      for (const cells of runs) {
+        if (cells.length < 2) continue;      // a run of one has nowhere to go
+        for (let a = 0; a < cells.length; a++) {
+          to[l].set(cells[a].join(','), cells[(a + dir + cells.length) % cells.length]);
+        }
       }
     }
   }
@@ -1080,14 +1091,21 @@ function beatPlan(n) {
 function lanePlan(lev, axis, k, dir) {
   const to = Array.from({ length: NLEV }, () => new Map());
   const held = SLOTS.heldOn(lev);
-  const cells = [];
+  // same as the beat: runs of adjacent slots, each shifting within itself
+  const runs = [];
+  let run = [];
   const n = axis === 'r' ? SLOTS.R.length : SLOTS.C.length;
   for (let m = 0; m < n; m++) {
     const ij = axis === 'r' ? [m, k] : [k, m];
-    if (!held.has(ij.join(','))) cells.push(ij);
+    if (held.has(ij.join(','))) { if (run.length) runs.push(run); run = []; continue; }
+    run.push(ij);
   }
-  if (cells.length >= 2) for (let a = 0; a < cells.length; a++) {
-    to[lev].set(cells[a].join(','), cells[(a + dir + cells.length) % cells.length]);
+  if (run.length) runs.push(run);
+  for (const cells of runs) {
+    if (cells.length < 2) continue;
+    for (let a = 0; a < cells.length; a++) {
+      to[lev].set(cells[a].join(','), cells[(a + dir + cells.length) % cells.length]);
+    }
   }
   return { to, at: (l, key) => to[l].get(key), floor: (key, l) => l };
 }
@@ -3041,12 +3059,17 @@ const furniture = [];
            it, and something the room can no longer hold shrinks away over the
            same stretch. A dying thing with no journey left is simply gone. */
         const grew = off ? 1 - off.k : 1;
+        /* Nothing leaves the floor. Scaling height as well as width made a
+           newcomer swell out of the middle of the air and something departing
+           sink through the ground — Robyn's "things should not move violently".
+           They come and go by width alone, so a chair grows out of the floor
+           it is standing on and stays standing on it. */
         let f = it.scale;
         if (it.born) f *= grew * grew;
         else if (it.dying) f *= Math.max(0, 1 - grew) ** 2;
         // `long` stretches a thing down its own length: a banquet table in a
         // hall twice as long is one table twice as long, not two tables
-        sc.set(f, it.born || it.dying ? f : 1, f * (it.long || 1));
+        sc.set(f, it.scale, f * (it.long || 1));
         m4.compose(off ? tmpV.set(it.p.x + off.fx * off.k, it.p.y + off.fy * off.k,
                                   it.p.z + off.fz * off.k) : it.p, q4, sc);
         pm.setMatrixAt(i, m4);
@@ -3155,10 +3178,19 @@ const furniture = [];
          through three other rooms on the way. It comes in from just off the end
          instead, so a lane reads as a conveyor: everything moves one step, and
          the one at the back arrives from outside. */
-      const capX = (now.c2 - now.c1 + 3) * CELL * 1.2;
-      const capZ = (now.r2 - now.r1 + 3) * CELL * 1.2;
-      if (Math.abs(fx) > capX) { fx = Math.sign(fx) * capX; w = (now.c2 - now.c1 + 3) * CELL; }
-      if (Math.abs(fz) > capZ) { fz = Math.sign(fz) * capZ; dp = (now.r2 - now.r1 + 3) * CELL; }
+      /* A room that has moved more than one slot is the one wrapping round the
+         end of its run. Left to travel the true distance it crosses the whole
+         run while its neighbours cross one room — three times the speed, in the
+         same two seconds, which is what stopped a rank reading as connected.
+
+         It comes in from exactly one room-width beyond the end instead, so
+         every room you can see is moving at about the same rate and the wrapper
+         arrives from off the edge rather than barrelling through the middle. */
+      const stepR = Math.abs(SLOTS.rowOf(now.r1) - SLOTS.rowOf(was.r1));
+      const stepC = Math.abs(SLOTS.colOf(now.c1) - SLOTS.colOf(was.c1));
+      const boxW = (now.c2 - now.c1 + 3) * CELL, boxD = (now.r2 - now.r1 + 3) * CELL;
+      if (stepC > 1) { fx = Math.sign(fx) * boxW; w = boxW; }
+      if (stepR > 1) { fz = Math.sign(fz) * boxD; dp = boxD; }
       if (Math.abs(fy) > LEVEL_H) fy = Math.sign(fy) * LEVEL_H;
       rm.slide = { fx, fz, fy, w, d: dp, k: 1 };
     }
@@ -5883,7 +5915,14 @@ function interact() {
       player.vel.set(0, 0, 0); player.falling = false;
       rebuildReveal();
     }
-    shiftT = 0; window.__slideRooms(0);
+    shiftT = 0; shiftHeld = null;
+    {
+      const [rr, cc] = cellOf(player.pos);
+      const i = SLOTS.rowOf(rr), j = SLOTS.colOf(cc);
+      ridden = (i < 0 || j < 0) ? null : (window.__ROOMS || []).find(
+        (x) => x.lev === player.lev && x.slot[0] === i && x.slot[1] === j) || null;
+    }
+    window.__slideRooms(0); rideResidual();
     sfx.warp();
     say({ N: 'this file of rooms goes north', S: 'this file of rooms goes south',
           W: 'this rank of rooms goes west', E: 'this rank of rooms goes east',
@@ -6539,12 +6578,34 @@ function markSeeThru() {
   window.__seeThru(i >= 0 && j >= 0 && !SLOTS.held.has(`${i},${j}`)
     ? `${player.lev},${i},${j}` : null);
 }
+/* You are standing on a floor that is moving, so you move with it. The room is
+   put at its destination the instant the beat lands and then held back by the
+   distance it came; without this the player was put at the destination too and
+   simply left there, standing still while the floor slid out from under them —
+   which is exactly the wrong way round. Riding the residual keeps your feet on
+   the same tile of the same room the whole way. */
+function rideResidual() {
+  /* The room is remembered from the moment the beat landed, not looked up as we
+     go. Looking it up each frame asks which room the player is standing in —
+     but the player has been pushed back with the room and is, for the moment,
+     out over the corridor; the lookup fails, the ride stops, and they are left
+     behind in a hall. */
+  const rm = ridden;
+  if (!rm || !rm.slide) return;
+  const k = rm.slide.k, was = shiftHeld;
+  shiftHeld = { x: rm.slide.fx * k, z: rm.slide.fz * k, y: rm.slide.fy * k };
+  // only the CHANGE is applied, so the player's own walking still counts
+  player.pos.x += shiftHeld.x - (was ? was.x : 0);
+  player.pos.z += shiftHeld.z - (was ? was.z : 0);
+}
+let shiftHeld = null, ridden = null;
 function updateShift(dt) {
   if (shiftT < 0) return;
   shiftT += dt;
   markSeeThru();
   const u = shiftT / SHIFT_DUR;
   window.__slideRooms(u);
+  rideResidual();
   /* A little of the streaking the hub uses when it drags you home — the same
      radial pull, at about a fifth of it. Enough to say the world is moving
      past you, not enough to be the thing you are looking at. */
@@ -6553,6 +6614,7 @@ function updateShift(dt) {
   el.swoosh.style.transform = `scale(${1 + streak * 0.10})`;
   if (shiftT >= SHIFT_DUR) {
     shiftT = -1;
+    shiftHeld = null; ridden = null;
     window.__seeThru(null);
     window.__slideRooms(1);        // once more with nothing held back or hidden
     el.swoosh.style.opacity = '0';
