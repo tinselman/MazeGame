@@ -2567,14 +2567,14 @@ const furniture = [];
      the difference between the screens surviving a move and vanishing. */
   let probing = false;
   let clearOf = null;                   // the arrow walls, while laying out
-  const place = (kind, x, y, z, rot = 0, tone = 0x8f8f8f, scale = 1) => {
+  const place = (kind, x, y, z, rot = 0, tone = 0x8f8f8f, scale = 1, long = 1) => {
     if (clearOf) for (const w of clearOf) {
       if (w.z !== undefined) {
         if (z - w.z < CONSOLE_CLEAR && z >= w.z - 0.4 && x > w.x0 && x < w.x1) return;
       } else if (x - w.x < CONSOLE_CLEAR && x >= w.x - 0.4 && z > w.z0 && z < w.z1) return;
     }
     if (!groups.has(kind)) groups.set(kind, []);
-    groups.get(kind).push({ p: new THREE.Vector3(x, y, z), rot, tone, scale, room: layingOut });
+    groups.get(kind).push({ p: new THREE.Vector3(x, y, z), rot, tone, scale, long, room: layingOut });
   };
   // deterministic jitter, so a room looks scattered but identical every play
   const wobble = (r, c, n) => ((Math.sin(r * 12.9898 + c * 78.233 + n * 3.77) * 43758.5453) % 1 + 1) % 1;
@@ -2672,11 +2672,16 @@ const furniture = [];
         const off = ((i + 0.5) / n - 0.5) * (longX ? d : w) * 0.86;
         const tx = longX ? cx : cx + off, tz = longX ? cz + off : cz;
         const span = (longX ? w : d) * 0.62;
+        /* Tables end to end, and then stretched to take up the slack. A room
+           twice as long does not get exactly twice the tables — it gets what
+           whole tables fit, and they grow the last stretch to meet each other,
+           so the run always reaches both ends of the hall. */
         const runs = Math.max(1, Math.round(span / 3.4));      // tables end to end
+        const stretch = span / (runs * 3.4);
         const rot = longX ? 0 : Math.PI / 2;
         for (let k = 0; k < runs; k++) {
           const so = ((k + 0.5) / runs - 0.5) * span;
-          put('banquetTable', longX ? tx + so : tx, y, longX ? tz : tz + so, rot, g(k));
+          put('banquetTable', longX ? tx + so : tx, y, longX ? tz : tz + so, rot, g(k), 1, stretch);
           for (let c2 = 0; c2 < 3; c2++) {
             const co = (c2 - 1) * 1.0;
             for (const side of [-1, 1]) {
@@ -2748,10 +2753,11 @@ const furniture = [];
         const rx = longX ? cx : cx + off, rz = longX ? cz + off : cz;
         const span = (longX ? w : d) * 0.72;
         const bays = Math.max(1, Math.round(span / 2.9));
+        const stretch = span / (bays * 2.9);           // racking runs the full aisle
         const rot = longX ? 0 : Math.PI / 2;
         for (let k = 0; k < bays; k++) {
           const so = ((k + 0.5) / bays - 0.5) * span;
-          put('rackBay', longX ? rx + so : rx, y, longX ? rz : rz + so, rot, g(k));
+          put('rackBay', longX ? rx + so : rx, y, longX ? rz : rz + so, rot, g(k), 1, stretch);
           // the shelf load sits ON the racking, so it goes when the racking does —
           // unlike the loose stacks on the floor further down, which stand alone
           if (has('rackBay') && wobble(rm.r1, rm.c1, i * 11 + k) > 0.35) {
@@ -3038,7 +3044,9 @@ const furniture = [];
         let f = it.scale;
         if (it.born) f *= grew * grew;
         else if (it.dying) f *= Math.max(0, 1 - grew) ** 2;
-        sc.set(f, it.born || it.dying ? f : 1, f);
+        // `long` stretches a thing down its own length: a banquet table in a
+        // hall twice as long is one table twice as long, not two tables
+        sc.set(f, it.born || it.dying ? f : 1, f * (it.long || 1));
         m4.compose(off ? tmpV.set(it.p.x + off.fx * off.k, it.p.y + off.fy * off.k,
                                   it.p.z + off.fz * off.k) : it.p, q4, sc);
         pm.setMatrixAt(i, m4);
@@ -3107,6 +3115,7 @@ const furniture = [];
     }
     writeProps();
     if (window.__writeScreens) window.__writeScreens();
+    if (window.__writeDecor) window.__writeDecor();
   };
 
   /* One beat. Every room is sent to its new slot and its new floor at once —
@@ -3188,6 +3197,7 @@ const furniture = [];
        where it was built. There is no separate restore because there does not
        need to be one. */
     if (window.__writeShells) window.__writeShells();
+    if (window.__writeDecor) window.__writeDecor();
     if (t >= 1) {
       for (const rm of ROOMS) rm.slide = null;
       // the departed have finished departing
@@ -3320,6 +3330,9 @@ const furniture = [];
         // the switch this answers to, known here for certain rather than
         // guessed later by how close something happens to be
         roomRef: rm.switchRoom,
+        // the room it was hung for, so it can be given back to that room later
+        // rather than guessed at from where the fitting happens to hang
+        homeR: rm.r1, homeC: rm.c1,
         pos: new THREE.Vector3(cxx, top - 0.45, czz), lev: rm.lev, emitter,
         ceiling: mkSheet(9, top - 0.12, false), floor: mkSheet(11, y + 0.05, true),
         drops: dropMesh, glow: 0,
@@ -3386,7 +3399,7 @@ const furniture = [];
       // lit the wrong floor.
       const room = props.switches.find((sw) => !sw.atrium && sw.lev === rm.lev && sw.cells.some(
         ([r, c]) => r >= rm.r1 && r <= rm.r2 && c >= rm.c1 && c <= rm.c2));
-      xmasStrings.push({ room, from: first, to: xmasBulbs.length, emitters: roomEmitters });
+      xmasStrings.push({ room, rm, from: first, to: xmasBulbs.length, emitters: roomEmitters });
     }
     if (xmasBulbs.length) {
       // No vertexColors: that makes the shader look for a per-vertex colour
@@ -3540,7 +3553,7 @@ const furniture = [];
       }
       const room = props.switches.find((sw) => !sw.atrium && sw.lev === rm.lev && sw.cells.some(
         ([r, c]) => r >= rm.r1 && r <= rm.r2 && c >= rm.c1 && c <= rm.c2));
-      strings.push({ room, from: first, to: lanterns.length, emitters: roomEmitters });
+      strings.push({ room, rm, from: first, to: lanterns.length, emitters: roomEmitters });
     }
 
     if (lanterns.length) {
@@ -3812,6 +3825,135 @@ const furniture = [];
   };
   window.__seeThru = (key) => { seeThru = key; };
 
+  /* ---- the decorations travel too ------------------------------------------
+     A chandelier, a swag of fairy lights, a string of paper lanterns: all of
+     them were hung at a fixed place in the building, so a decorated room could
+     slide out from underneath its own decorations. They belong to the room,
+     and they go where it goes — carried by the same residual the walls and the
+     furniture use, and scaled by the same map so a swag strung across a small
+     room spreads itself when the room arrives somewhere wide. */
+  const roomAtSlot = (lev, i, j) => ROOMS.find((r) => r.lev === lev && r.slot[0] === i && r.slot[1] === j);
+  const ownerOf = (x, z, lev) => {
+    const i = SLOTS.rowOf(Math.floor(z / CELL)), j = SLOTS.colOf(Math.floor(x / CELL));
+    return (i < 0 || j < 0) ? null : roomAtSlot(lev, i, j);
+  };
+  const DECOR = [];
+  /* Anything hung in a room, normalised: a list of instances to shift, each
+     knowing which mesh it lives in and where it started. Swags and lantern
+     strings differ in how they are stored — one mesh against four, one index
+     scheme against another — but they move identically, so they are flattened
+     to the same shape here rather than handled twice. */
+  window.__adoptChandeliers = (chandeliers) => {
+    for (const ch of chandeliers || []) {
+      const owner = ownerOf(ch.pos.x, ch.pos.z, ch.lev);
+      if (!owner) continue;
+      DECOR.push({ kind: 'chandelier', owner, ch,
+                   base: { p: ch.pos.clone(), em: ch.emitter.pos.clone(),
+                           c: ch.ceiling.position.clone(), f: ch.floor.position.clone(),
+                           d: ch.drops.position.clone() } });
+    }
+  };
+  window.__adoptStrand = (lev, r0, c0, items, ems) => {
+    const owner = roomAtSlot(lev, SLOTS.rowOf(r0), SLOTS.colOf(c0));
+    if (!owner) return;
+    const sh = SHELL.get(`${owner.lev},${owner.slot[0]},${owner.slot[1]}`);
+    if (!sh) return;
+    const b0 = shellBox(sh.R), y0 = levelY(owner.lev);
+    const rel = (v) => new THREE.Vector3((v.x - b0.x0) / b0.w, v.y - y0, (v.z - b0.z0) / b0.d);
+    for (const it of items) it.base = rel(it.base);
+    DECOR.push({ kind: 'strand', owner, items,
+                 ems: ems || [], emBase: (ems || []).map((e) => rel(e.pos)) });
+  };
+  const dm4 = new THREE.Matrix4(), dv = new THREE.Vector3();
+  window.__writeDecor = () => {
+    const touched = new Set();
+    for (const d of DECOR) {
+      const rm = d.owner;
+      const sh = SHELL.get(`${rm.lev},${rm.slot[0]},${rm.slot[1]}`);
+      if (!sh) continue;
+      const to = shellBox(sh.R), k = rm.slide ? rm.slide.k : 0;
+      const fx = rm.slide ? rm.slide.fx : 0, fz = rm.slide ? rm.slide.fz : 0;
+      const fy = rm.slide ? rm.slide.fy : 0;
+      const from = rm.slide ? { x0: to.x0 + fx, z0: to.z0 + fz,
+                                w: rm.slide.w || to.w, d: rm.slide.d || to.d } : to;
+      const sx = 1 + k * (from.w / to.w - 1), sz = 1 + k * (from.d / to.d - 1);
+      const ox = to.x0 + k * (from.x0 - to.x0), oz = to.z0 + k * (from.z0 - to.z0);
+      /* A decoration is held as an offset INSIDE its room, not as a place in the
+         building — so it is put down wherever the room is standing, at whatever
+         size the room now is. Held as a world position it would map to itself
+         and hang in the air over the slot the room left. */
+      const at2 = (p, out) => out.set(ox + p.x * to.w * sx,
+                                      levelY(rm.lev) + p.y + k * fy,
+                                      oz + p.z * to.d * sz);
+      if (d.kind === 'chandelier') {
+        at2(d.base.em, d.ch.emitter.pos);
+        at2(d.base.p, d.ch.pos);
+        at2(d.base.c, d.ch.ceiling.position);
+        at2(d.base.f, d.ch.floor.position);
+        at2(d.base.d, d.ch.drops.position);
+      } else {
+        for (const it of d.items) {
+          at2(it.base, dv);
+          for (const m of it.meshes) {
+            if (!m) continue;
+            m.getMatrixAt(it.i, dm4);
+            dm4.setPosition(dv);
+            m.setMatrixAt(it.i, dm4);
+            touched.add(m);
+          }
+        }
+      }
+      (d.ems || []).forEach((e, i) => { if (d.emBase[i]) at2(d.emBase[i], e.pos); });
+    }
+    for (const m of touched) m.instanceMatrix.needsUpdate = true;
+  };
+
+  /* Adopted here, in one place, where every one of them already exists.
+     Doing it at each build site would run before this code did, and the guard
+     would quietly skip every one — the decorations would sit still through a
+     move with nothing to say why. */
+  {
+    const local = (v, owner) => {
+      const sh = SHELL.get(`${owner.lev},${owner.slot[0]},${owner.slot[1]}`);
+      const b0 = shellBox(sh.R);
+      /* Kept as a FRACTION of the room rather than a distance into it. A
+         chandelier hangs in the middle of its hall; landing somewhere half the
+         width, a fixed offset would put it through the wall, and only a
+         fraction keeps it in the middle wherever the room ends up. */
+      return new THREE.Vector3((v.x - b0.x0) / b0.w, v.y - levelY(owner.lev), (v.z - b0.z0) / b0.d);
+    };
+    for (const ch of window.__chandeliers || []) {
+      const owner = ch.homeR !== undefined
+        ? roomAtSlot(ch.lev, SLOTS.rowOf(ch.homeR), SLOTS.colOf(ch.homeC))
+        : ownerOf(ch.pos.x, ch.pos.z, ch.lev);
+      if (owner) DECOR.push({ kind: 'chandelier', owner, ch,
+        base: { p: local(ch.pos, owner), em: local(ch.emitter.pos, owner),
+                c: local(ch.ceiling.position, owner), f: local(ch.floor.position, owner),
+                d: local(ch.drops.position, owner) } });
+    }
+    const X = window.__xmas;
+    for (const st of (X ? X.strings : [])) {
+      const items = [];
+      for (let i = st.from; i < st.to; i++) {
+        const b2 = X.bulbs[i];
+        if (b2) items.push({ meshes: [X.mesh], i, base: new THREE.Vector3(b2.x, b2.y, b2.z) });
+      }
+      if (items.length && st.rm) window.__adoptStrand(st.rm.lev, st.rm.r1, st.rm.c1, items, st.emitters);
+    }
+    const L = window.__lanterns;
+    for (const st of (L ? L.strings : [])) {
+      const items = [];
+      for (let i = st.from; i < st.to; i++) {
+        const l = L.lanterns[i];
+        if (!l || l.slot === undefined) continue;
+        items.push({ meshes: l.round ? [L.meshRound, L.glowRound] : [L.meshSquare, L.glowSquare],
+                     i: l.slot, base: new THREE.Vector3(l.x, l.y, l.z) });
+      }
+      if (items.length && st.rm) window.__adoptStrand(st.rm.lev, st.rm.r1, st.rm.c1, items, st.emitters);
+    }
+  }
+
+  window.__DECOR = DECOR;
   window.__props = { groups, propMeshes, chandelierRooms };
 
   // Screens are their own mesh: emissive, so they read as the source of the
