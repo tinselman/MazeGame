@@ -613,6 +613,54 @@ const doorHex = (id) => '#' + DOOR_COLORS[id - 1].toString(16).padStart(6, '0');
 const levelY   = (l) => l * LEVEL_H;
 const cellCentre = (r, c) => new THREE.Vector3((c + 0.5) * CELL, 0, (r + 0.5) * CELL);
 const isWalkableChar = (ch) => ch !== '#' && ch !== VOID;
+
+/* Somewhere the corridor cannot reach you. An atrium is walkable at the bottom
+   and cut clean through every storey above, which no room and no corridor is —
+   so that one test names all four of them without a list to keep in step. */
+/* An atrium: floored at the bottom, open all the way up. This is a statement
+   about the SHAPE of the building and is what tells the four atrium slots from
+   the twenty that hold rooms. */
+function isAtriumCell(r, c) {
+  if (at(0, r, c) !== '.') return false;
+  for (let k = 1; k < NLEV; k++) if (at(k, r, c) !== VOID) return false;
+  return true;
+}
+/* Somewhere the corridor cannot reach you. A different question from the one
+   above, and answered by a longer list: the atriums, and also the vaults, whose
+   floor happens to be built out of corridor. Keeping the two apart matters —
+   run them together and the vault slots read as atriums, and the building holds
+   them still on every floor instead of only the one they are on. */
+function isSanctuary(l, r, c) {
+  return VAULT_FLOOR.has(`${l},${r},${c}`) || (l === 0 && isAtriumCell(r, c));
+}
+/* A vault is floored with corridor — it is carved as hall and then walled in,
+   which is an accident of how it is built and not a statement about what it is.
+   Left alone, the crystal chamber glows and goes lava with the corridor, and
+   the one place in the building you have to stand still in is the one place
+   that kills you for standing still.
+
+   Found by flooding out from each crystal. The chamber is sealed but for its
+   gate, and the gate is a door character rather than floor, so the flood stops
+   at the walls on its own. Done once, at load, on six small rooms. */
+const VAULT_FLOOR = (() => {
+  const inside = new Set();
+  const open = (ch) => ch === '.' || ch === 'P' || (ch >= '1' && ch <= '6');
+  for (let l = 0; l < NLEV; l++) for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+    const ch = at(l, r, c);
+    if (!(ch >= '1' && ch <= '6')) continue;
+    const q = [[r, c]], seen = new Set([`${r},${c}`]);
+    while (q.length && seen.size < 600) {
+      const [cr, cc] = q.pop();
+      inside.add(`${l},${cr},${cc}`);
+      for (const [dr, dc] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const nr = cr + dr, nc = cc + dc, k = `${nr},${nc}`;
+        if (seen.has(k) || !open(at(l, nr, nc))) continue;
+        seen.add(k); q.push([nr, nc]);
+      }
+    }
+  }
+  return inside;
+})();
 const isRoomChar = (ch) => ch === '+' || ch === '~' || ch === '*';
 const isWater = (l, r, c) => at(l, r, c) === '~' || (at(l, r, c) === '*' && false);
 
@@ -902,6 +950,147 @@ const HUB = (() => {
 })();
 const inHub = (l, r, c) => l === 0 && r >= HUB.r1 && r <= HUB.r2 && c >= HUB.c1 && c <= HUB.c2;
 
+/* ---- the ladder ----------------------------------------------------------
+   The plan is five ranks by five files, the same on every floor, which is what
+   makes the building able to move: a room can only take another room's place if
+   there is a place to take.
+
+   The bands are read off the rooms rather than written down, so this cannot
+   drift from the plan the generator built. They are deliberately UNEVEN — 5, 6,
+   14, 4 and 8 cells of interior — so a room sliding one slot along has to grow
+   or shrink to fit, which is the whole feel of the thing.
+
+   Twenty of the twenty-five slots hold a room. The other five are the four
+   atriums and the hub, and they are exactly the slots that never move: an
+   atrium is walkable at the bottom and cut clean through every storey above,
+   and the hub is the middle. What is left is what slides. */
+const SLOTS = (() => {
+  const uniq = (xs) => [...new Set(xs)].sort((a, b) => a - b);
+  const R = uniq(ROOM_META.map((m) => m.r1)).map((a) =>
+    [a, Math.max(...ROOM_META.filter((m) => m.r1 === a).map((m) => m.r2))]);
+  const C = uniq(ROOM_META.map((m) => m.c1)).map((a) =>
+    [a, Math.max(...ROOM_META.filter((m) => m.c1 === a).map((m) => m.c2))]);
+  const band = (v, B) => B.findIndex(([a, b]) => v >= a && v <= b);
+  /* A slot the building leaves alone. The atriums and the hub are holes rather
+     than rooms, so nothing ever slides into them and nothing slides out. */
+  const fixed = [];
+  for (let i = 0; i < R.length; i++) for (let j = 0; j < C.length; j++) {
+    /* Counted over the whole slot rather than sampled at its middle. Three of
+       the four atriums have an overpass crossing them, and a bridge is floor on
+       the storey above — so the one cell in the middle can easily be the one
+       cell that is not open to the sky, and a single probe called those three
+       rooms and set the building shuffling them. */
+    let open = 0, all = 0;
+    for (let r = R[i][0]; r <= R[i][1]; r++) for (let c = C[j][0]; c <= C[j][1]; c++) {
+      all++; if (isAtriumCell(r, c)) open++;
+    }
+    const mid = [Math.floor((R[i][0] + R[i][1]) / 2), Math.floor((C[j][0] + C[j][1]) / 2)];
+    if (inHub(0, mid[0], mid[1]) || open > all / 2) fixed.push(`${i},${j}`);
+  }
+  const held = new Set(fixed);
+  const movable = [];
+  for (let i = 0; i < R.length; i++) for (let j = 0; j < C.length; j++)
+    if (!held.has(`${i},${j}`)) movable.push([i, j]);
+  /* And the vaults, which are held too — but only on the floor they are on.
+     A vault is a sealed chamber with one gated door; nothing can slide into it
+     and it does not slide anywhere itself. The same slot one floor up is an
+     ordinary room that moves like any other, which is why this is a set per
+     floor and not one set for the building. */
+  const vault = Array.from({ length: NLEV }, () => new Set());
+  for (let l = 0; l < NLEV; l++) for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+    const ch = at(l, r, c);
+    if (ch < '1' || ch > '6') continue;
+    const i = band(r, R), j = band(c, C);
+    if (i >= 0 && j >= 0) vault[l].add(`${i},${j}`);
+  }
+  const heldOn = (l) => new Set([...held, ...vault[l]]);
+  return { R, C, band, held, movable, vault, heldOn,
+           rowOf: (r) => band(r, R), colOf: (c) => band(c, C),
+           rect: (i, j) => ({ r1: R[i][0], r2: R[i][1], c1: C[j][0], c2: C[j][1] }) };
+})();
+
+/* Where everything goes on the next beat.
+
+   Even beats slide the FILES: the leftmost a slot south, the next north, and so
+   on alternating across the building. Odd beats slide the RANKS the same way,
+   east then west. Either way the slots the building holds fixed are stepped
+   over, so a file with an atrium in it cycles its rooms through the four slots
+   that are left rather than the five that are there.
+
+   Then every floor rises: the ground floor's rooms become the first floor's,
+   the first floor's the second's, and the top wraps back to the bottom. That
+   only works because all three floors are the same ladder.
+
+   This returns the plan and moves nothing. It is a permutation, and being able
+   to check that it IS one — that nothing is lost and nothing doubled — before
+   anything is built is worth more than the few lines it costs. */
+function beatPlan(n) {
+  const files = n % 2 === 0;
+  /* One slide per floor, because which slots are available differs by floor:
+     the vaults sit in different places on each. */
+  const to = Array.from({ length: NLEV }, () => new Map());
+  for (let l = 0; l < NLEV; l++) {
+    const held = SLOTS.heldOn(l);
+    for (let k = 0; k < (files ? SLOTS.C.length : SLOTS.R.length); k++) {
+      const cells = [];
+      for (let m = 0; m < (files ? SLOTS.R.length : SLOTS.C.length); m++) {
+        const ij = files ? [m, k] : [k, m];
+        if (!held.has(ij.join(','))) cells.push(ij);
+      }
+      if (cells.length < 2) continue;
+      const dir = k % 2 === 0 ? 1 : -1;      // this lane one way, the next the other
+      for (let a = 0; a < cells.length; a++) {
+        to[l].set(cells[a].join(','), cells[(a + dir + cells.length) % cells.length]);
+      }
+    }
+  }
+  /* Then everything rises a storey — skipping any floor on which the slot it
+     has landed in is a vault. Fourteen of the twenty slots are never a vault
+     and simply cycle 0,1,2; the other six shuttle between the two floors where
+     a room can live there. Without the skip a room ascends into a sealed
+     chamber, which is not a small thing: it is a room that has nowhere to be. */
+  const floor = (slotKey, l) => {
+    for (let k = 1; k <= NLEV; k++) {
+      const n2 = (l + k) % NLEV;
+      if (!SLOTS.vault[n2].has(slotKey)) return n2;
+    }
+    return l;
+  };
+  return { files, to, floor,
+           at: (l, key) => to[l].get(key) };
+}
+
+/* You ride the room. Where you come out is where you were standing, measured as
+   a fraction of the room you were standing in — so if you were against the far
+   wall you are still against the far wall, in a room that may now be twice the
+   size or half of it. Anything else and a shift would feel like being teleported
+   rather than carried.
+
+   Held clear of the walls by a body's width, because the room you land in can be
+   smaller than the one you left and the honest answer to "you were at 98% of a
+   fourteen-cell room, now be at 98% of a four-cell one" is a wall. */
+function ridePlan(plan) {
+  const [r, c] = cellOf(player.pos);
+  const i = SLOTS.rowOf(r), j = SLOTS.colOf(c);
+  if (i < 0 || j < 0) return null;                    // in a corridor: not carried
+  const key = `${i},${j}`;
+  const dest = plan.at(player.lev, key);
+  if (!dest) return null;                             // a held slot: it does not move
+  const from = SLOTS.rect(i, j), to = SLOTS.rect(dest[0], dest[1]);
+  const span = (a, b) => Math.max(1e-6, (b - a + 1) * CELL);
+  const u = (player.pos.x - from.c1 * CELL) / span(from.c1, from.c2);
+  const v = (player.pos.z - from.r1 * CELL) / span(from.r1, from.r2);
+  const inset = (RADIUS + 0.25) / span(to.c1, to.c2);
+  const insetV = (RADIUS + 0.25) / span(to.r1, to.r2);
+  const cl = (t, m) => Math.max(m, Math.min(1 - m, t));
+  return {
+    lev: plan.floor(dest.join(','), player.lev),
+    x: to.c1 * CELL + cl(u, inset) * span(to.c1, to.c2),
+    z: to.r1 * CELL + cl(v, insetV) * span(to.r1, to.r2),
+    from: [i, j], to: dest,
+  };
+}
+
 // A bridge cell is walkable with a void beside it: it gets a railing, and it is
 // never roofed, so from the level below you see it crossing overhead.
 function isBridgeCell(l, r, c) {
@@ -1115,14 +1304,6 @@ const fasciaSides = [], hubFasciaSides = [];
    from the side they happen to face: the stairwell had its ceiling suppressed
    but kept its floor, so the hole existed climbing up and vanished looking
    back down. A closed volume has no such preferred direction. */
-/* Somewhere the corridor cannot reach you. An atrium is walkable at the bottom
-   and cut clean through every storey above, which no room and no corridor is —
-   so that one test names all four of them without a list to keep in step. */
-function isSanctuary(l, r, c) {
-  if (l !== 0 || at(0, r, c) !== '.') return false;
-  for (let k = 1; k < NLEV; k++) if (at(k, r, c) !== VOID) return false;
-  return true;
-}
 const isUpperStair = (l, r, c) => at(l, r, c) === '/' && at(l - 1, r, c) === '/';
 // A stairwell is a genuine hole punched through the upper floor: no slab at all,
 // which is what lets the rim be capped like every other edge.
@@ -5405,7 +5586,7 @@ function inSanctuary() {
   if (inHub(l, r, c)) return true;
   const ch = at(l, r, c);
   if (ch !== '.') return isWalkableChar(ch);      // a room floor, water, a door
-  return isSanctuary(0, r, c);                    // an atrium plaza
+  return isSanctuary(l, r, c);                    // an atrium plaza, or a vault
 }
 
 /* The corridor heating up. Yellow while there is still time to move, and then
@@ -8075,6 +8256,7 @@ window.__maze = {
   get beatNo() { return beatNo; },
   get lavaGlow() { return matHall.emissive.getHex(); },
   setBeat(s) { beatT = s; },
+  SLOTS, beatPlan,
   fireBeat() { beatT = BEAT_PERIOD; beatNo++; fireBeat(); },
   inSanctuary,
   antiOff() { antiOn = false; for (const a of antis) if (a.live) retireAnti(a); },
