@@ -2504,6 +2504,11 @@ const furniture = [];
   const CONSOLE_CLEAR = 1.5;            // nothing of the room's own inside this
 
   let layingOut = null;
+  /* True only while the headroom pass is laying every kind of room out in
+     every slot to size the meshes. A real relayout is also layoutOnly, so
+     the two cannot be told apart by that alone — and telling them apart is
+     the difference between the screens surviving a move and vanishing. */
+  let probing = false;
   let clearOf = null;                   // a console's keep-clear, while laying out
   const place = (kind, x, y, z, rot = 0, tone = 0x8f8f8f, scale = 1) => {
     if (clearOf) {
@@ -2736,8 +2741,13 @@ const furniture = [];
           put('monitor', px, y + 0.76, pz - cd / 4 - 0.1, 0, g(i + j + 5));
           put('keyboard', px + 0.42, y + 0.78, pz - cd / 4 + 0.16, 0.2, g(i + j + 6));
           // and the screen glow belongs to the monitor's casing, not the room
+          /* Not during a layout probe. This list is read once to build the
+             screen meshes, and the headroom pass lays every kind of room out in
+             every slot to size them — so an unguarded push left two hundred
+             phantom screens hanging where no cubicle had ever been. */
           if (has('terminals') && has('monitor'))
-            screens.push({ x: px, y: y + 1.12, z: pz - cd / 4 + 0.05, lev: rm.lev });
+            screens.push({ x: px, y: y + 1.12, z: pz - cd / 4 + 0.05, lev: rm.lev,
+                           room: layingOut, probe: probing });
         }
       }
 
@@ -2890,6 +2900,8 @@ const furniture = [];
      than by guessing a factor — a hundred and eighty layouts, all of them pure
      arithmetic, and the answer is then true rather than probably true. */
   const HEADROOM = (() => {
+    probing = true;
+    const screensWere = screens.length;
     const cap = new Map();
     const kinds = [...groups.keys()];
     const types = [...new Set(ROOM_META.map((m) => m.type))];
@@ -2906,6 +2918,8 @@ const furniture = [];
     }
     groups.clear();
     for (const [k, l] of keep) groups.set(k, l);
+    screens.length = screensWere;
+    probing = false;
     for (const k of kinds) if (!cap.has(k)) cap.set(k, (groups.get(k) || []).length);
     return cap;
   })();
@@ -2975,11 +2989,13 @@ const furniture = [];
 
   const relayout = () => {
     groups.clear();
+    screens.length = 0;
     for (const rm of ROOMS) {
       const rect = SLOTS.rect(rm.slot[0], rm.slot[1]);
       furnish({ ...rect, lev: rm.lev, type: rm.type, items: rm.items, home: rm }, true);
     }
     writeProps();
+    if (window.__writeScreens) window.__writeScreens();
   };
 
   /* One beat. Every room is sent to its new slot and its new floor at once —
@@ -3015,6 +3031,7 @@ const furniture = [];
     const held = 1 - (1 - (1 - t) * (1 - t) * (1 - t));   // ease out, cubic
     for (const rm of ROOMS) if (rm.slide) rm.slide.k = t >= 1 ? 0 : held;
     writeProps();
+    if (window.__writeScreens) window.__writeScreens();
     if (t >= 1) for (const rm of ROOMS) rm.slide = null;
   };
   window.__ROOMS = ROOMS;
@@ -3495,26 +3512,52 @@ const furniture = [];
     screens.forEach((sc, i) => buckets[i % VARIANTS].push(sc));
 
     const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s1 = new THREE.Vector3(1, 1, 1);
-    let lit = 0;
-    buckets.forEach((list, vi) => {
-      if (!list.length) return;
+    /* A screen belongs to the desk it stands on, so it travels when the room
+       does. Built once with room to spare and rewritten on every rearrangement,
+       for the same reason the furniture is: baked once, it stayed behind while
+       its monitor left, and the building filled up with glowing rectangles
+       hanging in mid-air. */
+    const SCREEN_MAX = Math.max(64, Math.ceil(screens.length * 2.2));
+    const screenMeshes = buckets.map((list, vi) => {
       // 4:3, matching the texture and the bezel's opening
-      const mesh = new THREE.InstancedMesh(new THREE.PlaneGeometry(0.52, 0.39), mats[vi], list.length);
-      list.forEach((sc, i) => {
-        m.compose(new THREE.Vector3(sc.x, sc.y, sc.z), q, s1);
-        mesh.setMatrixAt(i, m);
-        // every fourth screen feeds the light pool, so a cubicle floor is
-        // faintly green before you ever find its switch
-        if (lit++ % 4 === 0) {
-          emitters.push({
-            pos: new THREE.Vector3(sc.x, sc.y, sc.z + 0.4),
-            color: new THREE.Color(0x54ff8a), intensity: 2.4, on: true,
-          });
-        }
-      });
+      const mesh = new THREE.InstancedMesh(new THREE.PlaneGeometry(0.52, 0.39), mats[vi], SCREEN_MAX);
+      mesh.count = 0;
       mesh.instanceMatrix.needsUpdate = true;
       scene.add(mesh);
+      return mesh;
     });
+    // every fourth screen feeds the light pool, so a cubicle floor is faintly
+    // green before you ever find its switch. The lamps stay; which screen each
+    // one sits behind is re-pointed when the rooms move.
+    const screenEmitters = [];
+    for (let i = 0; i * 4 < screens.length; i++) {
+      const em = { pos: new THREE.Vector3(), color: new THREE.Color(0x54ff8a),
+                   intensity: 2.4, on: false };
+      emitters.push(em); screenEmitters.push(em);
+    }
+    window.__writeScreens = () => {
+      const live = screens.filter((sc) => !sc.probe);
+      const bs = Array.from({ length: VARIANTS }, () => []);
+      live.forEach((sc, i) => bs[i % VARIANTS].push(sc));
+      bs.forEach((list, vi) => {
+        const mesh = screenMeshes[vi];
+        const n = Math.min(list.length, SCREEN_MAX);
+        for (let i = 0; i < n; i++) {
+          const sc = list[i], off = sc.room && sc.room.slide;
+          m.compose(off
+            ? new THREE.Vector3(sc.x + off.fx * off.k, sc.y + off.fy * off.k, sc.z + off.fz * off.k)
+            : new THREE.Vector3(sc.x, sc.y, sc.z), q, s1);
+          mesh.setMatrixAt(i, m);
+        }
+        mesh.count = n;
+        mesh.instanceMatrix.needsUpdate = true;
+      });
+      screenEmitters.forEach((em, i) => {
+        const sc = live[i * 4];
+        if (sc) { em.pos.set(sc.x, sc.y, sc.z + 0.4); em.on = true; } else em.on = false;
+      });
+    };
+    window.__writeScreens();
     window.__screens = { count: screens.length, variants: VARIANTS, texes };
   }
 }
@@ -5902,13 +5945,28 @@ function updateBeat(dt) {
   beatT -= dt;
   const warn = beatT <= BEAT_WARN ? 1 - Math.max(0, beatT) / BEAT_WARN : 0;
   if (beatT <= 0) { beatT = BEAT_PERIOD; beatNo++; fireBeat(); }
-  // it throbs, and the throb quickens as the beat approaches
-  const pulse = 0.5 + 0.5 * Math.sin(clock.elapsedTime * (5 + warn * 14));
-  const heat = warn * warn;                        // slow to start, then quickly
-  lavaGlow = heat * (0.55 + 0.45 * pulse);
+  /* A slow, deep breath rather than a fast flutter. The first version ticked
+     faster and faster as the beat closed, which read as an alarm going off — a
+     lot of noise carrying very little information. Slowing it down and letting
+     it go almost black between beats makes each pulse an event you can count,
+     and the count is the thing you actually need.
+
+     It swings all the way to nothing at the bottom, so the corridor is properly
+     dark between throbs and the next one arrives out of black. */
+  const rate = 2.6 - warn * 1.4;                   // slower as it closes in
+  const pulse = 0.5 - 0.5 * Math.cos(clock.elapsedTime * rate);
+  let deep = Math.pow(pulse, 2.2);                 // long dark, sharp swell
+  /* The last two seconds override the breathing and simply climb. A slow throb
+     has a trough in it, and a trough that happens to line up with the beat means
+     the floor is at its darkest in the moment it kills you. */
+  if (beatT <= 2) deep = Math.max(deep, 1 - Math.max(0, beatT) / 2);
+  const heat = warn * warn;                        // barely there until it is not
+  lavaGlow = heat * deep;
   const lava = beatT <= BEAT_LAVA || lavaFlash > 0;
-  const g = Math.max(lavaGlow, lavaFlash);
-  matHall.emissive.setRGB(g * (lava ? 0.95 : 0.62), g * (lava ? 0.07 : 0.44), g * 0.04);
+  const g = Math.min(1, Math.max(lavaGlow, lavaFlash) * (lava ? 1 : 0.9));
+  // amber while there is time, and over the last moment into something molten
+  const red = lava ? 1.0 : 0.66, grn = lava ? 0.05 : 0.40;
+  matHall.emissive.setRGB(g * red, g * grn, g * 0.03);
   if (lavaFlash > 0) lavaFlash = Math.max(0, lavaFlash - dt * 1.7);
   el.beat.textContent = beatT > 60
     ? `${Math.ceil(beatT / 60)}m` : `${Math.ceil(beatT)}`;
