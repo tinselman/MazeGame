@@ -1343,6 +1343,18 @@ function sideMesh(sides, material) {
 }
 
 const floorQuads = [], hubFloorQuads = [], ceilQuads = [], slabQuads = [], waterQuads = [], hallQuads = [];
+/* Which room's floor a cell belongs to, or null for the building's own ground.
+   Only the interior of a movable slot counts: the corridor, the atriums, the
+   hub and the vaults all stay where they are, and so does their floor. */
+const roomFloorQuads = {};
+function roomSlab(l, r, c) {
+  const i = SLOTS.rowOf(r), j = SLOTS.colOf(c);
+  if (i < 0 || j < 0) return null;
+  if (SLOTS.held.has(`${i},${j}`) || SLOTS.vault[l].has(`${i},${j}`)) return null;
+  const R = SLOTS.rect(i, j);
+  if (r < R.r1 || r > R.r2 || c < R.c1 || c > R.c2) return null;
+  return `${l},${i},${j}`;
+}
 const fasciaSides = [], hubFasciaSides = [];
 /* Every floor cell is a solid volume — top, bottom and four sides — rather than
    two unconnected planes. Faces buried between neighbouring cells are culled,
@@ -1372,11 +1384,21 @@ for (let l = 0; l < NLEV; l++) for (let r = 0; r < ROWS; r++) for (let c = 0; c 
        places you run TO. It is the only three-storey hole that is walkable at
        the bottom, so that is how it is told apart. */
     const hall = ch === '.' && !isSanctuary(l, r, c);
-    (inHub(l, r, c) ? hubFloorQuads : hall ? hallQuads : floorQuads)
-      .push([r, c, levelY(l), true]);
+    /* A room's own floor is kept apart from the building's, because a room
+       travels and takes its floor with it. Held as one small mesh per room —
+       its walking surface and the underside that is the ceiling of whatever is
+       below — so moving it is one matrix rather than four thousand vertices. */
+    const mine = roomSlab(l, r, c);
+    (mine ? (roomFloorQuads[mine] = roomFloorQuads[mine] || []).push([r, c, levelY(l), true])
+      : (inHub(l, r, c) ? hubFloorQuads : hall ? hallQuads : floorQuads)
+        .push([r, c, levelY(l), true]));
     if (ch === '~') waterQuads.push([r, c, levelY(l) + WATER_Y, true]);
   }
-  if (l > 0) slabQuads.push([r, c, levelY(l) - SLAB, false]);   // bottom: the ceiling below
+  if (l > 0) {
+    const mine = roomSlab(l, r, c);
+    if (mine) (roomFloorQuads[mine] = roomFloorQuads[mine] || []).push([r, c, levelY(l) - SLAB, false]);
+    else slabQuads.push([r, c, levelY(l) - SLAB, false]);       // bottom: the ceiling below
+  }
 
   // Sides, wherever the neighbour has no slab to butt against. One predicate
   // now covers voids, atrium edges and stairwell rims alike.
@@ -1414,6 +1436,15 @@ const matHall = new THREE.MeshPhongMaterial({ color: 0x9a9a9a, specular: 0x14141
   shininess: 6, map: texFloor, emissive: new THREE.Color(0x000000) });
 const hallMeshRef = quadMesh(hallQuads, matHall);
 scene.add(hallMeshRef);
+/* One mesh per room floor. Built in world coordinates like everything else, so
+   at rest its transform is the identity and it sits exactly where the building
+   floor would have been — you cannot tell it apart until it moves. */
+const ROOM_FLOORS = new Map();
+for (const key of Object.keys(roomFloorQuads)) {
+  const m = quadMesh(roomFloorQuads[key], matFloor);
+  scene.add(m);
+  ROOM_FLOORS.set(key, m);
+}
 const ceilMeshRef  = quadMesh(ceilQuads, matCeil);
 scene.add(floorMeshRef);
 scene.add(ceilMeshRef);
@@ -3465,13 +3496,8 @@ const furniture = [];
      left and a right and getting the coin-toss is the one outcome a control
      like this must never have. */
   {
-    const plate = new THREE.BoxGeometry(0.42, 0.42, 0.05);
-    const head = (() => {
-      const g = new THREE.CylinderGeometry(0, 0.14, 0.17, 3);
-      g.rotateX(Math.PI / 2);
-      return g;
-    })();
-    const matPlate = new THREE.MeshPhongMaterial({ color: 0x7d7d7d, specular: 0x1a1a1a, shininess: 30 });
+    // a plain triangle painted on the wall, nothing else
+    const head = new THREE.CircleGeometry(0.23, 3);
     // the one exception these make to colour-from-light: an unlit control in a
     // dark room is a control nobody ever finds
     const matGlyph = new THREE.MeshPhongMaterial({ color: 0x8a8a8a, emissive: 0x24384a, emissiveIntensity: 1 });
@@ -3490,18 +3516,29 @@ const furniture = [];
          arrows wherever the arithmetic said — which for some rooms was hanging
          in the middle of an opening with the corridor showing through. So each
          one is walked along its wall until it finds a cell that is solid. */
-      const solidOn = (wall, want, from) => {
-        for (let d = 0; d < 9; d++) for (const sgn of [1, -1]) {
+      /* Beside the door. A wall's doorway is where its ring stops being solid,
+         so the pair is hung to either side of the first opening found — which
+         is where a light switch would be, and where a hand goes looking. If a
+         wall has no doorway the arrows fall back to the middle of it. */
+      const solid = (wall, t) => (wall === 'N' ? at(lev, R.r1 - 1, t) : at(lev, t, R.c1 - 1)) === '#';
+      const doorway = (wall, lo, hi) => {
+        for (let t = lo; t <= hi; t++) if (!solid(wall, t)) return t;
+        return null;
+      };
+      const near = (wall, from, lo, hi) => {
+        for (let d = 0; d < 12; d++) for (const sgn of [1, -1]) {
           const t = from + sgn * d;
-          if (wall === 'N' ? at(lev, R.r1 - 1, t) === '#' : at(lev, t, R.c1 - 1) === '#') return t;
+          if (t >= lo - 1 && t <= hi + 1 && solid(wall, t)) return t;
         }
-        return want;
+        return from;
       };
       const cN = (t) => (t + 0.5) * CELL, cW = (t) => (t + 0.5) * CELL;
       const midC = Math.round((R.c1 + R.c2) / 2), midR = Math.round((R.r1 + R.r2) / 2);
-      const nL = solidOn('N', midC - 1, midC - 1), nR = solidOn('N', midC + 1, midC + 1);
-      const nU = solidOn('N', midC + 3, midC + 3);
-      const wS = solidOn('W', midR + 1, midR + 1), wN = solidOn('W', midR - 1, midR - 1);
+      const dN = doorway('N', R.c1, R.c2), dW = doorway('W', R.r1, R.r2);
+      const aN = dN === null ? midC : dN, aW = dW === null ? midR : dW;
+      const nL = near('N', aN - 2, R.c1, R.c2), nR = near('N', aN + 2, R.c1, R.c2);
+      const nU = near('N', aN + 4, R.c1, R.c2);
+      const wN = near('W', aW - 2, R.r1, R.r2), wS = near('W', aW + 2, R.r1, R.r2);
       const set = [];
       // north wall: the rank along it, and the way up
       set.push({ key: 'W', at: [cN(nL), y, zN], yaw: 0, lane: 'rank', dir: -1 });
@@ -3515,10 +3552,8 @@ const furniture = [];
         const g = new THREE.Group();
         g.position.set(a.at[0], a.at[1], a.at[2]);
         g.rotation.y = a.yaw;
-        const p = new THREE.Mesh(plate, matPlate);
-        g.add(p);
         const h = new THREE.Mesh(head, matGlyph.clone());
-        h.position.z = 0.1;
+        h.position.z = 0.03;
         /* The glyph points where the rooms will go. The cone is built pointing
            out of the plate, so turning it about Y lays it flat and aims it
            along the wall — turning it about Z, which is what this did first,
@@ -3526,8 +3561,11 @@ const furniture = [];
 
            E and N are to the right as you stand at their wall, W and S to the
            left, which is why the pairs are mirrored rather than matched. */
-        if (a.key === 'U') h.rotation.x = -Math.PI / 2;
-        else h.rotation.y = (a.key === 'E' || a.key === 'N') ? Math.PI / 2 : -Math.PI / 2;
+        /* A flat triangle points along its own +Y until it is turned. Spun
+           about Z it stays on the wall and swings to face where the rooms will
+           go; the up arrow simply keeps its default. */
+        h.rotation.z = a.key === 'U' ? 0
+          : (a.key === 'E' || a.key === 'N') ? -Math.PI / 2 : Math.PI / 2;
         g.add(h);
         scene.add(g);
         props.consoles.push({ lev, slot: [i, j], key: a.key, lane: a.lane, dir: a.dir,
@@ -3584,7 +3622,7 @@ const furniture = [];
      back by the same identity that restores everything else. */
   const matSeeThru = new THREE.MeshPhongMaterial({
     color: 0xb4b4b4, specular: 0x2a2a2a, shininess: 14, map: texWall,
-    transparent: true, opacity: 0.25, depthWrite: false,
+    transparent: true, opacity: 0.6, depthWrite: false,
   });
   const ghostWall = new THREE.InstancedMesh(
     new THREE.BoxGeometry(CELL, WALL_H, CELL), matSeeThru, 64);
@@ -3629,6 +3667,28 @@ const furniture = [];
         windowMesh.setMatrixAt(b.i, mS);
         touchedWin = true;
       }
+    }
+    /* The floor and the ceiling go with the room. Same affine map as the walls,
+       but applied to a whole mesh at once — a room's floor is one object, so
+       carrying it is a scale and a translation rather than four thousand
+       vertices a frame. They stay solid while the walls turn to glass: you are
+       standing on the thing that is moving, and it should feel like it. */
+    for (const rm of ROOMS) {
+      const fm = ROOM_FLOORS.get(`${rm.lev},${rm.slot[0]},${rm.slot[1]}`);
+      if (!fm) continue;
+      const sh = SHELL.get(`${rm.lev},${rm.slot[0]},${rm.slot[1]}`);
+      if (!sh) continue;
+      const k = rm.slide ? rm.slide.k : 0;
+      const to = shellBox(sh.R);
+      const fx = rm.slide ? rm.slide.fx : 0, fz = rm.slide ? rm.slide.fz : 0;
+      const fy = rm.slide ? rm.slide.fy : 0;
+      const from = rm.slide ? { x0: to.x0 + fx, z0: to.z0 + fz,
+                                w: rm.slide.w || to.w, d: rm.slide.d || to.d } : to;
+      const sx = 1 + k * (from.w / to.w - 1), sz = 1 + k * (from.d / to.d - 1);
+      const ox = to.x0 + k * (from.x0 - to.x0), oz = to.z0 + k * (from.z0 - to.z0);
+      fm.scale.set(sx, 1, sz);
+      fm.position.set(ox - to.x0 * sx, k * fy, oz - to.z0 * sz);
+      fm.updateMatrix(); fm.matrixWorldNeedsUpdate = true;
     }
     if (touched) wallMesh.instanceMatrix.needsUpdate = true;
     if (touchedWin && windowMesh) windowMesh.instanceMatrix.needsUpdate = true;
@@ -6113,8 +6173,8 @@ function updateBeat(dt) {
 
      It swings all the way to nothing at the bottom, so the corridor is properly
      dark between throbs and the next one arrives out of black. */
-  const rate = 2.6 - warn * 1.4;                   // slower as it closes in
-  const pulse = 0.5 - 0.5 * Math.cos(clock.elapsedTime * rate);
+  // one breath a second, all the way through, so it can be counted
+  const pulse = 0.5 - 0.5 * Math.cos(clock.elapsedTime * Math.PI * 2);
   let deep = Math.pow(pulse, 2.2);                 // long dark, sharp swell
   /* The last two seconds override the breathing and simply climb. A slow throb
      has a trough in it, and a trough that happens to line up with the beat means
