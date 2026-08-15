@@ -702,35 +702,9 @@ for (const s of STAIRS) {
   stairLink.set(`${s.lo},${top[0]},${top[1]}`, [s.lo + 1, top[0], top[1]]);
   stairLink.set(`${s.lo + 1},${bot[0]},${bot[1]}`, [s.lo, bot[0], bot[1]]);
 }
-/* Every floor is its own beginning now.
-
-   This used to flood from the start point and climb the stairs, which asked
-   "can you WALK there from the hub". That was the right question while walking
-   was the only way between storeys. It no longer is: the building rearranges
-   itself on a two-minute beat and every floor rises one, so you arrive on the
-   floor above inside the room you were already standing in.
-
-   So the question becomes "once you are put down on this floor, can you reach
-   all of it" — and it is asked of each floor separately, from the rooms, since
-   a room is where the beat sets you down. A plan with no stairs and no bridges
-   at all is now a legitimate plan, and this is what stops it being reported as
-   five thousand orphaned cells. */
-/* One corridor cell per floor. You arrive on a floor inside a room, walk out
-   into the hall, and from there everything on that floor has to be findable —
-   so the hall is where the asking starts, on every storey, not only the one
-   with the front door on it. */
-const hallSeeds = [];
-for (let l = 0; l < NLEV; l++) {
-  outer: for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++)
-    if (G[l][r][c] === '.') { hallSeeds.push([l, r, c]); break outer; }
-}
-function flood(openDoors, seeds) {
+function flood(openDoors) {
   const seen = new Set([`0,${START[0]},${START[1]}`]);
   const q = [[0, START[0], START[1]]];
-  for (const [l, r, c] of (seeds || [])) {
-    const k = `${l},${r},${c}`;
-    if (!seen.has(k) && WALKABLE(G[l][r][c])) { seen.add(k); q.push([l, r, c]); }
-  }
   const push = (l, r, c) => {
     if (!inb(r, c) || l < 0 || l >= NLEV) return;
     const k = `${l},${r},${c}`;
@@ -746,37 +720,12 @@ function flood(openDoors, seeds) {
   }
   return seen;
 }
-const allOpen = flood(new Set(DOORCH), hallSeeds);
-const noneOpen = flood(new Set(), hallSeeds);
+const allOpen = flood(new Set(DOORCH));
+const noneOpen = flood(new Set());
 
-/* 1. EACH FLOOR IS ONE PIECE. It used to be "can you walk here from the hub",
-   which was right while walking was the only way between storeys. The building
-   moves now — every two minutes each floor rises one and you go up inside the
-   room you are standing in — so a plan with no stairs and no bridges is a
-   legitimate plan, and asking the old question of it returns five thousand
-   orphans and no useful information. What still matters, and matters more, is
-   that once you are set down on a floor you can reach all of it. */
-for (let l = 0; l < NLEV; l++) {
-  const walk = [];
-  for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++)
-    if (WALKABLE(G[l][r][c])) walk.push([r, c]);
-  if (!walk.length) continue;
-  const seen = new Set(), q = [walk[0]];
-  seen.add(walk[0].join(','));
-  while (q.length) {
-    const [r, c] = q.pop();
-    for (const [dr, dc] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-      const nr = r + dr, nc = c + dc, k = `${nr},${nc}`;
-      if (!inb(nr, nc) || seen.has(k) || !WALKABLE(G[l][nr][nc])) continue;
-      seen.add(k); q.push([nr, nc]);
-    }
-  }
-  let cut = 0;
-  for (const [r, c] of walk) if (!seen.has(`${r},${c}`)) {
-    cut++;
-    if (cut <= 6) problems.push(`floor ${l} is in pieces — ${r},${c} '${G[l][r][c]}' is cut off from the rest of it`);
-  }
-  if (cut > 6) problems.push(`...and ${cut - 6} more cells cut off on floor ${l}`);
+// 1. nothing orphaned
+for (let l = 0; l < NLEV; l++) for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
+  if (WALKABLE(G[l][r][c]) && !allOpen.has(`${l},${r},${c}`)) problems.push(`orphan ${l}:${r},${c} '${G[l][r][c]}'`);
 }
 // 2. NO DEAD ENDS. Every walkable cell needs two ways out. Chamber interiors
 //    and their door approach are the deliberate exception.
@@ -804,7 +753,7 @@ for (const rm of rooms) if (!noneOpen.has(`${rm.lev},${rm.sw[0]},${rm.sw[1]}`)) 
 for (const ch of CHAMBERS) {
   const k = `${ch.lev},${ch.cr},${ch.cc}`;
   if (noneOpen.has(k)) problems.push(`crystal ${ch.id} reachable WITHOUT its door`);
-  if (!flood(new Set([DOORCH[ch.id - 1]]), hallSeeds).has(k)) problems.push(`crystal ${ch.id} unreachable with its own door open`);
+  if (!flood(new Set([DOORCH[ch.id - 1]])).has(k)) problems.push(`crystal ${ch.id} unreachable with its own door open`);
 }
 // 5. rooms must not touch, or one switch lights its neighbour
 for (const rm of rooms) {

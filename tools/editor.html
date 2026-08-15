@@ -530,74 +530,6 @@ function toggleDoor(rm, side, at){
    seals both rooms, so the drag steps over that band rather than resting in it.
    =========================================================================== */
 function movables(l){ return L.rooms.filter(r=>r.lev===l).concat(L.corridors.filter(r=>r.lev===l)); }
-
-/* ---- the grid ------------------------------------------------------------
-   The building is going to move: whole columns sliding a slot north or south,
-   whole rows sliding east or west, floors rotating underneath it all. A room
-   can only take another room's place if there IS a place — so rooms live in
-   ranks and files now, and the plan is a five-by-five ladder rather than a
-   sheet of free rectangles.
-
-   The bands are read back off the rooms rather than stored, so the grid is
-   always whatever the plan actually says. They are deliberately uneven: a room
-   sliding from a seven-cell band into a sixteen-cell one has to grow to fit,
-   and that resizing around you while you stand in it is the whole point. */
-function bands(axis){
-  const seen = new Map();
-  for(const rm of L.rooms){
-    const a = axis==='r' ? rm.r1 : rm.c1, b = axis==='r' ? rm.r2 : rm.c2;
-    if(!seen.has(a)) seen.set(a,b); else seen.set(a,Math.max(seen.get(a),b));
-  }
-  return [...seen.entries()].map(([a,b])=>[a,b]).sort((x,y)=>x[0]-y[0]);
-}
-const bandOf = (v,B) => B.findIndex(([a,b])=>v>=a&&v<=b);
-// which slot a cell falls in, or null if it is corridor between the bands
-function slotAt(r,c){
-  const R=bands('r'), C=bands('c');
-  const i=bandOf(r,R), j=bandOf(c,C);
-  return (i<0||j<0) ? null : {i,j,R,C};
-}
-const slotOf = (rm) => { const R=bands('r'), C=bands('c');
-  return {i:bandOf(rm.r1,R), j:bandOf(rm.c1,C)}; };
-// put a room in a slot, taking that slot's size — which is how a room resizes
-function seat(rm,i,j,R,C){
-  R=R||bands('r'); C=C||bands('c');
-  if(!R[i]||!C[j]) return false;
-  rm.r1=R[i][0]; rm.r2=R[i][1]; rm.c1=C[j][0]; rm.c2=C[j][1];
-  return true;
-}
-/* A band edge, for dragging. Each band has a near and a far edge; moving one
-   changes that band's size and the width of the hall beside it, and leaves
-   every other band alone — so a rank stays a rank. */
-function bandEdgeAt(mx,my){
-  const M=Math.max(4,Math.min(9,view.s*0.9));
-  const R=bands('r'), C=bands('c');
-  for(let k=0;k<R.length;k++){
-    if(Math.abs(my-py(R[k][0]))<M) return {axis:'r',k,side:0,B:R};
-    if(Math.abs(my-py(R[k][1]+1))<M) return {axis:'r',k,side:1,B:R};
-  }
-  for(let k=0;k<C.length;k++){
-    if(Math.abs(mx-px(C[k][0]))<M) return {axis:'c',k,side:0,B:C};
-    if(Math.abs(mx-px(C[k][1]+1))<M) return {axis:'c',k,side:1,B:C};
-  }
-  return null;
-}
-// move one band edge, and take every room in that band with it
-function moveBandEdge(axis,k,side,to){
-  const B=bands(axis);
-  const lo = side===0 ? to : B[k][0], hi = side===0 ? B[k][1] : to;
-  if(hi-lo+1 < MIN_ROOM) return false;
-  const prev=B[k-1], next=B[k+1];
-  if(side===0 && prev && lo-prev[1]-1 < MIN_GAP) return false;
-  if(side===1 && next && next[0]-hi-1 < MIN_GAP) return false;
-  if(lo<1 || hi>L.size-2) return false;
-  for(const rm of L.rooms){
-    const a = axis==='r' ? rm.r1 : rm.c1;
-    if(bandOf(a,B)!==k) continue;
-    if(axis==='r'){ rm.r1=lo; rm.r2=hi; } else { rm.c1=lo; rm.c2=hi; }
-  }
-  return true;
-}
 function spans(o,axis){ return axis==='r' ? [o.r1,o.r2] : [o.c1,o.c2]; }
 function overlapsOther(a,b,axis){
   const [x1,x2]=spans(a,axis==='r'?'c':'r'), [y1,y2]=spans(b,axis==='r'?'c':'r');
@@ -974,8 +906,7 @@ function renderInsp(){
         `<option value="${i}"${i===st.lo?' selected':''}>floor ${i} → floor ${i+1}</option>`).join('')}</select>
       <div class="sect">shape</div>
       <div class="row"><button class="btn" id="sturn">turn</button>
-        <button class="btn" id="srev">reverse</button></div>
-      <div class="row"><button class="btn" id="sshort">shorter</button>
+        <button class="btn" id="sshort">shorter</button>
         <button class="btn" id="slong">longer</button></div>
       <div class="sect">remove</div>
       <button class="btn" id="del" style="width:100%">delete this stairwell</button>
@@ -984,8 +915,6 @@ function renderInsp(){
       for(let k=0;k<nn;k++) st.cells.push(hz?[r0,c0+k]:[r0+k,c0]); };
     el('slo').onchange=e=>{mark(); st.lo=+e.target.value; rebuild(); dirty();};
     el('sturn').onclick=()=>{mark(); reshape(st.cells.length,!horiz); rebuild(); dirty();};
-    // which end is the foot. Turning changes the axis; this changes the climb.
-    el('srev').onclick=()=>{mark(); st.cells=st.cells.slice().reverse(); rebuild(); dirty();};
     el('sshort').onclick=()=>{ if(st.cells.length<=2) return; mark(); reshape(st.cells.length-1,horiz); rebuild(); dirty();};
     el('slong').onclick=()=>{mark(); reshape(st.cells.length+1,horiz); rebuild(); dirty();};
     el('del').onclick=()=>delFitting();
@@ -1181,54 +1110,19 @@ cv.addEventListener('mousedown',(e)=>{
   }
   if(FIT[hit.kind]){ sel=hit; drag={kind:'fitting',f:hit,r0:toCell(e.offsetX,e.offsetY)[0],c0:toCell(e.offsetX,e.offsetY)[1]};
     mark(); renderInsp(); draw(); return; }
-  /* A band edge is a line right across the plan, and it lies in the hall
-     between two ranks — so it has to be grabbed before anything asks which
-     room you are over, because over a hall the answer is none. */
-  const be = bandEdgeAt(e.offsetX,e.offsetY);
-  if(be && hit.kind!=='corridor'){
-    mark(); drag={kind:'band', axis:be.axis, k:be.k, side:be.side};
-    if(hit.kind==='room') sel=hit;
-    cv.style.cursor = be.axis==='r' ? 'ns-resize' : 'ew-resize';
-    renderInsp(); draw(); return;
-  }
   if(hit.kind==='room'||hit.kind==='corridor'){
-    sel=hit; mark();
-    /* Two things you can drag on a grid, and they are different in kind. A band
-       EDGE resizes a whole rank or file at once — that is how rooms come to be
-       different sizes, and it keeps them in line while they do. A ROOM only
-       ever changes places with another room; there is nowhere else for it to
-       go. Corridors are still free, since they are not part of the ladder. */
+    sel=hit;
+    const edge=handleAt(hit.o,e.offsetX,e.offsetY);
     const [r,c]=toCell(e.offsetX,e.offsetY);
-    if(hit.kind==='room'){ drag={kind:'slot', id:hit.o.id, from:slotOf(hit.o)}; }
-    else { drag={kind:'rect', id:hit.o.id, idx:movables(lev).indexOf(hit.o), edge:'body',
-                 r0:r, c0:c, snapshot:JSON.stringify({rooms:L.rooms,corridors:L.corridors})}; }
+    mark();
+    drag={kind:'rect', id:hit.o.id, idx:movables(lev).indexOf(hit.o), edge:edge||'body',
+          r0:r, c0:c, snapshot:JSON.stringify({rooms:L.rooms,corridors:L.corridors})};
     renderInsp(); draw(); return;
   }
   sel=hit.kind==='hub'?hit:null; renderInsp();
   panning=true; cv.style.cursor='grabbing'; draw();
 });
 cv.addEventListener('mousemove',(e)=>{
-  if(drag&&drag.kind==='band'){
-    const [r,c]=toCell(e.offsetX,e.offsetY);
-    moveBandEdge(drag.axis, drag.k, drag.side, drag.axis==='r'?r:c);
-    moved++; rebuild(); return;
-  }
-  if(drag&&drag.kind==='slot'){
-    /* Drop a room on another room and they change places. That is the only move
-       a grid allows, and it is the same move the building will be making on its
-       own every two minutes — so what you do here and what it does there are
-       one mechanism, not two. */
-    const [r,c]=toCell(e.offsetX,e.offsetY);
-    const at=slotAt(r,c); if(!at) return;
-    const me=L.rooms.find(o=>o.id===drag.id); if(!me) return;
-    const mine=slotOf(me);
-    if(at.i===mine.i && at.j===mine.j) return;
-    const other=L.rooms.find(o=>o.lev===me.lev&&o!==me
-      &&slotOf(o).i===at.i&&slotOf(o).j===at.j);
-    if(other) seat(other,mine.i,mine.j,at.R,at.C);
-    seat(me,at.i,at.j,at.R,at.C);
-    moved++; rebuild(); return;
-  }
   if(drag&&drag.kind==='rect'){
     const [r,c]=toCell(e.offsetX,e.offsetY);
     solveDrag(drag, r-drag.r0, c-drag.c0);
@@ -1269,18 +1163,7 @@ cv.addEventListener('mousemove',(e)=>{
   if(panning){ userView=true; view.x+=e.movementX; view.y+=e.movementY; draw(); return; }
   const hit=pick(e.offsetX,e.offsetY);
   let cur='default';
-  const beh=bandEdgeAt(e.offsetX,e.offsetY);
-  if(beh && hit.kind!=='corridor' && !FIT[hit.kind] && hit.kind!=='door'){
-    cv.style.cursor = beh.axis==='r' ? 'ns-resize' : 'ew-resize';
-    if(hover){ hover=null; draw(); }
-    return;
-  }
-  if(hit.kind==='room'){
-    cv.style.cursor='move';
-    if(hover!==hit.o){ hover=hit.o; draw(); }
-    return;
-  }
-  if(hit.kind==='corridor'){
+  if(hit.kind==='room'||hit.kind==='corridor'){
     const edge=handleAt(hit.o,e.offsetX,e.offsetY);
     cur = edge ? ({N:'ns-resize',S:'ns-resize',W:'ew-resize',E:'ew-resize',
       NW:'nwse-resize',SE:'nwse-resize',NE:'nesw-resize',SW:'nesw-resize'}[edge]||'move') : 'move';
