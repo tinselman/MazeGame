@@ -444,7 +444,9 @@ chamberSlots.forEach((slot, i) => {
     }
   }
   if (pr >= 0) G[slot.lev][pr][pc] = 'P';
-  CHAMBERS.push({ id: i + 1, lev: slot.lev, cr, cc, door });
+  // the rect travels with it so the sealed-vault check has a wall ring to walk
+  CHAMBERS.push({ id: i + 1, lev: slot.lev, cr, cc, door,
+                  r1: slot.r1, c1: slot.c1, r2: slot.r2, c2: slot.c2 });
 });
 
 /* ---- alcoves ------------------------------------------------------------
@@ -797,6 +799,35 @@ for (const s of STAIRS) {
   const below = [bot[0] - d[0], bot[1] - d[1]], above = [top[0] + d[0], top[1] + d[1]];
   if (!WALKABLE(G[s.lo][below[0]][below[1]])) problems.push(`stair ${s.lo}:${bot} has no footing at the bottom`);
   if (!WALKABLE(G[s.lo + 1][above[0]][above[1]])) problems.push(`stair ${s.lo}:${top} has no landing at the top`);
+}
+/* 9. A GATE IS THE ONLY WAY IN. Finding the button that opens a vault is the
+      game; a stairwell driven through the wall beside it does not read as a
+      clever shortcut, it reads as the lock being broken. Rule 6 already asks
+      whether the crystal is reachable, but it asks it as one flood over the
+      whole building, so it announces a breach somewhere without saying where.
+      This walks the ring and names the cell. */
+for (const ch of CHAMBERS) {
+  for (let r = ch.r1; r <= ch.r2; r++) for (let c = ch.c1; c <= ch.c2; c++) {
+    if (r > ch.r1 && r < ch.r2 && c > ch.c1 && c < ch.c2) continue;   // interior
+    if (r === ch.door[0] && c === ch.door[1]) continue;               // the gate
+    const chr = G[ch.lev][r][c];
+    if (chr !== WALL) problems.push(`vault ${ch.id} is breached at ${ch.lev}:${r},${c} — '${chr}' where its wall should be`);
+  }
+}
+/* 10. NOTHING HANGS IN THE AIR. A void drawn on one floor reaches under the
+       room above it, and the room is then standing on nothing. Walkways over
+       an atrium are meant to do that and are left alone; a room is not. */
+/* Vaults are built from their own slot list and never land in `rooms`, so
+   checking `rooms` alone lets a crystal chamber float. */
+const standing = [...rooms.map((r) => ({ ...r, what: r.type })),
+                  ...CHAMBERS.map((ch) => ({ ...ch, what: `vault ${ch.id}` }))];
+for (const rm of standing) {
+  if (rm.lev === 0 || rm.what === 'atrium') continue;
+  let hanging = 0;
+  for (let r = rm.r1; r <= rm.r2; r++) for (let c = rm.c1; c <= rm.c2; c++) {
+    if (G[rm.lev - 1][r][c] === VOID) hanging++;
+  }
+  if (hanging) problems.push(`${rm.what} at ${rm.lev}:${rm.r1},${rm.c1} hangs over open space (${hanging} cells with nothing under them)`);
 }
 
 /* ================================================================ OUTPUT */
