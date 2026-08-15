@@ -3470,7 +3470,10 @@ for (let l = 0; l < NLEV; l++) for (let r = 0; r < ROWS; r++) for (let c = 0; c 
    six dead ends you trek to one at a time.                                   */
 {
   const matPanelBase = new THREE.MeshPhongMaterial({ color: 0x4a4a4a, specular: 0x222222, shininess: 30 });
+  const portalCells = new Set(props.portals.map((q) => `${q.lev},${q.cell[0]},${q.cell[1]}`));
   for (const c of props.crystals) {
+    const dr = props.doors.find((d) => d.id === c.id);
+    c.doorCell = dr ? dr.cell : [c.cell[0] - 1, c.cell[1]];
     // walk the vault interior, so panels land on its own walls whatever its size
     const inside = [], seen = new Set([c.cell.join(',')]);
     const q = [c.cell];
@@ -3484,24 +3487,51 @@ for (let l = 0; l < NLEV; l++) for (let r = 0; r < ROWS; r++) for (let c = 0; c 
         seen.add(k); q.push([nr, nc]);
       }
     }
-    // interior cells that back onto a wall, ordered so panels spread out
+    /* Interior cells backing onto a wall — but NEVER the one the way home is
+       mounted on. The hub portal hangs on a wall cell like anything else and at
+       exactly this height, so a panel landing there sits 12 cm in front of it
+       and blocks the only way out of the vault. Three of the six were like
+       that. */
     const spots = [];
     for (const [cr, cc] of inside) {
+      if (portalCells.has(`${c.lev},${cr},${cc}`)) continue;
       const s = wallSide(c.lev, cr, cc);
       if (s) spots.push([cr, cc, s]);
     }
     const others = props.crystals.filter((o) => o.id !== c.id);
     c.links = [];
+    /* Down the two FLANKS, not scattered over every wall. The gate is on one
+       wall and the crystal stands opposite it, so the walls either side are the
+       ones you look along as you walk in — which is where a row of them reads
+       as a row rather than as clutter. */
+    const dr0 = Math.sign(c.doorCell[0] - c.cell[0]), dc0 = Math.sign(c.doorCell[1] - c.cell[1]);
+    const flank = spots.filter(([, , sd]) => sd[0] * dr0 + sd[1] * dc0 === 0);
+    const cross = ([, , sd]) => sd[0] * dc0 - sd[1] * dr0;
+    const lanes = [flank.filter((x) => cross(x) > 0), flank.filter((x) => cross(x) < 0)];
+    for (const ln of lanes) ln.sort((x, y) => (x[0] - y[0]) || (x[1] - y[1]));
     others.forEach((o, i) => {
-      const spot = spots[Math.floor((i + 0.5) * spots.length / others.length)] || spots[i % spots.length];
+      const ln = lanes[i % 2].length ? lanes[i % 2] : (lanes[(i + 1) % 2].length ? lanes[(i + 1) % 2] : flank);
+      const per = Math.ceil(others.length / 2), n = Math.floor(i / 2);
+      const spot = (ln.length ? ln[Math.min(ln.length - 1, Math.floor((n + 0.5) * ln.length / per))] : null)
+                   || spots[i % spots.length];
       if (!spot) return;
       const [pr, pc, side] = spot;
       const p = cellCentre(pr, pc);
       const grp = new THREE.Group();
-      grp.add(new THREE.Mesh(new THREE.BoxGeometry(0.78, 1.05, 0.12), matPanelBase));
-      const face = new THREE.Mesh(new THREE.PlaneGeometry(0.56, 0.8),
-        new THREE.MeshPhongMaterial({ color: o.color, emissive: o.color, emissiveIntensity: 0.06 }));
-      face.position.z = 0.07;
+      /* Round, like the portal it is. Dull until you have been to the vault it
+         goes to — DESATURATED rather than dark, so the colour is legible from
+         across the room and you can read the whole network at a glance. */
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.40, 0.065, 8, 24), matPanelBase);
+      ring.castShadow = true;
+      grp.add(ring);
+      const full = new THREE.Color(o.color);
+      const hsl = { h: 0, s: 0, l: 0 };
+      full.getHSL(hsl);
+      const dull = new THREE.Color().setHSL(hsl.h, hsl.s * 0.20, hsl.l * 0.55);
+      const face = new THREE.Mesh(new THREE.CircleGeometry(0.38, 26),
+        new THREE.MeshPhongMaterial({ color: dull, emissive: dull, emissiveIntensity: 0.10 }));
+      face.position.z = 0.03;
+      face.userData.full = full; face.userData.dull = dull;
       grp.add(face);
       grp.position.set(p.x - side[1] * (CELL / 2 - 0.08), levelY(c.lev) + 1.45, p.z - side[0] * (CELL / 2 - 0.08));
       grp.rotation.y = Math.atan2(-side[1], -side[0]);
@@ -5018,14 +5048,38 @@ emitters.push(flyEmitter);
 
 function beginFlight() {
   const crystal = player.carrying;
-  const ped = props.pedestals.find((p) => p.id === crystal.id && !p.filled);
-  if (!ped) return;                       // already seated: nothing to fly
+  /* ANY empty stand, not its own — preferring one you are already looking at,
+     because the point of the flight is watching it land. Nothing downstream
+     cares which stand holds which crystal: the tracker is indexed by crystal. */
+  const free = props.pedestals.filter((q) => !q.filled);
+  if (!free.length) return;
+  let ped = free[0], best = -1e9;
+  for (const q of free) {
+    const dx = q.pos.x - player.pos.x, dz = q.pos.z - player.pos.z;
+    const len = Math.hypot(dx, dz) || 1;
+    const ahead = (-Math.sin(player.yaw) * dx + -Math.cos(player.yaw) * dz) / len;
+    const score = ahead * 2 + Math.random() * 0.6;
+    if (score > best) { best = score; ped = q; }
+  }
   player.carrying = null;
   carriedMesh.visible = false;
   carriedEmitter.on = false;
   el.carried.classList.remove('on');
   const from = carriedMesh.getWorldPosition(new THREE.Vector3());
-  flight = { crystal, ped, t: 0, from, to: new THREE.Vector3(ped.pos.x, 1.42, ped.pos.z) };
+  /* It takes a lap of the hub before it settles. Angles and radii about the
+     centre rather than a straight line between two points, so the path is a
+     real circuit of the room — and because the sweep ends exactly on the
+     stand's own angle and radius, it still lands on the millimetre. */
+  const a0 = Math.atan2(from.z - hubCentre.z, from.x - hubCentre.x);
+  const a1 = Math.atan2(ped.pos.z - hubCentre.z, ped.pos.x - hubCentre.x);
+  let da = a1 - a0;
+  while (da < 0) da += Math.PI * 2;
+  da += Math.PI * 2;                      // one guaranteed full turn on top
+  flight = { crystal, ped, t: 0, from,
+    to: new THREE.Vector3(ped.pos.x, 1.42, ped.pos.z),
+    a0, da,
+    r0: Math.hypot(from.x - hubCentre.x, from.z - hubCentre.z),
+    r1: Math.hypot(ped.pos.x - hubCentre.x, ped.pos.z - hubCentre.z) };
   flyMesh.material.color.setHex(crystal.color);
   flyMesh.material.emissive.setHex(crystal.color);
   flyEmitter.color.setHex(crystal.color);
@@ -5036,13 +5090,18 @@ function beginFlight() {
 }
 
 function stepFlight(dt) {
-  flight.t = Math.min(1, flight.t + dt / 1.15);
+  flight.t = Math.min(1, flight.t + dt / 3.2);           // long enough to watch
   const k = flight.t, e = k * k * (3 - 2 * k);
-  flyMesh.position.lerpVectors(flight.from, flight.to, e);
-  flyMesh.position.y += Math.sin(e * Math.PI) * 1.5;      // an arc, not a slide
-  flyMesh.rotation.y += dt * 7;
-  flyMesh.rotation.x += dt * 3;
-  flyMesh.scale.setScalar(0.42 + Math.sin(e * Math.PI) * 0.22);
+  const bow = Math.sin(e * Math.PI);
+  const ang = flight.a0 + flight.da * e;
+  const rad = flight.r0 + (flight.r1 - flight.r0) * e + bow * 4.6;   // swings wide
+  flyMesh.position.set(hubCentre.x + Math.cos(ang) * rad,
+                       flight.from.y + (flight.to.y - flight.from.y) * e + bow * 3.6,
+                       hubCentre.z + Math.sin(ang) * rad);
+  flyMesh.rotation.y += dt * 9;
+  flyMesh.rotation.x += dt * 4.5;
+  flyMesh.rotation.z += dt * 2.2;
+  flyMesh.scale.setScalar(0.42 + bow * 0.26);
   flyEmitter.pos.copy(flyMesh.position);
   flyEmitter.intensity = 20 + Math.sin(e * Math.PI) * 22;
   if (flight.t < 1) return;
@@ -5531,9 +5590,23 @@ const flashMesh = mkInst(new THREE.SphereGeometry(1, 12, 10),
   new THREE.MeshBasicMaterial({ color: 0xffe9e2, blending: THREE.AdditiveBlending,
     transparent: true, depthWrite: false, fog: false, toneMapped: false }), FLASH_N);
 flashMesh.castShadow = false;
-const smokeMesh = mkInst(new THREE.IcosahedronGeometry(1, 0),
-  new THREE.MeshBasicMaterial({ color: 0x07070a, transparent: true, opacity: 0.9,
-    depthWrite: false }), SMOKE_N);
+/* A soft round puff rather than a lump of geometry: a radial falloff painted
+   once into a canvas, on a plane that turns to face the camera every frame.
+   Twenty solid icosahedra read as gravel; forty of these read as smoke. */
+const smokeTex = (() => {
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = 64;
+  const g = cv.getContext('2d');
+  const rg = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  rg.addColorStop(0.00, 'rgba(12,12,15,0.95)');
+  rg.addColorStop(0.45, 'rgba(10,10,13,0.55)');
+  rg.addColorStop(1.00, 'rgba(8,8,11,0)');
+  g.fillStyle = rg; g.fillRect(0, 0, 64, 64);
+  return new THREE.CanvasTexture(cv);
+})();
+const smokeMesh = mkInst(new THREE.PlaneGeometry(1, 1),
+  new THREE.MeshBasicMaterial({ map: smokeTex, transparent: true, opacity: 0.95,
+    depthWrite: false, side: THREE.DoubleSide }), SMOKE_N);
 smokeMesh.castShadow = false;
 const flashes = [], smokes = [];
 for (let i = 0; i < FLASH_N; i++) flashes.push({ live: false, t: 0, pos: new THREE.Vector3() });
@@ -5571,11 +5644,12 @@ function updatePuffs(dt) {
     if (k.t <= 0) { k.live = false; smokeMesh.setMatrixAt(i, HIDDEN); continue; }
     k.vel.multiplyScalar(1 - 1.6 * dt);    // it drags, and drifts up
     k.pos.addScaledVector(k.vel, dt);
-    const r = k.sp * (1.9 - k.t);          // swelling as it thins
-    _mI.compose(k.pos, _qb.identity(), _sc.set(r, r, r));
+    const r = k.sp * (1.9 - k.t) * 2.6;    // swelling as it thins
+    _qb.copy(camera.quaternion);           // billboard, so a puff is never edge-on
+    _mI.compose(k.pos, _qb, _sc.set(r, r, r));
     smokeMesh.setMatrixAt(i, _mI);
   }
-  smokeMesh.material.opacity = 0.85;
+  smokeMesh.material.opacity = 0.95;
   smokeMesh.instanceMatrix.needsUpdate = true;
 }
 
@@ -6338,6 +6412,7 @@ const _mB = new THREE.Matrix4(), _mI = new THREE.Matrix4();
 const _UPY = new THREE.Vector3(0, 1, 0), _FWD = new THREE.Vector3(0, 0, 1);
 const _AXX = new THREE.Vector3(1, 0, 0), _AXZ = new THREE.Vector3(0, 0, 1);
 const _NEGZ = new THREE.Vector3(0, 0, -1);
+const _drawJit = new THREE.Vector3();
 const _qr = new THREE.Quaternion(), _qBody = new THREE.Quaternion();
 const _qHead = new THREE.Quaternion(), _qTmp = new THREE.Quaternion();
 const _bX = new THREE.Vector3(), _bF = new THREE.Vector3();
@@ -6560,6 +6635,19 @@ function drawMonster(a, sdt) {
     const shake = T < D_CURL ? 0 : Math.min(1, (T - D_CURL) / (D_SHAKE - D_CURL));
     const unrav = T < D_SHAKE ? 0 : Math.min(1, (T - D_SHAKE) / (D_END - D_SHAKE));
     const amp = 0.035 + 0.42 * shake * shake;      // the rattle, and it builds
+    /* And the whole body shakes itself apart as it swells — hard enough to
+       smear. The streaks are the same ones the charge lays down, which is what
+       makes it read as blur rather than as the model stuttering. */
+    const bur = Math.max(0, (T - D_CURL) / (D_END - D_CURL));
+    if (bur > 0.15) {
+      const j = 0.055 * bur * bur;
+      const tj = clock.elapsedTime * 47 + a.phase;
+      _drawJit.set(Math.sin(tj) * j, Math.sin(tj * 1.7 + 1.1) * j, Math.cos(tj * 1.3) * j);
+      if (bur > 0.4) {
+        _lp.set(Math.sin(tj * 2.1), 0.2, Math.cos(tj * 1.9)).normalize();
+        layStreak(a.pos, _lp, 0.5 + bur * 1.4);
+      }
+    } else _drawJit.set(0, 0, 0);
     for (let i = 0; i < MON_LEGS; i++) {
       const L = a.legs[i];
       /* Flatten the splay direction first. legDir points mostly DOWNWARD — it
@@ -6590,7 +6678,7 @@ function drawMonster(a, sdt) {
         .addScaledVector(_bX, bobU)
         .addScaledVector(_bF, bobF)
         .add(a.leanV);
-  if (a.mode === 'dying') _drawP.y += a.deadY;      // the fall is in world Y
+  if (a.mode === 'dying') { _drawP.y += a.deadY; _drawP.add(_drawJit); }
 
   /* a.qDraw is still written by exactly one statement — the corner slerp above
      — so the corner behaviour is untouched by construction. The gait's roll and
@@ -9323,7 +9411,10 @@ function frame(dt) {
     const live = visitedVault(lk.to.id);
     if (live !== lk.live) {
       lk.live = live;
-      lk.face.material.emissiveIntensity = live ? 1 : 0.06;
+      const fm = lk.face.material, ud = lk.face.userData;
+      fm.color.copy(live ? ud.full : ud.dull);
+      fm.emissive.copy(live ? ud.full : ud.dull);
+      fm.emissiveIntensity = live ? 1 : 0.10;
       lk.emitter.on = live;
       lk.emitter.intensity = live ? 3.2 : 0;
     }
@@ -9445,7 +9536,7 @@ window.__maze = {
   pick(n) { if (n < held.length) { sel = n; drawPowers(); } return POWERS[held[n]]?.name; },
   cloak: () => cloakT,
   flying: () => flight && { id: flight.crystal.id, t: +flight.t.toFixed(2) },
-  seatCrystal, unseatCrystal, aimFriction, vendorsOf: () => vendors, hubHeap,
+  seatCrystal, unseatCrystal, beginFlight, aimFriction, vendorsOf: () => vendors, hubHeap,
   setCloak(s) { cloakT = s; if (s <= 0) el.cloak.classList.remove('on'); },
   grantAll() { while (held.length < POWERS.length) grantPower(); },
   clock: () => clockT,
