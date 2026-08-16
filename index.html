@@ -4641,14 +4641,40 @@ function drawMinimap() {
     if (alongZ) { g.moveTo(x, y - half); g.lineTo(x, y + half); }
     else { g.moveTo(x - half, y); g.lineTo(x + half, y); }
     g.stroke();
-    // a round dot for a vault, filled once you have actually been inside it
+    /* A vault is a small circle drawn BOLD. It has to be unmistakable against
+       the plain filled dot that marks a switch, because the two now sit on the
+       same chart in the same six colours and mean opposite things: one is a
+       place to go, the other a thing to press. A vault you have been inside
+       keeps a filled centre. */
     if (d.open) {
       const been = props.crystals.find((c) => c.id === d.id)?.visited;
       g.beginPath();
-      g.arc(x, y, 3.4, 0, Math.PI * 2);
-      if (been) { g.fillStyle = hex; g.fill(); }
-      else { g.strokeStyle = hex; g.lineWidth = 1.6; g.stroke(); }
+      g.arc(x, y, 4.2, 0, Math.PI * 2);
+      g.strokeStyle = hex; g.lineWidth = 3;
+      g.stroke();
+      if (been) {
+        g.beginPath();
+        g.arc(x, y, 1.7, 0, Math.PI * 2);
+        g.fillStyle = hex; g.fill();
+      }
     }
+    g.globalAlpha = 1;
+  }
+
+  /* Every switch you have brought up out of the floor, marked where the thing
+     carrying it went down, in the colour of the vault it opens. It leaves the
+     chart the moment that gate is open — at which point there is nothing left
+     to find and the mark would only be clutter. */
+  for (const b of props.buttons) {
+    if (!b.grown) continue;
+    const door = props.doors.find((d) => d.id === b.id);
+    if (door && door.open) continue;
+    const bx = mmX(b.pos.x / CELL), by = mmY(b.pos.z / CELL);
+    g.globalAlpha = b.lev === player.lev ? 1 : 0.42;
+    g.fillStyle = doorHex(b.id);
+    g.beginPath();
+    g.arc(bx, by, 3, 0, Math.PI * 2);
+    g.fill();
     g.globalAlpha = 1;
   }
 
