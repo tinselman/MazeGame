@@ -193,10 +193,16 @@
     align-items: center; justify-content: center; gap: 22px;
     background: rgba(0,0,0,.9); pointer-events: auto; text-align: center; padding: 24px;
   }
-  .overlay h1 { font-size: 30px; letter-spacing: .42em; font-weight: 400; color: #f0f0f0; }
-  .overlay .keys { font-size: 12px; line-height: 2.1; opacity: .68; letter-spacing: .1em; }
-  .overlay .keys b { color: #ffd24a; font-weight: 600; }
-  .overlay .go { font-size: 12px; letter-spacing: .28em; opacity: .85; margin-top: 10px; animation: pulse 2.2s infinite; }
+  /* The title carries the game's own yellow. Letter-spacing comes right down
+     from the old .42em — that was set for two short words and would throw a
+     six-word title off both edges of the screen. */
+  .overlay h1 { font-size: 34px; letter-spacing: .13em; font-weight: 700; color: #ffd24a;
+                max-width: 92vw; line-height: 1.25; margin: 0 auto; }
+  .overlay .byline { font-size: 15px; letter-spacing: .18em; opacity: .8; margin-top: 14px; }
+  .overlay .keys { font-size: 14px; line-height: 2.1; opacity: .78; letter-spacing: .1em; }
+  .overlay .keys b { color: #ffd24a; font-weight: 700; }
+  .overlay .small { font-size: 11px; opacity: .72; letter-spacing: .12em; }
+  .overlay .go { font-size: 11px; letter-spacing: .28em; opacity: .85; margin-top: 10px; animation: pulse 2.2s infinite; }
   @keyframes pulse { 0%,100% { opacity: .35 } 50% { opacity: .95 } }
   .overlay.hidden { display: none; }
 
@@ -247,18 +253,12 @@
   <div id="aim">CHOOSE CHARTED GROUND ON THE CHART &nbsp;·&nbsp; ESC TO CANCEL</div>
 
   <div class="overlay" id="startscreen">
-    <h1>CRYSTAL MAZE</h1>
+    <h1>DARK GUARDIANS of the CRYSTAL MAZE</h1>
+    <div class="byline">By Robyn Miller</div>
     <div class="keys">
-      <b>W A S D</b> &nbsp;move &nbsp;·&nbsp; <b>SHIFT</b> run<br>
-      <b>← →</b> &nbsp;turn &nbsp;·&nbsp; <b>↑ ↓</b> &nbsp;look up and down &nbsp;·&nbsp; or <b>MOUSE</b> after clicking<br>
-      <b>E</b> &nbsp;press buttons, take crystals, cross from a stand to its vault<br>
-      <b>SPACE</b> or <b>MOUSE</b> &nbsp;fire &nbsp;·&nbsp; hold for the machine gun and the laser<br><br>
-      Six crystals are sealed in chambers across three levels.<br>
-      Each chamber's door opens from a button far away from it.<br>
-      Beside each crystal is a portal that returns you to the centre.<br><br>
-      The corridors have no lights. Only the rooms do, and only once you find<br>
-      the switch — that is where your flashlight recharges, and it is the only<br>
-      way to see the guns and ammunition lying in the dark.
+      <b>WARNING:</b> Don't die!<br>
+      The keepers of the labyrinth are depending on you!<br><br>
+      <span class="small">W A S D to move. SHIFT to run. SPACE to shoot. E to activate.</span>
     </div>
     <div class="go">CLICK TO BEGIN</div>
   </div>
@@ -5715,6 +5715,8 @@ for (let i = 0; i < MAX_ANTI; i++) {
                leanV: new THREE.Vector3(), climb: 0, home: null,
                lookYawT: 0, lookPitchT: 0, snapT: 0,
                heardAt: new THREE.Vector3(), deadY: 0, deadV: 0, deadFloor: 0, gate: 0,
+               hp: 60, hurtT: 99, flinch: 0, shotId: -1,
+               flinchDir: new THREE.Vector3(),
                goalRef: null, bestD: 1e9 });
 }
 
@@ -5820,6 +5822,7 @@ function spawnAnti(atPos, atLev) {
   a.pauseT = 5 + 7 * hash01(a.tag, 0); a.climb = 0; a.home = null;
   a.snapT = 0; a.lookYawT = 0; a.lookPitchT = 0; a.heardAt.copy(a.pos);
   a.deadY = 0; a.deadV = 0; a.deadFloor = 0; a.gate = 0;
+  a.hp = HP_MAX; a.hurtT = 99; a.flinch = 0; a.shotId = -1; a.flinchDir.set(0, 0, 0);
   a.goalRef = null; a.bestD = 1e9;
   for (const L of a.legs) { L.stretch = 1; L.rch.set(0, 0, 0); }
   // plant all six feet where they stand, so the first step is not a lurch
@@ -5993,6 +5996,54 @@ function updateShards(dt) {
     sh.mesh.material.opacity = k * k;                      // fades out fast at the end
     sh.mesh.scale.setScalar(0.5 + k * 0.9);
   }
+}
+
+/* ==================================================== TAKING A HIT =======
+   Nothing here used to survive a single round of anything. Now each one has a
+   pool, and what a weapon takes out of it depends on how far away you are —
+   which is the whole of the weapon design: the shotgun wants you close, the
+   blaster wants you anywhere BUT close, and the pistol never really wants to
+   be doing this at all.
+
+   The pool does not last. Wound one and walk away and it is whole again inside
+   ten seconds, so damage is something you spend inside a single fight rather
+   than a tally you grind down across the building.                          */
+const HP_MAX = 60;
+const PB_R = 3, MID_R = 12;                 // point blank, then mid; beyond is far
+const bandOf = (d) => (d <= PB_R ? 0 : d <= MID_R ? 1 : 2);
+/* Damage per landed shot, by weapon tier and band. Sixty divides by all of it:
+   a 3-shot kill is 20 a time, a 5-shot kill is 12, a one-shot kill is the lot.
+     pistol   3 / 3 / 4        shotgun  1 / 2 / 3
+     mg       1 / 3 / 5        blaster  4 / 1 / 1   (it needs room to work)
+     laser    1 at any range, and you can sweep it                          */
+const DMG = {
+  1: [20, 20, 15],
+  2: [60, 30, 20],
+  3: [60, 20, 12],
+  4: [15, 60, 60],
+  5: [60, 60, 60],
+};
+let shotSeq = 0;                            // one trigger pull, however many pellets
+
+/* A round lands. Returns true if that was the one that finished it.
+   `seq` makes a shotgun's nine pellets count as ONE shot: without it a single
+   trigger pull would land nine times and kill at any range. */
+function hurtAnti(a, tier, seq) {
+  if (!a.live || a.mode === 'dying' || a.mode === 'burn') return false;
+  if (seq !== undefined && a.shotId === seq) return false;
+  a.shotId = seq;
+  const d = Math.hypot(a.pos.x - player.pos.x, a.pos.z - player.pos.z)
+          + Math.abs(a.pos.y - player.pos.y) * 0.5;
+  const dmg = (DMG[tier] || DMG[1])[bandOf(d)];
+  a.hp -= dmg;
+  a.hurtT = 0;
+  if (a.hp <= 0) { killAnti(a); return true; }
+  // it felt that: a jolt away from you, and the eyes surge
+  a.flinch = 1;
+  a.flinchDir.set(a.pos.x - player.pos.x, 0, a.pos.z - player.pos.z);
+  if (a.flinchDir.lengthSq() > 1e-6) a.flinchDir.normalize();
+  sfx.hit && sfx.hit();
+  return false;
 }
 
 function killAnti(a) {
@@ -6705,6 +6756,12 @@ function drawMonster(a, sdt) {
         .addScaledVector(_bF, bobF)
         .add(a.leanV);
   if (a.mode === 'dying') { _drawP.y += a.deadY; _drawP.add(_drawJit); }
+  // it felt that: knocked back off the line of the shot, and shivering with it
+  if (a.flinch > 0) {
+    const f = a.flinch;
+    _drawP.addScaledVector(a.flinchDir, f * f * 0.34);
+    _drawP.y += Math.sin(clock.elapsedTime * 58 + a.phase) * f * 0.05;
+  }
 
   /* a.qDraw is still written by exactly one statement — the corner slerp above
      — so the corner behaviour is untouched by construction. The gait's roll and
@@ -6761,6 +6818,10 @@ function drawMonster(a, sdt) {
     const g = Math.pow(Math.min(1, a.modeT / D_END), 2);
     ew = 1 + 1.8 * g; eh = 1 + 1.8 * g; eyeInt = 5 + 110 * g;
   }
+  /* Wounded: the eyes surge. It is the one tell you can read across a dark
+     room, and it doubles as the hit confirmation — there is no health bar and
+     there is not going to be one. */
+  if (a.flinch > 0) { eyeInt += a.flinch * 85; ew *= 1 + a.flinch * 0.5; eh *= 1 + a.flinch * 0.5; }
   /* A blink, on its own rhythm per creature so a crowd never blinks in unison.
      Closed-form on the world clock, never accumulated, so it behaves the same
      under the fixed-step test harness as it does live. */
@@ -7061,6 +7122,16 @@ function sees(a) {
    warning, because the warning is a promise. */
 function moodOf(a, dt) {
   a.modeT += dt;
+  /* It heals. A pool that lasted would turn every creature into a tally you
+     chip at from safety; this way the damage only means something inside the
+     fight you are actually having. Full again ten seconds after the last round
+     landed, and it will not start knitting until a second and a half has
+     passed, so it cannot out-heal a magazine. */
+  if (a.hurtT < 99) {
+    a.hurtT += dt;
+    if (a.hurtT > 1.5 && a.hp < HP_MAX) a.hp = Math.min(HP_MAX, a.hp + (HP_MAX / 8.5) * dt);
+  }
+  if (a.flinch > 0) a.flinch = Math.max(0, a.flinch - dt * 6);
   /* Half a second is ten frames of 0.05 — and ten of those summed in floating
      point is 0.4999999999999999, which is not >= 0.5. Without this the stare
      runs eleven frames, the coil five, and the promised 0.70 s window is
@@ -8845,6 +8916,7 @@ function fireOnce() {
   }
   gunState.ammo--;
   gunState.cool = spec.rate;
+  shotSeq++;                    // nine pellets, one shot
   if (spec.blast) {
     sfx.blastShot();
     const hit = gunRay(0, false, 60) || { x: player.pos.x + rayDir.x * 60, y: player.pos.y, z: player.pos.z + rayDir.z * 60 };
@@ -8866,7 +8938,7 @@ function fireOnce() {
     for (const a of antis) {
       if (!a.live) continue;
       if ((a.pos.x - hit.x) ** 2 + (a.pos.y - hit.y) ** 2 + (a.pos.z - hit.z) ** 2 < 36) {
-        killAnti(a); n++;
+        if (hurtAnti(a, 4, shotSeq)) n++;
       }
     }
     return;
@@ -8887,7 +8959,7 @@ function fireOnce() {
 // it on arrival instead of at the moment the trigger went.
 function resolveHit(hit) {
   if (!hit) return;
-  if (hit.kind === 'anti') killAnti(hit.a);
+  if (hit.kind === 'anti') hurtAnti(hit.a, gunState.tier, shotSeq);
   else if (hit.kind === 'prop') {
     // it takes the round, and it goes over
     const lev = Math.round(hit.it.p.y / LEVEL_H);
@@ -9026,7 +9098,7 @@ function updateGuns(dt) {
         if (along < 0 || along > reach) continue;
         const ox = px - rayDir.x * along, oy = py - rayDir.y * along, oz = pz - rayDir.z * along;
         if (ox * ox + oy * oy + oz * oz < 1.1) {
-          killAnti(a);
+          killAnti(a);          // one touch at any range — the sweep IS the weapon
         }
       }
       if (gunState.charge <= 0) say('the laser is spent — a machine or the heap will recharge it', 4);
@@ -9571,6 +9643,7 @@ window.__maze = {
   spawnAnti, burnAnti, gripAlong, pickTarget, drawMonster, MODE_V, MON_LEGS,
   pickGoal, HUB_DOORS, enterSeek, seekStep, headStep, hash01, castYaw, STRIDE, SWING,
   heard, hearCost, noiseBearing, dyingStep, burstBits, bits, HEAR_R, NOISE_V,
+  hurtAnti, bandOf, DMG, HP_MAX, PB_R, MID_R,
   T_HEARD, T_FOCUS, D_END, T_ALERT, T_COIL, streaks, layStreak,
   bobOf(a) { const g = TAU * (a.walked / STRIDE);
              return { u: 0.085 * Math.cos(g), n: -0.030 * Math.cos(2 * g),
