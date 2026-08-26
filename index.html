@@ -3689,14 +3689,22 @@ function bakeAtlasUVs(geo, parts, tiles) {
 const hubHeap = (() => {
   const parts = [], cols = [], tiles = [];
   const rnd = (n) => ((Math.sin(n * 91.7 + 13.1) * 43758.5453) % 1 + 1) % 1;
-  const R = 2.55;
-  for (let i = 0; i < 900; i++) {
+  /* Nine hundred pieces over this much floor is a scatter, not a heap — you
+     could see the concrete through it and it read as spilled rather than
+     piled. What makes a pile is density at the crown: three times the count,
+     a rounder profile instead of a cone, and a spill of singles round the foot
+     so it has an edge that looks fallen rather than drawn. */
+  const R = 3.15, N = 2900;
+  for (let i = 0; i < N; i++) {
     // packed toward the middle, so it heaps rather than scattering
     const a = rnd(i) * Math.PI * 2;
-    const rr = R * Math.pow(rnd(i + 200), 0.58);
+    const rr = R * Math.pow(rnd(i + 200), 0.52);
     const x = Math.cos(a) * rr, z = Math.sin(a) * rr;
-    const h = 1.05 * Math.pow(1 - rr / R, 0.85) + 0.06;   // taller in the centre
-    const y = 0.04 + rnd(i + 400) * h;
+    // a dome, not a cone: full height held across the middle, falling away late
+    const t = rr / R;
+    const h = 1.55 * Math.pow(Math.max(0, 1 - t * t), 0.62) + 0.05;
+    // biased upward, so the crown is packed and you cannot see the floor through it
+    const y = 0.04 + Math.pow(rnd(i + 400), 0.72) * h;
     const tip = (rnd(i + 600) - 0.5) * 1.5;
     if (i % 5 < 3) {
       parts.push(at3(Box(0.21, 0.055, 0.095), x, y, z, tip * 0.5, rnd(i + 700) * 6.28, tip));
@@ -3704,6 +3712,20 @@ const hubHeap = (() => {
     } else {
       parts.push(at3(Cyl(0.042, 0.042, 0.125, 8), x, y, z, 1.57 + tip * 0.7, rnd(i + 800) * 6.28, tip));
       cols.push(0xffffff); tiles.push(8 + (i % 8));        // a printed can
+    }
+  }
+  // the strays: what rolled off the pile and stopped on the floor
+  for (let i = 0; i < 210; i++) {
+    const a = rnd(i + 3100) * Math.PI * 2;
+    const rr = R * (1 + rnd(i + 3300) * 0.55);
+    const x = Math.cos(a) * rr, z = Math.sin(a) * rr;
+    const tip = (rnd(i + 3500) - 0.5) * 0.5;
+    if (i % 2) {
+      parts.push(at3(Box(0.21, 0.055, 0.095), x, 0.03, z, tip * 0.3, rnd(i + 3700) * 6.28, tip));
+      cols.push(0xffffff); tiles.push(i % 8);
+    } else {
+      parts.push(at3(Cyl(0.042, 0.042, 0.125, 8), x, 0.042, z, 1.57, rnd(i + 3900) * 6.28, tip));
+      cols.push(0xffffff); tiles.push(8 + (i % 8));
     }
   }
   const geo = mergeGeos(parts);
@@ -6381,9 +6403,13 @@ function caughtBy(how) {
   for (const b of props.buttons) {
     if (b.mesh.userData.knob) b.mesh.userData.knob.material.emissiveIntensity = 0.25;
   }
-  // demoted to a pistol, and the ladder restarts: the shotgun goes back out
-  gunState.tier = 1; gunState.ammo = GUNS[0].mag; gunState.charge = 0;
-  placeNextGun(2);
+  // demoted to a pistol, and the ladder restarts: the shotgun goes back out.
+  // Unless you never fetched the pistol — dying empty-handed does not arm you,
+  // and the one on the heap is still turning where you left it.
+  if (gunState.tier > 0) {
+    gunState.tier = 1; gunState.ammo = GUNS[0].mag; gunState.charge = 0;
+    placeNextGun(2);
+  }
   rebuildReveal();
   sfx.caught();
   beginSwoosh();
@@ -8741,9 +8767,23 @@ const GUNS = [
   { key: 'blaster', name: 'BLASTER',     tier: 4, mag: 4,   auto: false, rate: 0.8,  blast: true },
   { key: 'laser',   name: 'LASER',       tier: 5, charge: 10, laser: true },
 ];
-const gunState = { tier: 1, ammo: 6, charge: 10, cool: 0, trigger: false, wasDown: false };
+/* Tier 0 is empty hands. You begin there: the pistol is not issued, it is
+   lying on the heap under the clock like everything else in this building, and
+   the walk to the middle of the hub to fetch it is the first thing the game
+   asks of you. */
+const gunState = { tier: 0, ammo: 0, charge: 0, cool: 0, trigger: false, wasDown: false };
+const NO_GUN = { key: 'none', name: 'UNARMED', tier: 0, mag: 0, auto: false,
+                 rate: 0.5, pellets: 0, spread: 0, none: true };
 const detect = { t: 0, near: Infinity };
-const curGun = () => GUNS[gunState.tier - 1];
+const curGun = () => GUNS[gunState.tier - 1] || NO_GUN;
+
+/* True size, and it stays true. A gun lying in the world is a thirty-centimetre
+   object in a hall three and a half metres tall, and the temptation is to swell
+   it so it can be spotted from the door — but a pistol the size of a fire
+   extinguisher stops reading as a pistol. What makes it findable is that it
+   turns, that it hangs clear of the floor, and that the detector on the HUD
+   counts you in. This is the one knob if it ever needs to change. */
+const WORLD_GUN_SCALE = 1.0;
 
 /* ---- the gun models: small, dark, and mute without light ---------------- */
 const matGun = new THREE.MeshPhongMaterial({ color: 0x8a8a8a, specular: 0xcfcfcf, shininess: 60 });
@@ -8826,11 +8866,12 @@ const worldGuns = [];
   };
   for (const spec of GUNS) {
     const mesh = new THREE.Mesh(GUN_GEOS[spec.key], matGun);
+    mesh.scale.setScalar(WORLD_GUN_SCALE);
     mesh.castShadow = true;
     mesh.visible = false;
     scene.add(mesh);
     worldGuns.push({ tier: spec.tier, spec, mesh, pos: new THREE.Vector3(),
-                     lev: 0, onFloor: false, bob: Math.random() * 6 });
+                     lev: 0, onFloor: false, bob: Math.random() * 6, reach: 1.7 });
   }
   // put the next rung out, somewhere you have not been sent yet — or exactly
   // where the level says that rung belongs
@@ -8844,7 +8885,22 @@ const worldGuns = [];
     g.onFloor = true;
     g.mesh.visible = false;                 // until light finds it
   };
-  __placeNextGun(2);                        // the shotgun is the first thing out there
+  /* The pistol is the first thing out, and it is not hidden in the building —
+     it turns over the heap under the clock, in plain sight from anywhere in
+     the hub. Taking it is what sends the shotgun out into the halls. */
+  {
+    const g = worldGuns.find((w) => w.tier === 1);
+    /* Clear of the crown, not sunk in it. The heap stands about 1.6 m, so
+       anything lower than this is a grey shape lost among the wrappers. */
+    g.pos.set(hubHeap.pos.x, levelY(0) + 2.5, hubHeap.pos.z);
+    g.lev = 0;
+    g.onFloor = true;
+    /* And you take it by reaching the heap, not by wading into the middle of
+       it — the pile is over three metres across and you would have to stand
+       inside the candy to trip the ordinary pickup. */
+    g.reach = 13;
+    g.mesh.visible = false;                 // until light finds it
+  }
 }
 const placeNextGun = window.__placeNextGun;
 
@@ -9077,6 +9133,22 @@ const vendors = [];
                    emitter, lamps, cool: 0, spotted: false, awake: false, wake: 0, i });
   });
   for (const m of [bodies, trims, glows, stocks, glass, spills, liner]) m.instanceMatrix.needsUpdate = true;
+  /* Seed the four tinted meshes with their asleep colours here rather than
+     letting updateVendors be the first to call setColorAt. An InstancedMesh has
+     no instanceColor until something sets one, and gaining that attribute
+     changes the shader key — so leaving it to the first frame means four
+     programs compile mid-play instead of during the warm-up. These are the
+     exact values a sleeping machine gets, so nothing looks different. */
+  {
+    const c0 = new THREE.Color();
+    for (let i = 0; i < N; i++) {
+      glows.setColorAt(i, c0.setScalar(0));
+      spills.setColorAt(i, c0.setScalar(0));
+      stocks.setColorAt(i, c0.setScalar(0.03));
+      bodies.setColorAt(i, c0.copy(VEND_GREY));
+    }
+    for (const m of [bodies, glows, stocks, spills]) m.instanceColor.needsUpdate = true;
+  }
   window.__vendors = { bodies, trims, glows, stocks, glass, spills, liner, list: vendors };
 }
 
@@ -9147,6 +9219,7 @@ function vendorAhead() {
 }
 
 function dropGunAt(g, x, z, lev) {
+  g.reach = 1.7;                            // only the heap pistol gets a wide one
   g.pos.set(x, levelY(lev) + 1.15, z);
   g.lev = lev;
   g.onFloor = true;
@@ -9279,6 +9352,12 @@ function restFloorUnder(x, y, z, lev) {
 
 function fireOnce() {
   const spec = curGun();
+  if (spec.none) {                               // nothing in your hands yet
+    sfx.dry();
+    say('nothing in your hands — there is a pistol on the heap', 3.2);
+    gunState.cool = 0.5;
+    return;
+  }
   if (spec.laser) return;                        // the laser is held, not clicked
   if (gunState.ammo <= 0) {
     sfx.dry();
@@ -9384,7 +9463,7 @@ function updateGuns(dt) {
     g.mesh.position.set(g.pos.x, g.pos.y + Math.sin(t * 1.4 + g.bob) * 0.10, g.pos.z);
     g.mesh.rotation.y = t * 0.9 + g.bob;
     if (g.lev === player.lev && g.tier > gunState.tier
-        && (g.pos.x - player.pos.x) ** 2 + (g.pos.z - player.pos.z) ** 2 < 1.7) {
+        && (g.pos.x - player.pos.x) ** 2 + (g.pos.z - player.pos.z) ** 2 < (g.reach || 1.7)) {
       const old = worldGuns.find((w) => w.tier === gunState.tier);
       if (old) dropGunAt(old, player.pos.x, player.pos.z, player.lev);
       g.onFloor = false; g.mesh.visible = false;
@@ -9392,8 +9471,15 @@ function updateGuns(dt) {
       gunState.ammo = g.spec.mag || 0;
       gunState.charge = g.spec.charge || 0;
       sfx.gunget();
-      announce(g.spec.name, '#ffffff', 3.6);
-      say('what you were carrying is on the floor behind you', 5);
+      if (g.tier === 1) {
+        /* One line, not two. Split across the announce and the subtitle it came
+           out stacked in the wrong order — the subtitle sits above the banner,
+           so the punchline arrived before the greeting. */
+        say("HEY DUDE! You have a pistol. Not a great weapon but it'll do the job.", 5.5);
+      } else {
+        announce(g.spec.name, '#ffffff', 3.6);
+        say('what you were carrying is on the floor behind you', 5);
+      }
       placeNextGun(g.tier + 1);            // and the next rung goes out somewhere
     }
   }
@@ -9403,7 +9489,8 @@ function updateGuns(dt) {
   if (player.lev === 0 && hubHeap) {
     const dx = player.pos.x - hubHeap.pos.x, dz = player.pos.z - hubHeap.pos.z;
     if (dx * dx + dz * dz < 9) {
-      const needed = spec.laser ? gunState.charge < spec.charge : gunState.ammo < spec.mag;
+      const needed = spec.none ? false
+        : spec.laser ? gunState.charge < spec.charge : gunState.ammo < spec.mag;
       if (needed) {
         gunState.ammo = spec.mag || 0;
         gunState.charge = spec.charge || 0;
@@ -9482,8 +9569,8 @@ function updateGuns(dt) {
   gunState.wasDown = gunState.trigger;
 
   // the readout: what you hold, and where the next thing worth holding is
-  const held = spec.laser
-    ? `${spec.name}  ${gunState.charge.toFixed(1)}s`
+  const held = spec.none ? spec.name
+    : spec.laser ? `${spec.name}  ${gunState.charge.toFixed(1)}s`
     : `${spec.name}  ${gunState.ammo}/${spec.mag}`;
   let best = null, bestD = 1e9;
   for (const g of worldGuns) {
@@ -9977,7 +10064,62 @@ function frame(dt) {
   renderer.render(scene, camera);
 }
 
+/* Shader warm-up. Three.js compiles a program the first time a given material,
+   light count and output colour space actually reach the renderer, and a
+   program that turns up mid-play costs a whole visible frame. The light pool
+   exists so the light half of that key never moves; this closes the other half
+   by walking every material in the scene once, before the start screen is
+   dismissed, while a stall costs nothing.
+     It has to be done twice. The canvas renders sRGB, a render target renders
+   linear, and three treats those as two different programs — so the portal and
+   x-ray passes need their own pass over the same materials or the first portal
+   you walk up to compiles thirty programs in one frame. */
+function warmShaders() {
+  renderer.compile(scene, camera);            // sRGB out: the canvas
+  renderer.setRenderTarget(hubViewRT);        // linear out: portals, and the x-ray
+  renderer.compile(scene, hubViewCam);
+  renderer.setRenderTarget(null);
+  /* compile() knows nothing about the shadow pass. A depth program is built the
+     first time a caster of that material lands inside the torch's frustum, and
+     in play that is some corner you happen to walk round — one dropped frame
+     with nothing on screen to explain it. Widening the beam and taking a frame
+     is not enough, because what the beam happens to sweep at the start depends
+     on where the level put you. So hang a millimetre-wide stand-in for every
+     casting material right in front of the lens instead, where the beam cannot
+     miss them, and take one frame with those. */
+  const tiny = new THREE.PlaneGeometry(0.01, 0.01);
+  const ident = new THREE.Matrix4();
+  const seen = new Set(), stand = [];
+  scene.traverse((o) => {
+    if (!o.castShadow || !o.material) return;
+    for (const m of (Array.isArray(o.material) ? o.material : [o.material])) {
+      // instanced and plain casters compile to different depth programs
+      const key = m.uuid + (o.isInstancedMesh ? ':i' : '');
+      if (seen.has(key)) continue;
+      seen.add(key);
+      let s;
+      if (o.isInstancedMesh) {
+        s = new THREE.InstancedMesh(tiny, m, 1);
+        s.setMatrixAt(0, ident);
+        s.instanceMatrix.needsUpdate = true;
+      } else s = new THREE.Mesh(tiny, m);
+      s.castShadow = true;
+      s.frustumCulled = false;
+      s.position.set(0, 0, -0.6);          // clear of the torch's shadow near plane
+      camera.add(s);
+      stand.push(s);
+    }
+  });
+  const angle = torch.angle, dist = torch.distance;
+  torch.angle = 1.2; torch.distance = 60;
+  renderer.render(scene, camera);
+  torch.angle = angle; torch.distance = dist;
+  for (const s of stand) camera.remove(s);
+  tiny.dispose();
+}
+
 rebuildReveal();
+warmShaders();
 tick();
 
 /* Dev handle: `__maze.go(level, row, col)` teleports. */
