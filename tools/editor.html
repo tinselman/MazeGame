@@ -409,6 +409,8 @@ function buildGrid(){
     if(rm.enclosed===false){ rectFill(grid,rm.lev,rm.r1,rm.c1,rm.r2,rm.c2,'+'); continue; }
     rectFill(grid,rm.lev,rm.r1,rm.c1,rm.r2,rm.c2,'#');
     rectFill(grid,rm.lev,rm.r1+1,rm.c1+1,rm.r2-1,rm.c2-1, rm.t==='chamber'?'v':'+');
+    if(rm.t==='chamber'){ const g=gateOf(rm); const [gr,gc]=g.cells[0];
+      if(grid[rm.lev]?.[gr]) grid[rm.lev][gr][gc]='.'; }
   }
   // the hub
   const H=L.hub;
@@ -487,9 +489,48 @@ function doorCells(rm,d){
 }
 const doorSpan = (rm,side) => (side==='N'||side==='S')
   ? rm.c2-rm.c1-1 : rm.r2-rm.r1-1;          // cells along that interior wall
-/* Chambers are the crystal vaults: the generator cuts their one gated portal
-   itself, so they are not a room you put doors on. Atriums and open rooms have
-   no wall ring to put one in. */
+/* A VAULT HAS EXACTLY ONE GATE, AND YOU PLACE IT.
+   Not a doorway — a single cell, on any of the four walls, and putting a new
+   one down is what takes the old one away. This mirrors gateOf() in
+   genmaze.js cell for cell; if one of them changes the other has to, or the
+   gate you click is not the gate you get. Everything inside the vault turns to
+   face it: the crystal lands on the gate's own axis and the way home goes on
+   the wall behind it. */
+const gateSpan = (rm,side) => (side==='N'||side==='S')
+  ? rm.c2-rm.c1-1 : rm.r2-rm.r1-1;
+function gateCell(rm,side,at){
+  const I = inner(rm);
+  if(side==='N') return [rm.r1, I.c1+at];
+  if(side==='S') return [rm.r2, I.c1+at];
+  if(side==='W') return [I.r1+at, rm.c1];
+  return [I.r1+at, rm.c2];
+}
+const isVault = (rm) => rm.t==='chamber';
+function gateOf(rm){
+  if(!isVault(rm)) return null;
+  const g = rm.gate;
+  const side = (g && 'NSWE'.includes(g.side)) ? g.side : 'N';
+  const span = gateSpan(rm,side);
+  const at = Math.max(0, Math.min(span-1,
+    (g && Number.isFinite(g.at)) ? g.at : Math.floor((span-1)/2)));
+  return { side, at, auto:!g, cells:[gateCell(rm,side,at)] };
+}
+function gateSlots(rm){
+  if(!isVault(rm)) return [];
+  const out=[];
+  for(const side of ['N','S','W','E'])
+    for(let at=0; at<gateSpan(rm,side); at++)
+      out.push({side, at, cells:[gateCell(rm,side,at)]});
+  return out;
+}
+function setGate(rm, side, at){
+  mark();
+  rm.gate = {side, at};        // one gate: the new one replaces whatever was there
+  rebuild(); dirty();
+}
+
+/* Ordinary rooms take doorways; a vault takes a gate instead, above. Atriums
+   and open rooms have no wall ring to put one in. */
 const hasDoors = (rm) => rm.t!=='void' && rm.t!=='atrium' && rm.t!=='chamber'
                       && rm.enclosed!==false;
 function doorsOf(rm){
@@ -656,10 +697,15 @@ function pick(mx,my){
   if(sel&&sel.kind==='room'&&sel.o.lev===lev){
     const on=(cells)=>cells.some(([r,c])=>
       mx>=px(c)&&mx<px(c+1)&&my>=py(r)&&my<py(r+1));
-    for(const d of doorsOf(sel.o)) if(on(d.cells))
-      return {kind:'door', o:sel.o, side:d.side, at:d.at};
-    for(const d of doorSlots(sel.o)) if(on(d.cells))
-      return {kind:'door', o:sel.o, side:d.side, at:d.at};
+    if(isVault(sel.o)){
+      for(const d of gateSlots(sel.o)) if(on(d.cells))
+        return {kind:'gate', o:sel.o, side:d.side, at:d.at};
+    } else {
+      for(const d of doorsOf(sel.o)) if(on(d.cells))
+        return {kind:'door', o:sel.o, side:d.side, at:d.at};
+      for(const d of doorSlots(sel.o)) if(on(d.cells))
+        return {kind:'door', o:sel.o, side:d.side, at:d.at};
+    }
   }
   // walkways sit above the floor they cross, so they are picked before it
   const gh = ghostAt(mx,my);
@@ -740,6 +786,30 @@ function validate(){
     if(d.into[0]>=g.r1&&d.into[0]<=g.r2&&d.into[1]>=g.c1&&d.into[1]<=g.c2)
       out.push({sev:'bad',lev:d.lev,o:d,r:d.into[0],c:d.into[1],
                 msg:`the parapet gap at ${d.into[0]},${d.into[1]} is under a walkway — nothing to fall through`});
+  /* NOTHING STANDS IN A VAULT DOORWAY. The generator cuts a vault's gate into
+     the middle of its north wall, and you have to be able to STAND on the cell
+     outside it to reach the thing. Run a stairwell across that cell and the
+     approach becomes a rising ramp: you get carried up off the floor before you
+     ever reach the door, and the vault is shut for good. It builds without
+     complaint and looks perfectly fine on the plan — the only way to find out
+     is to walk to it in the game, which is exactly how it was found. */
+  for(const rm of L.rooms){
+    if(rm.t!=='chamber') continue;
+    const gateC = Math.floor((rm.c1+rm.c2)/2);      // as genmaze cuts it
+    const gateR = rm.r1, appR = rm.r1-1;
+    for(const st of (L.stairs||[])){
+      if(st.lo!==rm.lev && st.lo+1!==rm.lev) continue;
+      for(const [r,c] of st.cells){
+        if(c!==gateC) continue;
+        if(r===appR)
+          out.push({sev:'bad',lev:rm.lev,o:st,r,c,
+            msg:`a stairwell crosses the doorway of this vault at ${r},${c} — you cannot stand there, so the crystal is unreachable`});
+        else if(r===gateR)
+          out.push({sev:'bad',lev:rm.lev,o:st,r,c,
+            msg:`a stairwell runs through this vault's gate at ${r},${c}`});
+      }
+    }
+  }
   const list=[];
   for(const rm of L.rooms) if(rm.t!=='void'&&rm.t!=='atrium') list.push(rm);
   for(let i=0;i<list.length;i++) for(let j=i+1;j<list.length;j++){
@@ -830,6 +900,18 @@ function draw(){
   if(sel&&sel.kind==='room'&&sel.o.lev===lev){
     g.fillStyle='#6fd3ff1e';
     for(const d of doorSlots(sel.o)) for(const [r,c] of d.cells) g.fillRect(px(c),py(r),S,S);
+    if(isVault(sel.o)){
+      // `gt`, not `g` — `g` is the canvas context in this scope, and shadowing
+      // it here silently blanked every draw call below
+      const gt = gateOf(sel.o);
+      // every wall cell it could go in, faint; the one it is in, bright
+      for(const d of gateSlots(sel.o)){
+        const [r,c]=d.cells[0];
+        const live = d.side===gt.side && d.at===gt.at;
+        g.fillStyle = live ? '#ffd24a' : 'rgba(255,210,74,.18)';
+        g.fillRect(px(c)+1, py(r)+1, S-2, S-2);
+      }
+    }
     for(const d of doorsOf(sel.o)){
       g.fillStyle = d.auto ? '#6fd3ff88' : '#6fd3ff';
       for(const [r,c] of d.cells) g.fillRect(px(c),py(r),S,S);
@@ -992,16 +1074,23 @@ function renderInsp(){
         <option value="1"${rm.enclosed===false?'':' selected'}>enclosed — a wall ring with doorways</option>
         <option value="0"${rm.enclosed===false?' selected':''}>open — the floor runs out to the halls</option>
       </select>
+      ${isVault(rm) ? (()=>{ const g=gateOf(rm); return `
+      <div class="sect">gate · one only</div>
+      <p class="hint">${g.auto
+        ? 'Where the generator would put it: the middle of the north wall. Click any pale square on the plan to place it yourself.'
+        : 'Hand-placed. Click another pale square to move it — a vault has exactly one gate, so the new one replaces this.'}</p>
+      <span class="chip${g.auto?' auto':''}">${g.side} at ${g.at}</span>
+      <p class="hint">Everything inside turns to face it: the crystal sits on the
+      gate's own axis, and the way back to the hub goes on the wall behind it.</p>
+      ${g.auto?'':'<div class="row"><button class="btn" id="gauto">back to automatic</button></div>'}`; })() : `
       <div class="sect">doorways · ${doors.length}</div>
       <p class="hint">${
-        rm.t==='chamber'
-          ? 'None here. A vault gets one gated portal, in the colour of the crystal inside it, and the generator cuts that itself once it knows which crystal this is.'
-        : !hasDoors(rm)
+        !hasDoors(rm)
           ? 'None here — this has no wall ring to put one in.'
         : rm.doors ? 'Hand-placed. Click a pale square on the plan to open a doorway, or a bright one to close it.'
         : 'Automatic: two opposite faces so the room is a through-route, and a third for choice. Click a pale square to place your own — the first click makes them all yours.'}</p>
       ${doors.map(d=>`<span class="chip${d.auto?' auto':''}">${d.side} at ${d.at}</span>`).join('')}
-      ${rm.doors?'<div class="row"><button class="btn" id="dauto">back to automatic</button></div>':''}
+      ${rm.doors?'<div class="row"><button class="btn" id="dauto">back to automatic</button></div>':''}`}
       ${contentsHTML(rm)}
       <div class="sect">remove</div>
       <button class="btn" id="del" style="width:100%">delete this room</button>`;
@@ -1019,6 +1108,7 @@ function renderInsp(){
       rebuild(); dirty();};
     el('enc').onchange=e=>{mark(); if(e.target.value==='0') rm.enclosed=false; else delete rm.enclosed; rebuild(); dirty();};
     const da=el('dauto'); if(da) da.onclick=()=>{mark(); delete rm.doors; rebuild(); dirty();};
+    const ga=el('gauto'); if(ga) ga.onclick=()=>{mark(); delete rm.gate; rebuild(); dirty();};
     el('del').onclick=()=>{mark(); delete L.roomItems[rm.id]; L.rooms=L.rooms.filter(x=>x!==rm); sel=null; rebuild(); dirty();};
     return;
   }
@@ -1101,6 +1191,7 @@ cv.addEventListener('mousedown',(e)=>{
   const hit=pick(e.offsetX,e.offsetY);
   moved=0;
   if(hit.kind==='door'){ toggleDoor(hit.o,hit.side,hit.at); return; }
+  if(hit.kind==='gate'){ setGate(hit.o,hit.side,hit.at); return; }
   if(hit.kind==='overpass'||hit.kind==='gallery'){
     sel=hit; mark();
     const [r,c]=toCell(e.offsetX,e.offsetY);
@@ -1167,7 +1258,7 @@ cv.addEventListener('mousemove',(e)=>{
     const edge=handleAt(hit.o,e.offsetX,e.offsetY);
     cur = edge ? ({N:'ns-resize',S:'ns-resize',W:'ew-resize',E:'ew-resize',
       NW:'nwse-resize',SE:'nwse-resize',NE:'nesw-resize',SW:'nesw-resize'}[edge]||'move') : 'move';
-  } else if(FIT[hit.kind]||hit.kind==='door') cur='pointer';
+  } else if(FIT[hit.kind]||hit.kind==='door'||hit.kind==='gate') cur='pointer';
   cv.style.cursor=cur;
 });
 addEventListener('mouseup',()=>{

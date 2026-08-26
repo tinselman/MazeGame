@@ -306,7 +306,7 @@ if (ROOMS_FIRST) {
           ...(ov.remove && ov.remove.length ? { remove: ov.remove } : {}) }
       : null;
     if (rm.t === 'atrium') { atriumBlocks.push({ ...R, lev: rm.lev }); continue; }
-    if (rm.t === 'chamber') { chamberSlots.push({ ...R, lev: rm.lev }); continue; }
+    if (rm.t === 'chamber') { chamberSlots.push({ ...R, lev: rm.lev, gate: rm.gate }); continue; }
     // a hole in the floor: no room, and no corridor either
     if (rm.t === 'void') { rect(rm.lev, R.r1, R.c1, R.r2, R.c2, VOID); continue; }
     if (rm.enclosed === false) {
@@ -410,16 +410,44 @@ for (const e of HUB_EXITS) {
 
 /* ---- crystal chambers -------------------------------------------------- */
 const CHAMBERS = [];
+/* WHERE A VAULT'S GATE IS, AND WHAT THAT MOVES.
+   The gate used to be cut in the middle of the north wall and nowhere else,
+   with the crystal in the centre and the portal beside it. Now the gate is a
+   thing you place, on any of the four walls — and everything inside turns to
+   face it: the crystal sits on the gate's own axis so you see it the moment
+   you step through, and the portal home goes on the far wall directly behind
+   it. Exactly one gate to a vault; placing a new one is what removes the old.
+   `at` is an index along that wall's INTERIOR, clamped, so a vault survives
+   being resized under a gate that was placed when it was a different size. */
+const gateOf = (slot) => {
+  const ir1 = slot.r1 + 1, ic1 = slot.c1 + 1, ir2 = slot.r2 - 1, ic2 = slot.c2 - 1;
+  const g = slot.gate;
+  const side = (g && 'NSWE'.includes(g.side)) ? g.side : 'N';
+  const span = (side === 'N' || side === 'S') ? ic2 - ic1 + 1 : ir2 - ir1 + 1;
+  const mid = Math.floor((span - 1) / 2);
+  const at = Math.max(0, Math.min(span - 1, g && Number.isFinite(g.at) ? g.at : mid));
+  if (side === 'N') return { side, at, cell: [slot.r1, ic1 + at], din: [1, 0] };
+  if (side === 'S') return { side, at, cell: [slot.r2, ic1 + at], din: [-1, 0] };
+  if (side === 'W') return { side, at, cell: [ir1 + at, slot.c1], din: [0, 1] };
+  return { side, at, cell: [ir1 + at, slot.c2], din: [0, -1] };
+};
+
 chamberSlots.forEach((slot, i) => {
   // The interior is the block inset by one, never a fixed size: blocks vary
   // from six cells to sixteen, and a hardcoded 5x5 vault punches straight
   // through the wall ring of a small one, leaving the crystal unsealed.
   const ir1 = slot.r1 + 1, ic1 = slot.c1 + 1, ir2 = slot.r2 - 1, ic2 = slot.c2 - 1;
-  const cr = Math.floor((ir1 + ir2) / 2), cc = Math.floor((ic1 + ic2) / 2);
   rect(slot.lev, slot.r1, slot.c1, slot.r2, slot.c2, WALL);
   rect(slot.lev, ir1, ic1, ir2, ic2, '.');
-  const door = [slot.r1, cc];
-  G[slot.lev][slot.r1][cc] = DOORCH[i];
+
+  const gt = gateOf(slot);
+  const door = gt.cell;
+  const [dr, dc] = gt.din;
+  /* On the gate's own axis, half way in. The old centre-of-the-room rule put
+     the crystal off to one side of anything but a north gate. */
+  const cr = dr ? Math.floor((ir1 + ir2) / 2) : gt.cell[0];
+  const cc = dc ? Math.floor((ic1 + ic2) / 2) : gt.cell[1];
+  G[slot.lev][gt.cell[0]][gt.cell[1]] = DOORCH[i];
   G[slot.lev][cr][cc] = String(i + 1);
   /* The portal, beside the crystal — but INSIDE the vault, always. This used
      to step two cells out and only bounds-check some of the ways it could go:
@@ -430,9 +458,17 @@ chamberSlots.forEach((slot, i) => {
      furthest free cell from the crystal, whatever the shape of the room. */
   const inside = (r, c) => r >= ir1 && r <= ir2 && c >= ic1 && c <= ic2 && !(r === cr && c === cc);
   let pr = -1, pc = -1;
-  // two cells to a side, the way it has always been placed...
-  for (const [dr, dc] of [[0, 2], [0, -2], [2, 0], [-2, 0]]) {
-    if (inside(cr + dr, cc + dc)) { pr = cr + dr; pc = cc + dc; break; }
+  /* The way home goes against the wall FACING the gate, straight behind the
+     crystal — so stepping through you see the crystal, and the way out beyond
+     it, in one look. */
+  {
+    const fr = dr > 0 ? ir2 : dr < 0 ? ir1 : cr;
+    const fc = dc > 0 ? ic2 : dc < 0 ? ic1 : cc;
+    if (inside(fr, fc)) { pr = fr; pc = fc; }
+  }
+  // ...and failing that, two cells to a side, the way it has always been placed
+  if (pr < 0) for (const [or_, oc] of [[0, 2], [0, -2], [2, 0], [-2, 0]]) {
+    if (inside(cr + or_, cc + oc)) { pr = cr + or_; pc = cc + oc; break; }
   }
   // ...and if the vault is too small for that, the nearest cell that is inside
   if (pr < 0) {
@@ -445,7 +481,7 @@ chamberSlots.forEach((slot, i) => {
   }
   if (pr >= 0) G[slot.lev][pr][pc] = 'P';
   // the rect travels with it so the sealed-vault check has a wall ring to walk
-  CHAMBERS.push({ id: i + 1, lev: slot.lev, cr, cc, door,
+  CHAMBERS.push({ id: i + 1, lev: slot.lev, cr, cc, door, gate: gt.side,
                   r1: slot.r1, c1: slot.c1, r2: slot.r2, c2: slot.c2 });
 });
 
