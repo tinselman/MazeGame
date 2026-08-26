@@ -697,3 +697,8 @@ magazines and fire rates,
 heavy the fascia reads, `BAT_DRAIN` / `BAT_CHARGE`, `POOL_SIZE`, and the `FLUOR`
 yellow. Window placements are the `WINDOW_RUNS` table; each entry is a run along a
 row or a column and is validated at load against the map.
+
+## Copyright
+
+Copyright (c) 2026 Robyn C Miller. All rights reserved. See LICENSE — no
+permission is given to copy, modify or redistribute this work.
