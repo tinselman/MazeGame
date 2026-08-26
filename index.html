@@ -4233,8 +4233,11 @@ const sfx = {
     };
     const vox = a.createGain();
     vox.gain.setValueAtTime(0.0001, t);
-    vox.gain.exponentialRampToValueAtTime(1.0, t + 0.11);   // slower in than the shriek
-    vox.gain.setValueAtTime(1.0, t + 0.60);
+    /* The throats were mixed to sit right under the shriek and were being
+       swallowed by it — the vowels are the part worth hearing, so they come up
+       to where you can tell EH from OH. */
+    vox.gain.exponentialRampToValueAtTime(2.6, t + 0.11);   // slower in than the shriek
+    vox.gain.setValueAtTime(2.6, t + 0.60);
     vox.gain.exponentialRampToValueAtTime(0.0001, t + 2.0); // and it outlasts it
     const throat = (hz, endHz, V) => {
       const src = a.createOscillator();
@@ -4249,7 +4252,7 @@ const sfx = {
         bp.type = 'bandpass';
         bp.frequency.value = f;
         bp.Q.value = f / V.bw[i];                            // bandwidth, not a guess at Q
-        const vg = a.createGain(); vg.gain.value = lvl[i] * V.trim * 0.30;
+        const vg = a.createGain(); vg.gain.value = lvl[i] * V.trim * 0.36;
         pre.connect(bp).connect(vg).connect(vox);
       });
       src.start(t); src.stop(t + 2.1);
@@ -4257,7 +4260,11 @@ const sfx = {
     throat(69.30, 82.41, VOW.EH);      // C#2 climbing a minor third
     throat(65.41, 55.00, VOW.OH);      // C2 going down one — a fifth apart at the end
     b.out(vox, 0.9);
-    vox.connect(dl);                   // down the same corridor as the shriek
+    /* The throats do NOT go down the delay. The shriek should come back at you
+       off the walls three or four times — that is what makes a corridor sound
+       like a corridor — but a VOICE repeating is a second creature answering
+       the first. It cries once, and once only; the echoes behind it are the
+       shriek alone. */
   } catch (e) { /* */ } },
 
   /* THE SQUEAL IT MAKES WHILE IT IS RUNNING. Not a one-shot like the roar —
@@ -4304,6 +4311,14 @@ const sfx = {
     lfo.connect(la);
     for (const o of nodes) la.connect(o.detune);
     nodes.push(lfo);
+    /* DOPPLER. A constant source added to every oscillator's detune, so each
+       keeps its own offset and the waver keeps working on top; the game writes
+       this one number each frame from how fast the gap is closing. Note it also
+       falls BELOW zero as one overshoots and runs past you, which is the half
+       of the effect that sells it. */
+    const dop = a.createConstantSource(); dop.offset.value = 0;
+    for (const o of nodes) if (o.detune) dop.connect(o.detune);
+    nodes.push(dop);
     // and a continuous rasp over the top
     const src = a.createBufferSource();
     const buf = a.createBuffer(1, Math.floor(a.sampleRate * 2), a.sampleRate);
@@ -4317,7 +4332,7 @@ const sfx = {
     b.out(dist, 0.8);
 
     let done = false, guard = 0;
-    const handle = { dist, stop() {
+    const handle = { dist, dop, stop() {
       if (done) return; done = true;
       clearTimeout(guard);
       heldVoices.delete(handle);
@@ -5912,7 +5927,7 @@ for (let i = 0; i < MAX_ANTI; i++) {
                leanV: new THREE.Vector3(), climb: 0, home: null,
                lookYawT: 0, lookPitchT: 0, snapT: 0,
                heardAt: new THREE.Vector3(), deadY: 0, deadV: 0, deadFloor: 0, gate: 0,
-               squeal: null,
+               squeal: null, lastDist: undefined,
                hp: 60, hurtT: 99, flinch: 0, shotId: -1,
                flinchDir: new THREE.Vector3(),
                goalRef: null, bestD: 1e9 });
@@ -6664,6 +6679,17 @@ function turnToward(a, tu, tv, k) {
 
 // where it is heading, as a point in space rather than a cell on the plan
 function goalPoint(a, out) {
+  /* A CHARGE GOES AT YOU. It used to steer by a.goal like everything else, and
+     a.goal is whatever the wander logic last decided — so a creature that
+     launched before its next repath charged at wherever it had been heading,
+     which could be directly away from the player. It looked like an attack and
+     was a creature leaving the room at seven metres a second.
+
+     a.rushTo has been sitting here since the telegraph was written, holding the
+     player's position at the instant of launch and refreshed while it can still
+     see you. It was never read. It is now, and that is the whole point of it:
+     break line of sight during the charge and it commits to where you WERE. */
+  if (a.mode === 'rush') return out.copy(a.rushTo);
   if (!a.goal) return out.copy(a.pos);
   if (a.goal.isPlayer) return out.copy(player.pos);
   const g = groundUnder(Math.floor(a.goal.z / CELL), Math.floor(a.goal.x / CELL),
@@ -7390,6 +7416,7 @@ function moodOf(a, dt) {
       a.rushTo.copy(player.pos);
       sfx.roar && sfx.roar();
       hushAnti(a);                        // never stack two
+      a.lastDist = undefined;             // no leftover closing speed from the last one
       a.squeal = sfx.squeal ? sfx.squeal() : null;
       return;
     }
@@ -7397,12 +7424,32 @@ function moodOf(a, dt) {
   }
   if (m === 'rush') {
     if (sees(a)) a.rushTo.copy(player.pos);
-    /* It swells as it closes. Written straight onto the voice's own gain every
-       frame, so a charge from across a gallery arrives rather than just being
-       loud from the start. */
+    /* IT ARRIVES. Two things written onto the voice every frame, both from the
+       gap between you and it.
+
+       The swell is squared, not linear: far off it is barely there, and the
+       last few metres are where nearly all of the loudness lives. A straight
+       ramp reads as a fader being pushed; this reads as something covering
+       ground.
+
+       And the doppler. c is deliberately nowhere near the speed of sound — at
+       343 m/s a 7.6 m/s charge shifts about 39 cents, which is real and
+       inaudible in a game. At 120 it is over a semitone going away and back
+       again as it passes, which is what a thing rushing past actually sounds
+       like to anyone who is not a physicist. */
     if (a.squeal) {
       const d = a.pos.distanceTo(player.pos);
-      a.squeal.dist.gain.value = Math.max(0.10, Math.min(1, 1.25 - d / 26));
+      const k = Math.max(0, 1 - d / 24);
+      a.squeal.dist.gain.value = Math.max(0.05, Math.min(1, 0.05 + 0.95 * k * k));
+      /* dt, not sdt — `sdt` is not even in scope here, which threw on every
+         frame of every charge. And dt is the better answer anyway: doppler is
+         a fact about air, so what matters is how fast the gap closes in REAL
+         seconds. Slow the world down and the shift should shrink with it. */
+      const closing = (a.lastDist === undefined ? 0 : (a.lastDist - d) / Math.max(dt, 1e-4));
+      a.lastDist = d;
+      const c = 120;
+      const cents = 1200 * Math.log2(c / Math.max(20, c - Math.max(-40, Math.min(40, closing))));
+      a.squeal.dop.offset.value = Math.max(-260, Math.min(260, cents));
     }
     if (done(T_RUSH)) { a.mode = 'recover'; a.modeT = 0; hushAnti(a); }
     return;
