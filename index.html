@@ -3807,6 +3807,18 @@ function initBus() {
 }
 
 // short-lived voices, for the interface sounds that were here before
+/* EVERY HELD VOICE IS REGISTERED HERE. A one-shot stops itself; a sustained
+   one is only as safe as the handle that owns it, and a handle can go missing:
+   the code that started it may throw before returning, the object holding it
+   may be reset, the game may simply forget. Any of those leaves oscillators
+   running with nothing able to stop them, which is a note that never ends.
+   This set is the answer — whatever else happens, panicAudio() can reach it. */
+const heldVoices = new Set();
+function panicAudio() {
+  for (const v of Array.from(heldVoices)) { try { v.stop(); } catch (e) { /* */ } }
+  heldVoices.clear();
+}
+
 function blip(freq, dur, type = 'square', gain = 0.06, send = 0.55) {
   try {
     const b = initBus(), a = b.a;
@@ -4134,6 +4146,221 @@ const sfx = {
   charge:() => { [300, 460, 700, 1060].forEach((f, i) => setTimeout(() => blip(f, 0.16, 'square', 0.045), i * 120)); },
   // A prism, not a death. A bright cluster blooming upward and a scatter of
   // glass behind it, both drowned in the room.
+  /* THE SCREECH. What you hear when one stops being careful and comes for you.
+     Four detuned saws hauled up an octave and a half in a tenth of a second and
+     then torn back down, through a bandpass that shrieks up past five kilohertz
+     and collapses to a growl — so it starts as a scream and ends as something
+     with a throat. A noise layer over the top for the rasp.
+
+     The echo is the point of it. A 340 ms delay at just over half feedback,
+     damped a little more each pass, running into the same convolver the whole
+     building uses: down a corridor it comes back at you three or four times,
+     each one darker, from somewhere behind. You should not be able to tell
+     which way it came from.                                                 */
+  roar: () => { try {
+    const b = initBus(), a = b.a, t = a.currentTime;
+    const out = a.createGain();
+    out.gain.setValueAtTime(0.0001, t);
+    /* Loud. A high-Q bandpass sheds most of a signal's peak, so the first
+       version measured quieter at the master than the crystal pickup chime —
+       the most frightening thing in the building was being out-shouted by a
+       blip. It should be the loudest thing you ever hear in here. */
+    out.gain.exponentialRampToValueAtTime(1.9, t + 0.045);
+    out.gain.setValueAtTime(1.9, t + 0.26);
+    out.gain.exponentialRampToValueAtTime(0.0001, t + 1.05);
+
+    const bp = a.createBiquadFilter();
+    bp.type = 'bandpass'; bp.Q.value = 5.5;
+    bp.frequency.setValueAtTime(2400, t);
+    bp.frequency.exponentialRampToValueAtTime(5400, t + 0.085);   // the shriek
+    bp.frequency.exponentialRampToValueAtTime(380, t + 0.9);      // and the tear down
+    bp.connect(out);
+
+    for (const [mult, det] of [[1, 0], [1, 19], [1.5, -13], [2.02, 7]]) {
+      const o = a.createOscillator(), og = a.createGain();
+      o.type = 'sawtooth'; o.detune.value = det;
+      o.frequency.setValueAtTime(300 * mult, t);
+      o.frequency.exponentialRampToValueAtTime(900 * mult, t + 0.10);
+      o.frequency.exponentialRampToValueAtTime(115 * mult, t + 0.95);
+      og.gain.value = 0.30;
+      o.connect(og).connect(bp);
+      o.start(t); o.stop(t + 1.1);
+    }
+    const src = a.createBufferSource();
+    const buf = a.createBuffer(1, Math.floor(a.sampleRate * 1.1), a.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / d.length, 1.5);
+    src.buffer = buf;
+    const ng = a.createGain(); ng.gain.value = 0.5;
+    src.connect(ng).connect(bp);
+    src.start(t);
+
+    const dl = a.createDelay(2.0); dl.delayTime.value = 0.34;
+    const fb = a.createGain(); fb.gain.value = 0.55;
+    const damp = a.createBiquadFilter();
+    damp.type = 'lowpass'; damp.frequency.value = 1700;
+    out.connect(dl); dl.connect(damp); damp.connect(fb); fb.connect(dl);
+    b.out(out, 0.9);
+    b.out(damp, 1.0);                       // the returns go hard into the room
+
+    /* AND UNDERNEATH IT, TWO THROATS.
+       The formants are lifted straight from THE VOICE — Robyn's own vocal
+       tract synth — where they were found by pattern search and measured to
+       within a couple of cents of the adult-male targets:
+
+           EH   F1 600   F2 1930   F3 2550     trim 1.514
+           OH   F1 500   F2  850   F3 3050     trim 2.086
+
+       This is NOT that engine. THE VOICE is a Kelly-Lochbaum waveguide — an
+       actual tube that scatters at every area discontinuity — and porting two
+       and a half thousand lines of it into a game that is one file to serve one
+       sound effect would be a poor trade. What comes across is the table: three
+       parallel resonators a throat's width apart, on a sawtooth standing in for
+       the glottal pulse. It will not fool anyone who knows the real thing, but
+       the vowels are unmistakably EH and OH because the numbers are the numbers.
+
+       The `trim` is THE VOICE's equal-power rule, kept: an OH sings through
+       nearly-closed lips and radiates less for the same push, so its shortfall
+       against AH is repaid at the output and the two mouths carry the same
+       weight. Without it the OH sits half a voice quieter than the EH.
+
+       They start a half step apart and open to a fifth — close enough at the
+       top to beat against each other, and ending on an interval that never
+       settles. The EH climbs, the OH goes down after it. */
+    const VOW = {
+      EH: { f: [600, 1930, 2550], bw: [70, 100, 150], trim: 1.514 },
+      OH: { f: [500,  850, 3050], bw: [70,  90, 180], trim: 2.086 },
+    };
+    const vox = a.createGain();
+    vox.gain.setValueAtTime(0.0001, t);
+    vox.gain.exponentialRampToValueAtTime(1.0, t + 0.11);   // slower in than the shriek
+    vox.gain.setValueAtTime(1.0, t + 0.60);
+    vox.gain.exponentialRampToValueAtTime(0.0001, t + 2.0); // and it outlasts it
+    const throat = (hz, endHz, V) => {
+      const src = a.createOscillator();
+      src.type = 'sawtooth';                                 // standing in for the folds
+      src.frequency.setValueAtTime(hz, t);
+      src.frequency.exponentialRampToValueAtTime(endHz, t + 1.5);
+      const pre = a.createGain(); pre.gain.value = 0.5;
+      src.connect(pre);
+      const lvl = [1.0, 0.5, 0.22];                          // F1 carries it, F3 colours it
+      V.f.forEach((f, i) => {
+        const bp = a.createBiquadFilter();
+        bp.type = 'bandpass';
+        bp.frequency.value = f;
+        bp.Q.value = f / V.bw[i];                            // bandwidth, not a guess at Q
+        const vg = a.createGain(); vg.gain.value = lvl[i] * V.trim * 0.30;
+        pre.connect(bp).connect(vg).connect(vox);
+      });
+      src.start(t); src.stop(t + 2.1);
+    };
+    throat(69.30, 82.41, VOW.EH);      // C#2 climbing a minor third
+    throat(65.41, 55.00, VOW.OH);      // C2 going down one — a fifth apart at the end
+    b.out(vox, 0.9);
+    vox.connect(dl);                   // down the same corridor as the shriek
+  } catch (e) { /* */ } },
+
+  /* THE SQUEAL IT MAKES WHILE IT IS RUNNING. Not a one-shot like the roar —
+     this one is held, and it lasts exactly as long as the thing is coming at
+     you. It returns a handle rather than playing and forgetting, because every
+     started voice MUST be stoppable: a creature that dies mid-charge has to go
+     silent in the same instant, and one that catches you takes the whole
+     soundscape down with it.
+
+     High and unstable. The pitch will not sit still — an LFO on the detune of
+     all three saws, so it wavers like something screaming through a throat that
+     is not built for it. `dist` is a separate gain the game writes every frame,
+     so a charge across a gallery swells as it closes.                        */
+  squeal: () => { try {
+    const b = initBus(), a = b.a, t = a.currentTime;
+    const out = a.createGain();
+    out.gain.setValueAtTime(0.0001, t);
+    out.gain.exponentialRampToValueAtTime(0.9, t + 0.07);
+    const dist = a.createGain(); dist.gain.value = 1;
+    out.connect(dist);
+
+    const bp = a.createBiquadFilter();
+    bp.type = 'bandpass'; bp.Q.value = 8;
+    bp.frequency.setValueAtTime(2600, t);
+    bp.frequency.exponentialRampToValueAtTime(4200, t + 0.5);   // it climbs as it comes
+    bp.connect(out);
+
+    /* BUILT FIRST, STARTED LAST. The first version started each oscillator as
+       it made it and only returned the handle at the end — so anything that
+       threw in between left five sources running that nothing could ever
+       reach. That is the hung note. Now the whole graph is assembled, the
+       handle is registered, and only then does a single sound begin. */
+    const nodes = [];
+    for (const [hz, det] of [[640, 0], [640, 27], [965, -16]]) {
+      const o = a.createOscillator(), g = a.createGain();
+      o.type = 'sawtooth'; o.frequency.value = hz; o.detune.value = det;
+      g.gain.value = 0.26;
+      o.connect(g).connect(bp);
+      nodes.push(o);
+    }
+    // the waver — a throat that cannot hold a note
+    const lfo = a.createOscillator(), la = a.createGain();
+    lfo.type = 'sine'; lfo.frequency.value = 7.4; la.gain.value = 34;
+    lfo.connect(la);
+    for (const o of nodes) la.connect(o.detune);
+    nodes.push(lfo);
+    // and a continuous rasp over the top
+    const src = a.createBufferSource();
+    const buf = a.createBuffer(1, Math.floor(a.sampleRate * 2), a.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    src.buffer = buf; src.loop = true;
+    const ng = a.createGain(); ng.gain.value = 0.30;
+    src.connect(ng).connect(bp);
+    nodes.push(src);
+
+    b.out(dist, 0.8);
+
+    let done = false, guard = 0;
+    const handle = { dist, stop() {
+      if (done) return; done = true;
+      clearTimeout(guard);
+      heldVoices.delete(handle);
+      try {
+        const n = a.currentTime;
+        out.gain.cancelScheduledValues(n);
+        out.gain.setValueAtTime(Math.max(0.0001, out.gain.value), n);
+        out.gain.exponentialRampToValueAtTime(0.0001, n + 0.10);
+      } catch (e) { /* */ }
+      // stopped unconditionally, outside the ramp's try: if the envelope throws
+      // the sources must still be silenced
+      for (const o of nodes) { try { o.stop(a.currentTime + 0.13); } catch (e) { /* */ } }
+    } };
+    heldVoices.add(handle);
+    /* A charge is 2.4 s. Nothing that runs past eight is a charge any more, it
+       is a fault — so it stops itself whatever the game does or forgets. */
+    guard = setTimeout(() => handle.stop(), 8000);
+
+    for (const o of nodes) { try { o.start(t); } catch (e) { /* */ } }
+    return handle;
+  } catch (e) { return null; } },
+
+  /* A round landing on one. It was referenced from the moment creatures got
+     hit points and has been silent ever since, which left the only confirmation
+     of a hit the eye-flare. */
+  hit: () => { try {
+    const b = initBus(), a = b.a, t = a.currentTime;
+    const src = a.createBufferSource();
+    const buf = a.createBuffer(1, Math.floor(a.sampleRate * 0.22), a.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / d.length, 3.2);
+    src.buffer = buf;
+    const bp = a.createBiquadFilter();
+    bp.type = 'bandpass'; bp.Q.value = 1.6;
+    bp.frequency.setValueAtTime(1500, t);
+    bp.frequency.exponentialRampToValueAtTime(260, t + 0.18);
+    const g = a.createGain();
+    g.gain.setValueAtTime(0.20, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.2);
+    src.connect(bp).connect(g); b.out(g, 0.5);
+    src.start(t);
+  } catch (e) { /* */ } },
+
   kill:  () => {
     [523, 659, 784, 1046, 1318, 1568].forEach((f, i) =>
       setTimeout(() => blip(f, 1.5, 'triangle', 0.055, 0.9), i * 42));
@@ -4766,56 +4993,14 @@ function drawMinimap() {
     g.restore();
   }
 
-  // The other lights. You can always see where they are — that is the whole
-  // counterplay, and without it being hunted would just be arbitrary.
-  for (const a of antis) {
-    if (!a.live) continue;
-    // where it has just been, fading out behind it
-    const now = clock.elapsedTime;
-    g.save();
-    g.lineWidth = 2;
-    g.lineCap = 'round';
-    for (let i = 1; i < a.path.length; i++) {
-      const p0 = a.path[i - 1], p1 = a.path[i];
-      // barely a stub behind the dot — a centimetre of trail that fades in a
-      // second, just enough to read which way it is walking
-      const age = now - p1.t;
-      if (age > 1) continue;
-      g.globalAlpha = (1 - age) * 0.8 * (p1.lev === player.lev ? 1 : 0.35);
-      g.strokeStyle = a.zombie ? '#5bff8f' : '#7fd4ff';
-      g.beginPath();
-      g.moveTo(mmX(p0.x / CELL), mmY(p0.z / CELL));
-      g.lineTo(mmX(p1.x / CELL), mmY(p1.z / CELL));
-      g.stroke();
-    }
-    g.restore();
-    const ax = mmX(a.pos.x / CELL), ay = mmY(a.pos.z / CELL);
-    const here = a.lev === player.lev;
-    const bx = -Math.sin(a.yaw), by = -Math.cos(a.yaw);
-    g.save();
-    g.globalAlpha = here ? 1 : 0.4;
-    g.fillStyle = a.zombie ? 'rgba(110,255,150,.32)' : 'rgba(150,190,255,.30)';
-    g.beginPath();
-    g.moveTo(ax, ay);
-    g.arc(ax, ay, 15, Math.atan2(by, bx) - 0.42, Math.atan2(by, bx) + 0.42);
-    g.closePath();
-    g.fill();
-    // red while its beam could actually take you: your level, in range, and you
-    // are not standing in a lit room
-    // red while it is close enough that knife or gun could take you
-    const near = here && Math.hypot(a.pos.x - player.pos.x, a.pos.z - player.pos.z) < 10;
-    g.fillStyle = a.zombie ? '#5bff8f' : (near && !safeInLight() ? '#ff6a4a' : '#a8c8ff');
-    g.beginPath(); g.arc(ax, ay, here ? 3.8 : 2.6, 0, Math.PI * 2); g.fill();
-    g.font = '9px ui-monospace, monospace';
-    g.textAlign = 'left';
-    g.fillText((a.zombie ? 'Z' : 'F') + a.tag + (a.carrying ? '*' : ''), ax + 5.5, ay - 4);
-    if (a.carrying) {                     // ringed while it is carrying a twin
-      g.strokeStyle = '#' + a.carrying.color.toString(16).padStart(6, '0');
-      g.lineWidth = 1.6;
-      g.beginPath(); g.arc(ax, ay, 6.5, 0, Math.PI * 2); g.stroke();
-    }
-    g.restore();
-  }
+  /* THEY ARE NOT ON THE CHART. They used to be — a facing wedge, a dot and a
+     tag apiece — from back when they were flashlights and watching them come
+     WAS the counterplay. It is not any more: they crawl in the dark, they hunt
+     you by ear, and the whole of your warning is two red eyes and a noise.
+     Handing their positions back on a map undoes every bit of that. What is
+     left is the ground they disturb, which the antiSeen patch still paints —
+     that tells you something has been through without telling you where it is
+     now. */
 
   const px = mmX(player.pos.x / CELL), py = mmY(player.pos.z / CELL);
   const fx = -Math.sin(player.yaw), fy = -Math.cos(player.yaw);
@@ -5727,6 +5912,7 @@ for (let i = 0; i < MAX_ANTI; i++) {
                leanV: new THREE.Vector3(), climb: 0, home: null,
                lookYawT: 0, lookPitchT: 0, snapT: 0,
                heardAt: new THREE.Vector3(), deadY: 0, deadV: 0, deadFloor: 0, gate: 0,
+               squeal: null,
                hp: 60, hurtT: 99, flinch: 0, shotId: -1,
                flinchDir: new THREE.Vector3(),
                goalRef: null, bestD: 1e9 });
@@ -5852,6 +6038,7 @@ function retireAnti(a) {
   if (a.gun && !a.gun.virtual) { dropGunAt(a.gun, a.pos.x, a.pos.z, a.lev); }
   a.gun = null;
   a.live = false;
+  hushAnti(a);
   a.eyeEm.on = false; a.eyeEm.intensity = 0;
   a.mode = 'crawl'; a.ashT = 0;
   // take its geometry off the screen: an instance is never removed, only shrunk
@@ -6060,6 +6247,7 @@ function hurtAnti(a, tier, seq) {
 
 function killAnti(a) {
   if (!a.live || a.mode === 'dying' || a.mode === 'burn') return;   // already going
+  hushAnti(a);                            // shot mid-charge: it stops mid-scream
   const had = a.carrying;
   a.mode = 'dying'; a.modeT = 0; a.deadY = 0; a.deadV = 0;
   // whatever is under it right now, however many storeys down
@@ -6088,6 +6276,7 @@ function safeInLight() {
 
 function caughtBy(how) {
   hitFlash = 1;
+  hushAll();                    // it has you: every one of them goes quiet at once
   // one more comes up out of the exact spot you went down on
   spawnAnti(player.pos, player.lev);
   caughtT = 1.9;                    // a beat to see what took you before it moves you
@@ -7200,13 +7389,22 @@ function moodOf(a, dt) {
       a.mode = 'rush'; a.modeT = 0;
       a.rushTo.copy(player.pos);
       sfx.roar && sfx.roar();
+      hushAnti(a);                        // never stack two
+      a.squeal = sfx.squeal ? sfx.squeal() : null;
       return;
     }
     return;
   }
   if (m === 'rush') {
     if (sees(a)) a.rushTo.copy(player.pos);
-    if (done(T_RUSH)) { a.mode = 'recover'; a.modeT = 0; }
+    /* It swells as it closes. Written straight onto the voice's own gain every
+       frame, so a charge from across a gallery arrives rather than just being
+       loud from the start. */
+    if (a.squeal) {
+      const d = a.pos.distanceTo(player.pos);
+      a.squeal.dist.gain.value = Math.max(0.10, Math.min(1, 1.25 - d / 26));
+    }
+    if (done(T_RUSH)) { a.mode = 'recover'; a.modeT = 0; hushAnti(a); }
     return;
   }
   if (m === 'burn') {
@@ -7280,8 +7478,20 @@ function dyingStep(a, dt) {
   }
 }
 
+/* EVERY started voice has exactly one way out. A creature shot mid-charge, one
+   burnt by a light, one retired by a power, one that has just taken the player
+   — all of them come through here, so nothing can be left screaming in an empty
+   corridor with nothing making the noise. */
+function hushAnti(a) {
+  if (a.squeal) { a.squeal.stop(); a.squeal = null; }
+}
+function hushAll() {
+  for (const a of antis) hushAnti(a);
+  panicAudio();                 // and anything whose owner has already lost it
+}
+
 function burnAnti(a) {
-  if (a.live && a.mode !== 'burn') { a.mode = 'burn'; a.modeT = 0; a.ashT = 0; }
+  if (a.live && a.mode !== 'burn') { hushAnti(a); a.mode = 'burn'; a.modeT = 0; a.ashT = 0; }
 }
 
 function stepAnti(a, dt, sdt) {
@@ -7452,6 +7662,7 @@ function updateAntis(dt, sdt) {
   if (caughtT > 0 && (caughtT -= dt) <= 0) sendHome();
 
   if (ending) {
+    hushAll();
     for (const a of antis) if (a.live) retireAnti(a);
     clockBox.visible = false;
     el.hudclockwrap.classList.remove('on');
@@ -9639,7 +9850,7 @@ window.__maze = {
   worldGuns, GUNS, gunState, dropGunAt, fireOnce, vendors, seenNow, litAt, torchFallsOn,
   vaultCells, isVaultWall, isVaultSlab, breachSlab, wanderGoal,
   chunks, debrisMesh, rimMesh, burstWall, blowFurnitureOver, furniture, punchHole,
-  getBus: () => bus, CHORD_SECS, LEG_STEPS,
+  getBus: () => bus, sfx, CHORD_SECS, LEG_STEPS,
   audioState: () => (actx ? actx.state : 'none'),
   markOpen, markShut,
   POWERS, held, holes, fireHeld, wallAhead, roomAhead, portalPick,
@@ -9655,7 +9866,8 @@ window.__maze = {
   spawnAnti, burnAnti, gripAlong, pickTarget, drawMonster, MODE_V, MON_LEGS,
   pickGoal, HUB_DOORS, enterSeek, seekStep, headStep, hash01, castYaw, STRIDE, SWING,
   heard, hearCost, noiseBearing, dyingStep, burstBits, bits, HEAR_R, NOISE_V,
-  hurtAnti, bandOf, DMG, HP_MAX, PB_R, MID_R,
+  hurtAnti, bandOf, DMG, HP_MAX, PB_R, MID_R, hushAnti, hushAll,
+  panicAudio, heldVoices,
   T_HEARD, T_FOCUS, D_END, T_ALERT, T_COIL, streaks, layStreak,
   bobOf(a) { const g = TAU * (a.walked / STRIDE);
              return { u: 0.085 * Math.cos(g), n: -0.030 * Math.cos(2 * g),
