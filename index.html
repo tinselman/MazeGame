@@ -3788,6 +3788,11 @@ function initBus() {
   }
   const conv = a.createConvolver();
   conv.buffer = ir;
+  /* Built here, next to the impulse, and not one sample later. Left to fill
+     itself on first use it landed on the first charge of the game — the one
+     frame already building four voices — which is precisely the frame that
+     must not stall. Startup has the room; a charge does not. */
+  noiseBuffer(a);
   const wet = a.createGain(); wet.gain.value = 0.95;
   const dry = a.createGain(); dry.gain.value = 1.0;
   conv.connect(wet).connect(master);
@@ -3817,6 +3822,53 @@ const heldVoices = new Set();
 function panicAudio() {
   for (const v of Array.from(heldVoices)) { try { v.stop(); } catch (e) { /* */ } }
   heldVoices.clear();
+}
+
+/* NOISE IS BUILT ONCE, NOT PER SOUND.
+   Every rasp, crack and scatter in here filled a fresh AudioBuffer with
+   Math.random() at the moment it played — 96,000 samples for the squeal, 52,800
+   for the roar — synchronously, on the main thread, in the same frame the
+   creature launched. One charge cost about 3.3 ms; six at once measured 11.2 ms
+   of a 16.7 ms frame, before the game had drawn anything. That is a dropped
+   frame, and a dropped frame is a hole in the audio: the blank spots and the
+   flutter, worst exactly when creatures are close, because that is when several
+   of them charge at once.
+
+   A BufferSource is cheap; the BUFFER is what costs. So there is one, four
+   seconds long, and every noise source reads a window of it with its own
+   envelope shaping the level. Fills once at startup, never again.          */
+let _noiseBuf = null;
+function noiseBuffer(a) {
+  if (_noiseBuf && _noiseBuf.sampleRate === a.sampleRate) return _noiseBuf;
+  const n = Math.floor(a.sampleRate * 2);
+  _noiseBuf = a.createBuffer(1, n, a.sampleRate);
+  const d = _noiseBuf.getChannelData(0);
+  for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+  return _noiseBuf;
+}
+function noiseSource(a, loop = false) {
+  const src = a.createBufferSource();
+  src.buffer = noiseBuffer(a);
+  src.loop = loop;
+  return src;
+}
+/* Start it at a random point in the shared buffer, so two shots fired a second
+   apart are not the same 2,400 samples twice, and stop it when the sound is
+   over — a shared buffer is four seconds long and would otherwise run on. */
+function startNoise(src, t, dur) {
+  const room = Math.max(0, src.buffer.duration - (dur || 0) - 0.02);
+  src.start(t, Math.random() * room);
+  if (dur && !src.loop) src.stop(t + dur);
+}
+/* The decays were baked into the samples as (1 - i/len)^k, which is why every
+   sound needed its own buffer. Sampling that same curve into a handful of
+   automation points puts it on the gain instead, where it costs nothing. */
+function decay(param, t, peak, dur, k) {
+  param.setValueAtTime(peak, t);
+  for (let i = 1; i <= 5; i++) {
+    const x = i / 5;
+    param.exponentialRampToValueAtTime(Math.max(0.0001, peak * Math.pow(1 - x, k) || 0.0001), t + dur * x);
+  }
 }
 
 function blip(freq, dur, type = 'square', gain = 0.06, send = 0.55) {
@@ -3999,11 +4051,9 @@ function metal(vel = 1) {
   try {
     const b = initBus(), a = b.a, t = a.currentTime;
     const dur = 2.2;
-    const src = a.createBufferSource();
-    const buf = a.createBuffer(1, Math.floor(a.sampleRate * 0.4), a.sampleRate);
-    const d = buf.getChannelData(0);
-    for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / d.length, 5);
-    src.buffer = buf;
+    const src = noiseSource(a);
+    const nEnv = a.createGain();
+    decay(nEnv.gain, t, 1, 0.4, 5);
     const bp = a.createBiquadFilter();
     bp.type = 'bandpass';
     bp.frequency.value = 420 + Math.random() * 900;
@@ -4011,8 +4061,8 @@ function metal(vel = 1) {
     const g = a.createGain();
     g.gain.setValueAtTime(0.16 * vel, t);
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    src.connect(bp).connect(g); b.out(g, 0.95);
-    src.start(t);
+    src.connect(nEnv).connect(bp).connect(g); b.out(g, 0.95);
+    startNoise(src, t, 0.4);
   } catch (e) { /* */ }
 }
 
@@ -4203,14 +4253,13 @@ const sfx = {
       o.connect(og).connect(bp);
       o.start(t); o.stop(t + 1.1);
     }
-    const src = a.createBufferSource();
-    const buf = a.createBuffer(1, Math.floor(a.sampleRate * 1.1), a.sampleRate);
-    const d = buf.getChannelData(0);
-    for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / d.length, 1.5);
-    src.buffer = buf;
-    const ng = a.createGain(); ng.gain.value = 0.5;
+    /* The decay that used to be baked into the samples is an envelope now, so
+       the buffer can be shared. */
+    const src = noiseSource(a);
+    const ng = a.createGain();
+    decay(ng.gain, t, 0.5, 1.1, 1.5);
     src.connect(ng).connect(bp);
-    src.start(t);
+    startNoise(src, t, 1.1);
 
     const dl = a.createDelay(2.0); dl.delayTime.value = 0.34;
     const fb = a.createGain(); fb.gain.value = 0.55;
@@ -4343,11 +4392,7 @@ const sfx = {
     for (const o of nodes) if (o.detune) dop.connect(o.detune);
     nodes.push(dop);
     // and a continuous rasp over the top
-    const src = a.createBufferSource();
-    const buf = a.createBuffer(1, Math.floor(a.sampleRate * 2), a.sampleRate);
-    const d = buf.getChannelData(0);
-    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
-    src.buffer = buf; src.loop = true;
+    const src = noiseSource(a, true);
     const ng = a.createGain(); ng.gain.value = 0.30;
     src.connect(ng).connect(bp);
     nodes.push(src);
@@ -4383,11 +4428,7 @@ const sfx = {
      of a hit the eye-flare. */
   hit: () => { try {
     const b = initBus(), a = b.a, t = a.currentTime;
-    const src = a.createBufferSource();
-    const buf = a.createBuffer(1, Math.floor(a.sampleRate * 0.22), a.sampleRate);
-    const d = buf.getChannelData(0);
-    for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / d.length, 3.2);
-    src.buffer = buf;
+    const src = noiseSource(a);
     const bp = a.createBiquadFilter();
     bp.type = 'bandpass'; bp.Q.value = 1.6;
     bp.frequency.setValueAtTime(1500, t);
@@ -4396,7 +4437,7 @@ const sfx = {
     g.gain.setValueAtTime(0.20, t);
     g.gain.exponentialRampToValueAtTime(0.0001, t + 0.2);
     src.connect(bp).connect(g); b.out(g, 0.5);
-    src.start(t);
+    startNoise(src, t, 0.22);
   } catch (e) { /* */ } },
 
   kill:  () => {
@@ -4405,11 +4446,9 @@ const sfx = {
     setTimeout(() => {
       try {
         const b = initBus(), a = b.a, t = a.currentTime;
-        const src = a.createBufferSource();
-        const buf = a.createBuffer(1, Math.floor(a.sampleRate * 0.7), a.sampleRate);
-        const d = buf.getChannelData(0);
-        for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / d.length, 2.2);
-        src.buffer = buf;
+        const src = noiseSource(a);
+        const nEnv = a.createGain();
+        decay(nEnv.gain, t, 1, 0.7, 2.2);
         const bp = a.createBiquadFilter();
         bp.type = 'bandpass'; bp.Q.value = 3;
         bp.frequency.setValueAtTime(5200, t);
@@ -4417,19 +4456,19 @@ const sfx = {
         const g = a.createGain();
         g.gain.setValueAtTime(0.11, t);
         g.gain.exponentialRampToValueAtTime(0.0001, t + 0.75);
-        src.connect(bp).connect(g); b.out(g, 0.95);
-        src.start(t);
+        src.connect(nEnv).connect(bp).connect(g); b.out(g, 0.95);
+        startNoise(src, t, 0.7);
       } catch (e) { /* */ }
     }, 30);
   },
   shot:  (v = 1) => { try { const b = initBus(), a = b.a, t = a.currentTime;
-      const src = a.createBufferSource();
-      const buf = a.createBuffer(1, 2400, a.sampleRate), d = buf.getChannelData(0);
-      for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / d.length, 3);
-      src.buffer = buf;
+      const src = noiseSource(a);
+      const nEnv = a.createGain();
+      decay(nEnv.gain, t, 1, 0.05, 3);
       const bp = a.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1700; bp.Q.value = 0.8;
       const g = a.createGain(); g.gain.value = 0.16 * v;
-      src.connect(bp).connect(g); b.out(g, 0.85); src.start(t);
+      src.connect(nEnv).connect(bp).connect(g); b.out(g, 0.85);
+      startNoise(src, t, 0.05);
       blip(95, 0.28, 'sine', 0.09 * v, 0.8);
     } catch (e) { /* */ } },
   blastShot: () => { blip(60, 1.1, 'sawtooth', 0.11, 0.9);
@@ -7373,6 +7412,41 @@ function sees(a) {
    seconds while everything the body does runs on world seconds: bullet time is
    allowed to slow the charge down, but it is not allowed to lengthen the
    warning, because the warning is a promise. */
+/* HOW MANY CAN CRY AT ONCE.
+
+   One charge builds about fifty audio nodes — a roar is two formant throats
+   plus a filtered rasp, a squeal is a swept loop — and they all feed a
+   five-second convolver. Six creatures reaching you together built two hundred
+   and seventeen of them inside a single frame. That is a spike on the audio
+   thread at the exact moment the game most needs it steady, and it is not even
+   the sound anyone wanted: six screeches on top of each other are a wash, not a
+   threat.
+
+   So two voices, and the nearest creature always has one. A third arriving
+   close takes the slot off the farthest one currently crying, which is hushed
+   mid-cry — it is still charging, still lethal, just no longer the one you
+   hear. The rest run silent. You hear what is about to reach you.            */
+const VOICE_CAP = 2, VOICE_STEAL = 2.5;   // metres nearer before a cry changes owner
+function claimVoice(a) {
+  const singing = antis.filter((x) => x.live && x.squeal);
+  if (singing.length < VOICE_CAP) return true;
+  /* The margin is the whole point. Without it, four creatures reaching you in
+     the same frame all pass this test — each builds its fifty nodes, then has
+     two of them torn down again a microsecond later, and the frame costs
+     exactly what it cost before the cap. A voice is only worth taking if the
+     new one is clearly closer, so near-equal arrivals leave the cry where it
+     is and cost nothing. */
+  const mine = a.pos.distanceTo(player.pos);
+  let worst = null, worstD = mine + VOICE_STEAL;
+  for (const x of singing) {
+    const d = x.pos.distanceTo(player.pos);
+    if (d > worstD) { worstD = d; worst = x; }
+  }
+  if (!worst) return false;               // nothing crying is far enough behind us
+  hushAnti(worst);                        // it keeps charging; it just goes quiet
+  return true;
+}
+
 function moodOf(a, dt) {
   a.modeT += dt;
   /* It heals. A pool that lasted would turn every creature into a tally you
@@ -7440,11 +7514,13 @@ function moodOf(a, dt) {
     if (m === 'coil' && done(T_COIL)) {
       a.mode = 'rush'; a.modeT = 0;
       a.rushTo.copy(player.pos);
-      sfx.roar && sfx.roar();
-      duckHold = 1.6;                     // hold the score down across the cry
       hushAnti(a);                        // never stack two
       a.lastDist = undefined;             // no leftover closing speed from the last one
-      a.squeal = sfx.squeal ? sfx.squeal() : null;
+      if (claimVoice(a)) {
+        sfx.roar && sfx.roar();
+        duckHold = 1.6;                   // hold the score down across the cry
+        a.squeal = sfx.squeal ? sfx.squeal() : null;
+      }
       return;
     }
     return;
