@@ -4075,9 +4075,26 @@ function updateMusic(dt, nearest) {
   music.tension += (music.target - music.tension) * (1 - Math.exp(-1.2 * dt));
   const T = music.tension;
 
-  music.filt.frequency.setTargetAtTime(260 + T * 1150, a.currentTime, 0.4);
-  music.droneGain.gain.setTargetAtTime(0.5 + T * 0.55, a.currentTime, 0.5);
-  music.dissGain.gain.setTargetAtTime(T * T * 0.075, a.currentTime, 0.6);
+  /* THE SCORE STEPS BACK WHEN SOMETHING SCREAMS.
+     The two were fighting, and not because the creature was too loud — at full
+     tension the drone measured 0.164 against the creature's 0.259, barely half
+     a stop between them. Worse, the score climbs with tension, so it is at its
+     LOUDEST exactly when a creature is close enough to charge: the two peak
+     together, in the same low register, and the scream lands inside a wall of
+     drone instead of on top of silence.
+
+     So the music ducks. Hard and fast while anything is roaring or running at
+     you, and back up over a couple of seconds afterwards — which also gives the
+     score somewhere to return to, and makes the quiet after a charge feel like
+     something rather than just the absence of noise. */
+  duckHold = Math.max(0, duckHold - dt);
+  const wantDuck = (duckHold > 0 || antis.some((x) => x.live && x.squeal)) ? 0.18 : 1;
+  // fast down, slow back: a duck you can hear recovering is a duck that works
+  musicDuck += (wantDuck - musicDuck) * (1 - Math.exp(-(wantDuck < musicDuck ? 14 : 1.1) * dt));
+
+  music.filt.frequency.setTargetAtTime(260 + T * 1150 * musicDuck, a.currentTime, 0.4);
+  music.droneGain.gain.setTargetAtTime((0.5 + T * 0.55) * musicDuck, a.currentTime, 0.18);
+  music.dissGain.gain.setTargetAtTime(T * T * 0.075 * musicDuck, a.currentTime, 0.25);
 
   const now = clock.elapsedTime;
 
@@ -4257,8 +4274,14 @@ const sfx = {
       });
       src.start(t); src.stop(t + 2.1);
     };
-    throat(69.30, 82.41, VOW.EH);      // C#2 climbing a minor third
-    throat(65.41, 55.00, VOW.OH);      // C2 going down one — a fifth apart at the end
+    /* Deliberately NOT the drone's notes. The score sits on 55, 55, 65.4, 82.4
+       and 110 — and the throats used to start on 65.4 and end on 55.0 and 82.4,
+       in unison with it. Two things singing the same pitch in the same octave do
+       not layer, they blur: the creature disappeared into the bed instead of
+       cutting across it. Moved up a tone, so every note it sings is one the
+       building is not already holding. */
+    throat(73.42, 87.31, VOW.EH);      // D2 climbing to F2
+    throat(69.30, 58.27, VOW.OH);      // C#2 down to A#1 — still a fifth apart at the end
     b.out(vox, 0.9);
     /* The throats do NOT go down the delay. The shriek should come back at you
        off the walls three or four times — that is what makes a corridor sound
@@ -5934,6 +5957,9 @@ for (let i = 0; i < MAX_ANTI; i++) {
 }
 
 let clockT = ANTI_PERIOD, antiOn = true, hitFlash = 0, caughtT = 0;
+/* How far the score is pulled down, and for how long. duckHold is set by the
+   roar — a one-shot has no running voice to detect, so it declares itself. */
+let musicDuck = 1, duckHold = 0;
 drawClockFace(ANTI_PERIOD);        // 4:00 before you have taken a step
 
 /* Sight, as opposed to walking. `isSolid` treats a void as solid because you
@@ -7415,6 +7441,7 @@ function moodOf(a, dt) {
       a.mode = 'rush'; a.modeT = 0;
       a.rushTo.copy(player.pos);
       sfx.roar && sfx.roar();
+      duckHold = 1.6;                     // hold the score down across the cry
       hushAnti(a);                        // never stack two
       a.lastDist = undefined;             // no leftover closing speed from the last one
       a.squeal = sfx.squeal ? sfx.squeal() : null;
