@@ -4520,14 +4520,24 @@ const sfx = {
 };
 
 /* ============================================================ PLAYER */
-const startCell = (() => {
-  for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) if (at(0, r, c) === 'S') return [r, c];
-  return [Math.floor(ROWS / 2), Math.floor(COLS / 2)];
-})();
+/* You open your eyes four metres from the heap, looking straight at it. The map
+   can mark a start cell and the hub is large enough to open somewhere with
+   nothing in view, which wasted the one moment the game has to tell you where
+   you are and what it wants: the clock overhead, the candy under it, and the
+   pistol turning above the candy just out of reach.
+
+   Eight metres back, so the whole pile is in frame with the clock above it
+   rather than filling the screen. The pistol is taken at 3.6, so the opening
+   shot is of something you have to walk to. */
+const START_BACK = 8;
+/* Coming home after being shot down is a different moment from the opening —
+   you know the place by then and you want the heap within a few steps, not
+   framed. It keeps the four metres it always had. */
+const HOME_BACK = 4;
 const player = {
-  pos: cellCentre(startCell[0], startCell[1]).setY(EYE),
+  pos: new THREE.Vector3(hubCentre.x, EYE, hubCentre.z + START_BACK),
   lev: 0,
-  yaw: 0,
+  yaw: 0,                     // facing -z, which is straight at the heap
   pitch: 0,
   vel: new THREE.Vector3(),
   yawVel: 0,
@@ -6456,7 +6466,7 @@ function sendHome() {
   swoosh = null;
   el.swoosh.style.opacity = '0';
   el.swoosh.style.transform = 'scale(1)';
-  player.pos.set(hubCentre.x, EYE, hubCentre.z + 4);
+  player.pos.set(hubCentre.x, EYE, hubCentre.z + HOME_BACK);
   player.lev = 0;
   player.vel.set(0, 0, 0);
   player.falling = false;
