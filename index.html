@@ -3694,7 +3694,12 @@ const hubHeap = (() => {
      piled. What makes a pile is density at the crown: three times the count,
      a rounder profile instead of a cone, and a spill of singles round the foot
      so it has an edge that looks fallen rather than drawn. */
-  const R = 3.15, N = 2900;
+  /* Lower, without losing a single wrapper. Volume under a dome goes as R^2 h,
+     so widening from 3.15 to 4.05 buys back almost exactly what dropping the
+     crown from 1.55 to 0.92 costs — 15.4 against 15.1 — and the same 2,900
+     pieces spread into it rather than being crushed together. It reads as a
+     heap that has settled rather than one that was poured. */
+  const R = 4.05, N = 2900;
   for (let i = 0; i < N; i++) {
     // packed toward the middle, so it heaps rather than scattering
     const a = rnd(i) * Math.PI * 2;
@@ -3702,7 +3707,7 @@ const hubHeap = (() => {
     const x = Math.cos(a) * rr, z = Math.sin(a) * rr;
     // a dome, not a cone: full height held across the middle, falling away late
     const t = rr / R;
-    const h = 1.55 * Math.pow(Math.max(0, 1 - t * t), 0.62) + 0.05;
+    const h = 0.92 * Math.pow(Math.max(0, 1 - t * t), 0.62) + 0.05;
     // biased upward, so the crown is packed and you cannot see the floor through it
     const y = 0.04 + Math.pow(rnd(i + 400), 0.72) * h;
     const tip = (rnd(i + 600) - 0.5) * 1.5;
@@ -4526,18 +4531,24 @@ const sfx = {
    you are and what it wants: the clock overhead, the candy under it, and the
    pistol turning above the candy just out of reach.
 
-   Eight metres back, so the whole pile is in frame with the clock above it
-   rather than filling the screen. The pistol is taken at 3.6, so the opening
-   shot is of something you have to walk to. */
-const START_BACK = 8;
+   You stand directly behind one of the six pedestals, looking past it at the
+   heap. They ring the hub at 8.6 m on the angles i/6 of a turn less a quarter,
+   so standing on one of those bearings puts that pedestal squarely between you
+   and the middle — which is the shot: an empty plinth in the foreground, the
+   candy beyond it, the clock over that. Eleven metres out leaves the pedestal
+   a little over two in front of you. */
+const START_BACK = 11;
+const START_BEARING = Math.PI / 2;      // the +z pedestal, so yaw comes out 0
 /* Coming home after being shot down is a different moment from the opening —
    you know the place by then and you want the heap within a few steps, not
    framed. It keeps the four metres it always had. */
 const HOME_BACK = 4;
 const player = {
-  pos: new THREE.Vector3(hubCentre.x, EYE, hubCentre.z + START_BACK),
+  pos: new THREE.Vector3(hubCentre.x + Math.cos(START_BEARING) * START_BACK, EYE,
+                         hubCentre.z + Math.sin(START_BEARING) * START_BACK),
   lev: 0,
-  yaw: 0,                     // facing -z, which is straight at the heap
+  // looking back down the bearing, which is straight at the heap
+  yaw: Math.atan2(Math.cos(START_BEARING), Math.sin(START_BEARING)),
   pitch: 0,
   vel: new THREE.Vector3(),
   yawVel: 0,
@@ -5846,6 +5857,75 @@ const handMesh    = mkInst(handGeo, matVoid, MON_SEG);
 const eyeGeo = (() => { const g = new THREE.CircleGeometry(0.034, 14); g.rotateY(Math.PI); return g; })();
 const eyeMesh     = mkInst(eyeGeo, matEye, MAX_ANTI * 2);
 
+/* THE SMILE.
+
+   A broad thin grin reaching from one eye across to the other, and like the
+   eyes it does not stick out of the face — it IS the face, in two colours.
+   A flat decal cannot do this: the eyes get away with being flat discs because
+   they are three centimetres across and the error against the curve is under
+   six millimetres, but a mouth spans nearly half the head and a flat one would
+   sink into the shell at the corners and float off it in the middle.
+
+   So the strip is baked onto the shell at build time. Every vertex is pushed
+   out along its own direction until it meets the same ellipsoid the eyes are
+   solved against, which makes a ribbon that follows the head exactly and needs
+   no per-frame work beyond the head's own transform. It is one geometry with
+   colour written into the vertices, so red lips and white teeth cost a single
+   draw call between them rather than one each.
+
+   The curve is a smile and not an arc struck with a compass: the corners lift
+   toward the eyes and the middle sits low, which is the shape of a mouth
+   pulled wide rather than a banana laid on a face.                          */
+const MOUTH = {
+  span:  0.235,   // half-width; the eyes sit at 0.20, so it reaches just past them
+  drop: -0.150,   // how far below centre the middle of the mouth hangs
+  curve: 0.125,   // how much the corners lift — this is what makes it a smile
+  front: -0.400,  // the creature faces local -Z
+  teeth: 0.011,   // half-height of the white
+  lip:   0.020,   // and of the whole band, so each lip is nine millimetres
+};
+const mouthGeo = (() => {
+  // the same ellipsoid the eyes are laid on, so both sit on one surface
+  const ea = BODY_R * 0.94, eb = BODY_R * 1.14, ec = BODY_R * 0.97;
+  const v = new THREE.Vector3();
+  const pt = (u, dy) => {
+    v.set(MOUTH.span * u, MOUTH.drop + MOUTH.curve * u * u + dy, MOUTH.front).normalize();
+    const rad = 1 / Math.sqrt((v.x / ea) ** 2 + (v.y / eb) ** 2 + (v.z / ec) ** 2);
+    return v.multiplyScalar(rad * 1.035).clone();
+  };
+  const pos = [], col = [];
+  const quad = (a, b, c, d, rgb) => {
+    for (const q of [a, b, d, a, d, c]) pos.push(q.x, q.y, q.z);
+    for (let i = 0; i < 6; i++) col.push(rgb[0], rgb[1], rgb[2]);
+  };
+  const LIP = [0.72, 0.06, 0.09], TOOTH = [0.93, 0.92, 0.87];
+  const N = 26;
+  for (let i = 0; i < N; i++) {
+    const u0 = -1 + 2 * i / N, u1 = -1 + 2 * (i + 1) / N;
+    quad(pt(u0, MOUTH.lip), pt(u1, MOUTH.lip),
+         pt(u0, MOUTH.teeth), pt(u1, MOUTH.teeth), LIP);           // upper lip
+    quad(pt(u0, -MOUTH.teeth), pt(u1, -MOUTH.teeth),
+         pt(u0, -MOUTH.lip), pt(u1, -MOUTH.lip), LIP);             // lower lip
+    // one tooth per segment, short of the segment at both ends so the black of
+    // the head shows between them — which is the only thing that makes a white
+    // band read as teeth rather than as a stripe
+    const g = (u1 - u0) * 0.17;
+    quad(pt(u0 + g, MOUTH.teeth), pt(u1 - g, MOUTH.teeth),
+         pt(u0 + g, -MOUTH.teeth), pt(u1 - g, -MOUTH.teeth), TOOTH);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  return geo;
+})();
+/* Unlit and unfogged for the same reason the eyes are: a torch landing on the
+   face must not wash the grin out, and distance must shrink it without dimming
+   it. */
+const matMouth = new THREE.MeshBasicMaterial({ vertexColors: true, fog: false,
+                                               toneMapped: false, side: THREE.DoubleSide });
+const mouthMesh = mkInst(mouthGeo, matMouth, MAX_ANTI);
+mouthMesh.castShadow = false;            // a marking on a face has no silhouette
+
 /* What is left of one. Pure black, unlit like the rest of it, allocated once
    and reused — nothing is ever constructed at the moment of a kill. */
 const BIT_N = 260;
@@ -5985,7 +6065,7 @@ function updatePuffs(dt) {
   smokeMesh.instanceMatrix.needsUpdate = true;
 }
 
-const MON_MESHES = [bodyMesh, femurMesh, tibiaMesh, handMesh, eyeMesh];
+const MON_MESHES = [bodyMesh, femurMesh, tibiaMesh, handMesh, eyeMesh, mouthMesh];
 const HIDDEN = new THREE.Matrix4().makeScale(0, 0, 0);
 
 const antis = [];
@@ -6161,6 +6241,7 @@ function retireAnti(a) {
     handMesh.setMatrixAt(a.base + k, HIDDEN);
   }
   for (let e = 0; e < 2; e++) eyeMesh.setMatrixAt((a.base / MON_LEGS) * 2 + e, HIDDEN);
+  mouthMesh.setMatrixAt(a.base / MON_LEGS, HIDDEN);
   for (const m of MON_MESHES) m.instanceMatrix.needsUpdate = true;
 }
 
@@ -7188,6 +7269,11 @@ function drawMonster(a, sdt) {
     eyeMesh.setMatrixAt(bi * 2 + e, _mI);
     if (e === 0) a.eyeEm.pos.copy(_eye);
   }
+  /* The strip is baked in head-local metres, so placing it is just the head's
+     own position, orientation and swell — no per-vertex work at all. */
+  _mI.compose(_drawP, _qHead, _sc.set(swell, swell, swell));
+  mouthMesh.setMatrixAt(bi, _mI);
+
   a.eyeEm.pos.lerp(_drawP, 0.4);
   a.eyeEm.intensity = eyeInt;
   // it only takes a slot in the pool when it is close enough for the light to
@@ -8900,15 +8986,15 @@ const worldGuns = [];
      the hub. Taking it is what sends the shotgun out into the halls. */
   {
     const g = worldGuns.find((w) => w.tier === 1);
-    /* Clear of the crown, not sunk in it. The heap stands about 1.6 m, so
-       anything lower than this is a grey shape lost among the wrappers. */
-    g.pos.set(hubHeap.pos.x, levelY(0) + 2.5, hubHeap.pos.z);
+    /* Clear of the crown, not sunk in it. The heap settles at about 0.95 m
+       now, and the gun rides the same distance above it as before. */
+    g.pos.set(hubHeap.pos.x, levelY(0) + 1.9, hubHeap.pos.z);
     g.lev = 0;
     g.onFloor = true;
     /* And you take it by reaching the heap, not by wading into the middle of
        it — the pile is over three metres across and you would have to stand
        inside the candy to trip the ordinary pickup. */
-    g.reach = 13;
+    g.reach = 20.3;                         // 4.5 m — the pile is 4.05 across now
     g.mesh.visible = false;                 // until light finds it
   }
 }
