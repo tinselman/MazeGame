@@ -91,20 +91,62 @@
   }
 
   /* prompt & message ---------------------------------------------------- */
+  /* The two that talk to you mid-play. Both were set small enough to be missed
+     against a busy floor, which is the wrong failure for the line that tells
+     you a key is available. */
   #prompt {
     position: absolute; left: 50%; top: 57%; transform: translateX(-50%);
-    font-size: 13px; letter-spacing: .13em; opacity: 0; transition: opacity .18s;
-    white-space: nowrap;
+    font-size: 21px; letter-spacing: .13em; opacity: 0; transition: opacity .18s;
+    white-space: nowrap; text-shadow: 0 2px 14px rgba(0,0,0,.95);
   }
-  #prompt.on { opacity: .92; }
+  #prompt.on { opacity: .98; }
   #prompt b { color: #ffd24a; font-weight: 600; }
 
   #message {
     position: absolute; left: 50%; top: 25%; transform: translateX(-50%);
-    font-size: 15px; letter-spacing: .1em; opacity: 0; transition: opacity .55s;
+    font-size: 23px; letter-spacing: .09em; opacity: 0; transition: opacity .55s;
     text-align: center; white-space: nowrap;
+    text-shadow: 0 2px 16px rgba(0,0,0,.95);
   }
-  #message.on { opacity: .95; }
+  #message.on { opacity: 1; }
+
+  /* THE NOTE, blown up off the lid. Paper rather than a panel: a light yellow
+     sheet at roughly the proportions of the page it is, held a little off true
+     so it reads as something set down rather than as a dialog box. The hand is
+     whatever cursive the machine has — no font to fetch, and every one of these
+     is a real handwriting face on the platform it exists on. */
+  #notescreen {
+    position: absolute; inset: 0; z-index: 40;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(4,5,8,.72); cursor: pointer;
+    opacity: 1; transition: opacity .22s;
+    /* #hud is pointer-events:none so the whole interface stays click-through to
+       the canvas. This is the one thing in it you are meant to click, so it has
+       to opt back in — without this the note could not be dismissed at all. */
+    pointer-events: auto;
+  }
+  #notescreen.hidden { display: none; }
+  #notepaper {
+    width: min(58vh, 76vw); aspect-ratio: 8 / 11;
+    background: linear-gradient(174deg, #f7f0c4 0%, #efe4ab 62%, #e6d99c 100%);
+    box-shadow: 0 30px 90px rgba(0,0,0,.75), 0 2px 0 rgba(255,255,255,.35) inset;
+    transform: rotate(-1.6deg);
+    display: flex; align-items: center; padding: 9% 10%;
+    border-radius: 2px;
+  }
+  /* A machine that has not been serviced. Typewriter face, small, and every
+     letter set slightly off its neighbours — the platen out of true, the ink
+     uneven, a few keys striking harder than the rest. */
+  #notepaper p {
+    margin: 0; color: #241d12;
+    font-family: 'American Typewriter', 'Courier New', Courier, monospace;
+    font-size: clamp(13px, 2.4vh, 24px);
+    line-height: 2.0; letter-spacing: .04em; text-align: left;
+  }
+  #notepaper i {                      /* one struck character */
+    font-style: normal; display: inline-block;
+  }
+  #notepaper .w { white-space: nowrap; }   /* and lines break between words */
 
   #banner {
     position: absolute; left: 50%; top: 33%; transform: translateX(-50%);
@@ -276,6 +318,11 @@
   </div>
 
   <div class="overlay hidden" id="endscreen"><h1>YOU ARE FREE</h1></div>
+
+  <!-- The paper off the coffin lid, blown up so it can be read. Click or E to
+       close. The text is filled in by script so every letter can be knocked
+       about individually. -->
+  <div id="notescreen" class="hidden"><div id="notepaper"><p></p></div></div>
 </div>
 
 <script type="importmap">
@@ -1255,6 +1302,21 @@ const Turned = (pts, seg = 10) =>
    Each is built once, at its true size, standing on the floor at the origin
    and facing -Z. Placement supplies position and a yaw.                      */
 const MODELS = {};
+/* WHAT A THING BREAKS INTO.
+
+   Every model here is a merged pile of parts — a chair is a seat and four legs,
+   a rack is uprights and shelves. The merge threw that list away, so when a
+   piece was destroyed all anyone could do was throw generic rubble at the
+   floor. Keeping the list costs nothing and means a broken chair can scatter an
+   actual seat and four actual legs.
+
+   `model()` records the parts and returns the same merged geometry the game
+   already drew, so nothing about how furniture renders changes.            */
+const MODEL_PARTS = {};
+function model(name, parts) {
+  MODEL_PARTS[name] = parts.map((q) => (q && q.geo ? q.geo : q));
+  return mergeGeos(parts);
+}
 
 // a leg turned on a lathe, used under tables and chairs
 const turnedLeg = (h, r) => Turned([
@@ -1262,7 +1324,7 @@ const turnedLeg = (h, r) => Turned([
   [r * 0.55, h * 0.52], [r * 0.66, h * 0.72], [r * 0.5, h * 0.88], [r * 0.62, h],
 ], 10);
 
-MODELS.chair = mergeGeos([
+MODELS.chair = model('chair', [
   // seat: a slab with a chamfered lip
   at3(Box(0.46, 0.05, 0.44), 0, 0.44, 0),
   at3(Box(0.50, 0.03, 0.48), 0, 0.415, 0),
@@ -1281,7 +1343,7 @@ MODELS.chair = mergeGeos([
   ...[0.60, 0.72, 0.84].map((h) => at3(Box(0.40, 0.035, 0.018), 0, h, -0.19)),
 ]);
 
-MODELS.banquetTable = mergeGeos([
+MODELS.banquetTable = model('banquetTable', [
   at3(Box(3.4, 0.055, 1.06), 0, 0.755, 0),                   // top
   at3(Box(3.5, 0.028, 1.14), 0, 0.722, 0),                   // moulded lip
   at3(Box(3.1, 0.13, 0.86), 0, 0.655, 0),                    // apron
@@ -1290,7 +1352,7 @@ MODELS.banquetTable = mergeGeos([
   at3(Box(2.9, 0.03, 0.03), 0, 0.16, 0),                     // stretcher
 ]);
 
-MODELS.lowTable = mergeGeos([
+MODELS.lowTable = model('lowTable', [
   at3(Box(1.5, 0.045, 0.82), 0, 0.40, 0),
   at3(Box(1.58, 0.022, 0.90), 0, 0.375, 0),
   at3(Box(1.3, 0.09, 0.66), 0, 0.33, 0),
@@ -1298,7 +1360,7 @@ MODELS.lowTable = mergeGeos([
     at3(turnedLeg(0.33, 0.042), sx * 0.63, 0, sz * 0.32)),
 ]);
 
-MODELS.sofa = mergeGeos([
+MODELS.sofa = model('sofa', [
   at3(Box(2.5, 0.30, 0.92), 0, 0.30, 0),                     // base frame
   at3(Box(2.34, 0.20, 0.80), 0, 0.53, 0.02),                 // seat cushion
   at3(Box(0.76, 0.16, 0.76), -0.78, 0.63, 0.02),             // three loose cushions
@@ -1314,7 +1376,7 @@ MODELS.sofa = mergeGeos([
   at3(Cyl(0.05, 0.05, 0.16, 8), 1.13, 0.08, 0.36),
 ]);
 
-MODELS.armchair = mergeGeos([
+MODELS.armchair = model('armchair', [
   at3(Box(0.94, 0.30, 0.90), 0, 0.30, 0),
   at3(Box(0.80, 0.20, 0.78), 0, 0.53, 0.02),
   at3(Box(0.72, 0.16, 0.72), 0, 0.63, 0.02),
@@ -1326,7 +1388,7 @@ MODELS.armchair = mergeGeos([
     at3(Cyl(0.05, 0.05, 0.16, 8), sx * 0.36, 0.08, sz * 0.35)),
 ]);
 
-MODELS.shelfUnit = mergeGeos([
+MODELS.shelfUnit = model('shelfUnit', [
   at3(Box(0.06, 2.10, 0.42), -1.22, 1.10, 0),                // uprights
   at3(Box(0.06, 2.10, 0.42), 1.22, 1.10, 0),
   at3(Box(2.50, 0.14, 0.46), 0, 0.10, 0),                    // plinth
@@ -1338,7 +1400,7 @@ MODELS.shelfUnit = mergeGeos([
     at3(Box(0.22, 0.26, 0.18), x, h + 0.13, 0.05, 0, 0, (i % 2 ? 0.18 : -0.12))),
 ]);
 
-MODELS.plinth = mergeGeos([
+MODELS.plinth = model('plinth', [
   at3(Box(0.96, 0.09, 0.96), 0, 0.045, 0),                   // base moulding
   at3(Box(0.86, 0.05, 0.86), 0, 0.115, 0),
   at3(Box(0.78, 0.92, 0.78), 0, 0.60, 0),                    // shaft
@@ -1346,7 +1408,7 @@ MODELS.plinth = mergeGeos([
   at3(Box(0.98, 0.07, 0.98), 0, 1.145, 0),
 ]);
 
-MODELS.vitrine = mergeGeos([
+MODELS.vitrine = model('vitrine', [
   at3(Box(1.44, 0.10, 1.44), 0, 0.05, 0),
   at3(Box(1.32, 0.78, 1.32), 0, 0.49, 0),                    // cabinet base
   at3(Box(1.46, 0.06, 1.46), 0, 0.91, 0),                    // deck
@@ -1358,14 +1420,14 @@ MODELS.vitrine = mergeGeos([
   at3(Box(1.42, 0.06, 1.42), 0, 2.19, 0),                    // lid
 ]);
 
-MODELS.vitrineGlass = mergeGeos([
+MODELS.vitrineGlass = model('vitrineGlass', [
   at3(Box(1.28, 1.18, 0.015), 0, 1.54, -0.66),
   at3(Box(1.28, 1.18, 0.015), 0, 1.54, 0.66),
   at3(Box(0.015, 1.18, 1.28), -0.66, 1.54, 0),
   at3(Box(0.015, 1.18, 1.28), 0.66, 1.54, 0),
 ]);
 
-MODELS.crate = mergeGeos([
+MODELS.crate = model('crate', [
   at3(Box(1.06, 0.86, 1.06), 0, 0.43, 0),                    // body
   // battens on every face
   ...[-1, 1].map((sz) => at3(Box(1.10, 0.09, 0.05), 0, 0.10, sz * 0.53)),
@@ -1377,14 +1439,14 @@ MODELS.crate = mergeGeos([
   at3(Box(1.12, 0.06, 1.12), 0, 0.88, 0),                    // lid
 ]);
 
-MODELS.pallet = mergeGeos([
+MODELS.pallet = model('pallet', [
   ...[-1, 0, 1].map((i) => at3(Box(1.10, 0.07, 0.14), 0, 0.14, i * 0.42)),
   ...[-1, 0, 1].map((i) => at3(Box(0.14, 0.10, 1.00), i * 0.42, 0.05, 0)),
   ...[-0.45, -0.15, 0.15, 0.45].map((z) => at3(Box(1.10, 0.035, 0.16), 0, 0.20, z)),
 ]);
 
 // One bay of pallet racking: uprights with diagonal bracing, two beam levels.
-MODELS.rackBay = mergeGeos([
+MODELS.rackBay = model('rackBay', [
   ...[-1, 1].map((sx) => at3(Box(0.11, 3.30, 0.11), sx * 1.35, 1.65, -0.5)),
   ...[-1, 1].map((sx) => at3(Box(0.11, 3.30, 0.11), sx * 1.35, 1.65, 0.5)),
   // diagonal bracing on both frames
@@ -1399,7 +1461,7 @@ MODELS.rackBay = mergeGeos([
     at3(Box(2.80, 0.05, 0.10), 0, h + 0.08, sz))),
 ]);
 
-MODELS.desk = mergeGeos([
+MODELS.desk = model('desk', [
   at3(Box(1.85, 0.045, 0.86), 0, 0.735, 0),                  // top
   at3(Box(1.90, 0.022, 0.92), 0, 0.708, 0),                  // edge lip
   at3(Box(1.70, 0.10, 0.06), 0, 0.66, -0.40),                // rail
@@ -1412,7 +1474,7 @@ MODELS.desk = mergeGeos([
   at3(Box(1.20, 0.02, 0.60), 0.10, 0.02, 0),                 // modesty panel foot
 ]);
 
-MODELS.monitor = mergeGeos([
+MODELS.monitor = model('monitor', [
   at3(Box(0.34, 0.04, 0.26), 0, 0.02, 0),                    // foot
   at3(Cyl(0.05, 0.07, 0.10, 10), 0, 0.09, 0),                // neck
   // The body stops short of the bezel. It used to reach z +0.15 while the
@@ -1428,12 +1490,12 @@ MODELS.monitor = mergeGeos([
   at3(Box(0.62, 0.05, 0.06), 0, 0.63, -0.06),                // vent
 ]);
 
-MODELS.keyboard = mergeGeos([
+MODELS.keyboard = model('keyboard', [
   at3(Box(0.44, 0.022, 0.17), 0, 0.011, 0),
   at3(Box(0.40, 0.012, 0.13), 0, 0.028, 0.005),
 ]);
 
-MODELS.partition = mergeGeos([
+MODELS.partition = model('partition', [
   at3(Box(1.60, 1.34, 0.05), 0, 0.74, 0),                    // panel
   at3(Box(1.66, 0.07, 0.10), 0, 1.44, 0),                    // top rail
   at3(Box(0.07, 1.44, 0.10), -0.80, 0.74, 0),                // stiles
@@ -1443,7 +1505,7 @@ MODELS.partition = mergeGeos([
   at3(Box(0.10, 0.03, 0.34), 0.70, 0.015, 0),
 ]);
 
-MODELS.column = mergeGeos([
+MODELS.column = model('column', [
   // Brutalism does not decorate a pier, it just makes it heavy and lets the
   // light do the rest. A blunt square shaft, a plain pad top and bottom, and
   // one recessed shadow line down each face — which is the only thing a
@@ -1479,7 +1541,7 @@ MODELS.fireplaceSmall = hearthGeo(0.78);
 /* A formal fountain, dry. Basin, tiers and a spout that has not run in a long
    time — the staining is in the geometry rather than the material, as stepped
    rings where the water line used to sit. Nothing here carries colour. */
-MODELS.fountain = mergeGeos([
+MODELS.fountain = model('fountain', [
   at3(Cyl(2.30, 2.45, 0.34, 24), 0, 0.17, 0),                  // outer basin wall
   at3(Cyl(2.10, 2.10, 0.16, 24), 0, 0.42, 0),                  // coping
   at3(Cyl(1.95, 1.95, 0.10, 24), 0, 0.10, 0),                  // basin floor
@@ -1498,14 +1560,14 @@ MODELS.fountain = mergeGeos([
   }),
 ]);
 
-MODELS.bench = mergeGeos([
+MODELS.bench = model('bench', [
   at3(Box(2.20, 0.07, 0.50), 0, 0.44, 0),
   at3(Box(2.26, 0.03, 0.56), 0, 0.405, 0),
   ...[-1, 1].map((sx) => at3(Box(0.10, 0.40, 0.44), sx * 0.90, 0.20, 0)),
   at3(Box(1.70, 0.06, 0.06), 0, 0.16, 0),
 ]);
 
-MODELS.hungPanel = mergeGeos([
+MODELS.hungPanel = model('hungPanel', [
   at3(Box(0.08, 1.42, 1.92), 0, 0, 0),                       // panel
   at3(Box(0.05, 1.56, 2.06), 0.03, 0, 0),                    // frame
   at3(Box(0.02, 1.30, 1.80), -0.05, 0, 0),                   // sunk face
@@ -3835,17 +3897,38 @@ const coffin = (() => {
   lid.rotateX(-Math.PI / 2);
   lid.translate(0, D + 0.010, 0);
   lid.scale(1.04, 1, 1.02);
-  const mat = new THREE.MeshPhongMaterial({ color: 0x0a0a0c, specular: 0x3a3a42, shininess: 48 });
+  /* Half black rather than black: a mid grey, with every edge of the box and
+     the lid drawn as a black line over it. Solid black read as a hole in the
+     room and lost its own shape; grey with a drawn edge reads as an object. */
+  const mat = new THREE.MeshPhongMaterial({ color: 0x6e6e72, specular: 0x2a2a30, shininess: 34 });
+  const matEdge = new THREE.LineBasicMaterial({ color: 0x08080a });
   const grp = new THREE.Group();
   const boxMesh = new THREE.Mesh(box, mat);
   const lidMesh = new THREE.Mesh(lid, mat);
   grp.add(boxMesh);
   grp.add(lidMesh);
+  boxMesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(box, 18), matEdge));
+  lidMesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(lid, 18), matEdge));
+
+  /* ---- THE NOTE. Eight inches by eleven, light yellow, lying on the lid at a
+     careless angle. Up close you can see it is a piece of paper; press E and it
+     fills the screen and you can read it. */
+  const noteGeo = new THREE.PlaneGeometry(0.203, 0.279);
+  noteGeo.rotateX(-Math.PI / 2);
+  const noteMat = new THREE.MeshPhongMaterial({ color: 0xf2e9b8, specular: 0x151515, shininess: 6,
+                                                side: THREE.DoubleSide });
+  const noteMesh = new THREE.Mesh(noteGeo, noteMat);
+  noteMesh.position.set(0.02, D + 0.075, -0.20);
+  noteMesh.rotation.y = 0.24;
+  noteMesh.castShadow = true;
+  grp.add(noteMesh);
+
   grp.traverse((o) => { if (o.isMesh) o.castShadow = true; });
   grp.position.set(hubCentre.x, COFFIN_Y, hubCentre.z);
   hubFloor.add(grp);
-  return { grp, mat, lidMesh, pos: new THREE.Vector3(hubCentre.x, COFFIN_Y, hubCentre.z),
-           spin: 1, stopped: false, shimmer: -1, crystal: 0, open: 0, opened: false };
+  return { grp, mat, lidMesh, noteMesh,
+           pos: new THREE.Vector3(hubCentre.x, COFFIN_Y, hubCentre.z),
+           spin: 1, stopped: false, crystal: 0, open: 0, opened: false };
 })();
 
 /* ---- SPARKS -------------------------------------------------------------
@@ -4135,38 +4218,15 @@ function updateCoffin(dt) {
     const want = Math.max(0, Math.min(1, (d - 4.0) / 6.0));
     coffin.spin += (want - coffin.spin) * (1 - Math.exp(-2.6 * dt));
     coffin.grp.rotation.y += COFFIN_RPS * coffin.spin * dt;
-    if (d < 4.6 && coffin.spin < 0.04) {
-      coffin.stopped = true;
-      coffin.shimmer = 0;
-      say('Help me! Find my crystals and free me from the curse. HURRY!', 7);
-      sfx.holy && sfx.holy();
-    }
-  }
-  /* The shimmer: a band of light travelling from the head of the box to the
-     foot, throwing sparks off the surface as it passes. */
-  if (coffin.shimmer >= 0) {
-    const SH = 1.8;
-    const prev = coffin.shimmer;
-    coffin.shimmer += dt;
-    if (coffin.shimmer > SH) { coffin.shimmer = -1; }
-    else {
-      const u = coffin.shimmer / SH;
-      const zc = -COFFIN_HL + u * (COFFIN_HL * 2);
-      const n = Math.max(0, Math.round((coffin.shimmer - prev) * 150));
-      for (let i = 0; i < n; i++) {
-        const zz = zc + (Math.random() - 0.5) * 0.26;
-        const xx = (Math.random() - 0.5) * COFFIN_HW * 1.9;
-        sparkAt(coffin.pos.x + xx, coffin.pos.y + 0.30 + Math.random() * 0.10, coffin.pos.z + zz,
-                sparkHue(),
-                0.028 + Math.random() * 0.030, 0.5 + Math.random() * 0.5,
-                (Math.random() - 0.5) * 0.3, 0.25 + Math.random() * 0.4, (Math.random() - 0.5) * 0.3);
-      }
-    }
+    /* It simply comes to rest. The shimmer that used to run down the lid and
+       the line that used to be spoken are both gone — what is written on the
+       paper lying on it says all of that, in its own words. */
+    if (d < 4.6 && coffin.spin < 0.04) coffin.stopped = true;
   }
 }
 
-/* Solid: you walk into it, not through it. The plea is delivered when it stops
-   turning, not here. */
+/* Solid: you walk into it, not through it. What it has to say is on the paper
+   lying on the lid, not here. */
 function collideCoffin(pos) {
   if (player.lev !== 0) return;
   const foot = pos.y - EYE;
@@ -5003,7 +5063,11 @@ let started = false, ending = 0, endTime = 0, endShown = false;
 addEventListener('keydown', (e) => {
   keys.add(e.code);
   if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault();
-  if (e.code === 'KeyE') interact();
+  /* E closes the note if it is open, and only otherwise does its usual job —
+     so the same key that lifted the paper puts it down again, and you are not
+     hunting for a way out of a full-screen sheet of text. */
+  if (e.code === 'KeyE') { if (noteOpen) hideNote(); else interact(); }
+  if (e.code === 'Escape' && noteOpen) hideNote();
   // Space is the other trigger. It is a held state, not a tap, so the machine
   // gun and the laser work from the keyboard exactly as they do from the mouse
   // — and interact moves to E alone, which the prompts already say.
@@ -5019,6 +5083,68 @@ addEventListener('keyup', (e) => {
   keys.delete(e.code);
   if (e.code === 'Space') gunState.trigger = false;
 });
+
+/* ---- the note ------------------------------------------------------------
+   Opened with E at the coffin, closed by clicking anywhere on it, and openable
+   again every time you come back — until the crystals are home, at which point
+   E belongs to the coffin itself and the note steps aside. */
+const noteScreen = document.getElementById('notescreen');
+/* Set the note once, letter by letter, so the machine can be a bad one: each
+   character gets its own small rotation, its own baseline error and its own
+   weight of ink. Spaces are left alone or the line breaks stop working. */
+(() => {
+  const text = "Greetings traveller.  I've been asleep for 1000 years.  "
+             + "Please... help me lift the curse of the Dark Guardians!";
+  const p = document.querySelector('#notepaper p');
+  /* Every letter is its own inline-block so it can be knocked askew, which
+     means the browser will happily break a line between any two of them —
+     "travell / er", "hel / p me". So each WORD is wrapped in a nowrap box and
+     the letters are jostled inside it. Lines break between words, as they do
+     on paper. */
+  let html = '', i = 0;
+  for (const word of text.split(/(\s+)/)) {
+    /* An ordinary space, NOT a non-breaking one. Turning these into &nbsp; made
+       the whole note a single unbreakable run that shot off the side of the
+       page: the words hold together, the gaps between them must not. */
+    if (/^\s+$/.test(word)) { html += ' '; i += word.length; continue; }
+    html += '<span class="w">';
+    for (const ch of word) {
+      const r = (Math.sin(i * 12.9898) * 43758.5453) % 1;
+      const r2 = (Math.sin(i * 78.233) * 12345.6789) % 1;
+      const rot = r * 5.2;                       // degrees, either way
+      const dy = r2 * 2.4;                       // baseline wander
+      const ink = 0.62 + Math.abs(r2) * 0.38;    // how hard that key struck
+      html += `<i style="transform:rotate(${rot.toFixed(2)}deg) translateY(${dy.toFixed(2)}px);`
+            + `opacity:${ink.toFixed(2)}">${ch === '<' ? '&lt;' : ch}</i>`;
+      i++;
+    }
+    html += '</span>';
+  }
+  p.innerHTML = html;
+})();
+let noteOpen = false;
+function showNote() {
+  noteOpen = true;
+  noteScreen.classList.remove('hidden');
+  document.exitPointerLock?.();
+}
+function hideNote() {
+  if (!noteOpen) return;
+  noteOpen = false;
+  noteScreen.classList.add('hidden');
+}
+noteScreen.addEventListener('mousedown', (e) => { e.preventDefault(); e.stopPropagation(); hideNote(); });
+noteScreen.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); hideNote(); });
+/* Near enough to read it, and only while the coffin is still the coffin. */
+function tryReadNote() {
+  if (ending || !started || noteOpen) return false;
+  if (player.lev !== 0) return false;
+  const d = Math.hypot(player.pos.x - coffin.pos.x, player.pos.z - coffin.pos.z);
+  if (d > 4.2) return false;
+  showNote();
+  sfx.click && sfx.click();
+  return true;
+}
 
 const startScreen = document.getElementById('startscreen');
 startScreen.addEventListener('click', () => {
@@ -5850,6 +5976,7 @@ function nearestTarget() {
 
 function interact() {
   if (tryOpenCoffin()) return;              // the box, once the crystals are home
+  if (tryReadNote()) return;                // and the paper on it until then
   if (!started || ending) return;
   const t = nearestTarget();
   if (!t) return;
@@ -7340,6 +7467,12 @@ function spawnGuards() {
     if (!a) break;
     a.home = { x: b.post.x, z: b.post.z, lev: b.lev };
     a.gate = b.id;                    // this one is carrying that gate's switch
+    /* AND IT WEARS THAT GATE'S COLOUR. The body stays black and the eyes stay
+       red; what changes is the light the thing throws, so the wall beside the
+       one guarding the amber vault washes faintly amber. Six identical black
+       shapes become six you can tell apart down a corridor, and the colour is
+       a promise about which gate its switch will open. */
+    a.eyeEm.color.setHex(DOOR_COLORS[b.id - 1]);
     a.destLev = b.lev;
     a.destTimer = 1e9;                 // a guard does not decide to go upstairs
     a.goal = null; a.repath = 0.5 + Math.random();
@@ -7526,7 +7659,11 @@ function caughtBy(how) {
   // being shot costs you the gun and the walk back, not the whole game. The
   // pedestal loop and player.placed were a matched pair, so both are gone
   // together: beginEnding fires on player.placed === 6 and nothing else.
-  for (const d of props.doors) d.open = false;
+  /* THE GATES STAY AS YOU LEFT THEM. Being caught used to slam every one of
+     them shut, so a creature reaching you undid every gate you had opened —
+     which is the same "one bad corner undoes an hour" the gun demotion above
+     was removed for, and contradicts the comment directly above it. Nothing
+     but your own hand on a button moves a gate now. */
   for (const b of props.buttons) {
     if (b.mesh.userData.knob) b.mesh.userData.knob.material.emissiveIntensity = 0.25;
   }
@@ -9010,14 +9147,15 @@ function updateAntis(dt, sdt) {
     if (!firstBrickDropped) {
       firstBrickDropped = true;
       clockT = BRICK_PERIOD;
+      // it arrives without an announcement; you either see it or you do not
       const b = spawnBrick();
-      if (b) { sfx.spawn(); announce('SOMETHING CAME DOWN', '#9fa6b4', 3.4); }
+      if (b) sfx.spawn();
     } else {
       clockT -= dt;
       if (clockT <= 0) {
         clockT = BRICK_PERIOD;
         const b = spawnBrick();
-        if (b) { sfx.spawn(); announce('ANOTHER ONE', '#9fa6b4', 2.6); }
+        if (b) sfx.spawn();
       }
     }
   }
@@ -9340,6 +9478,97 @@ for (let i = 0; i < CHUNKS; i++) {
 }
 let chunkNext = 0;
 
+/* ---- SPLINTERS ----------------------------------------------------------
+
+   What comes off furniture when you shoot it. The wall chunks above are grey
+   masonry and settle where they land; these are pieces of the thing you hit —
+   they take its own colour, they are thrown along the line the round was
+   travelling rather than straight up, and they tumble, bounce and skid before
+   they come to rest.
+
+   The size of the hole is the size of the gun. A pistol chips a corner off; the
+   blaster takes the whole piece apart in one go. That is one number, SPEC.blast,
+   read off the tier, and it drives the count, the speed and the damage together
+   so a bigger gun looks bigger for the same reason it is bigger.            */
+const SPLINTERS = 320;
+const splinterGeo = mergeGeos([
+  at3(Box(0.13, 0.05, 0.09), 0, 0, 0),
+  at3(Box(0.07, 0.10, 0.05), 0.05, 0.03, 0.02, 0.5, 0.8, 0.3),
+  at3(Box(0.05, 0.04, 0.12), -0.04, -0.02, 0.03, 0.2, -0.6, 0.4),
+]);
+const matSplinter = new THREE.MeshPhongMaterial({ specular: 0x2a2a2a, shininess: 14 });
+const splinterMesh = (() => {
+  const m = new THREE.InstancedMesh(splinterGeo, matSplinter, SPLINTERS);
+  m.castShadow = true;
+  m.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(SPLINTERS * 3), 3);
+  m.frustumCulled = false;
+  m.count = 0;
+  scene.add(m);
+  return m;
+})();
+const splinters = [];
+for (let i = 0; i < SPLINTERS; i++) splinters.push({
+  live: false, t: 0, life: 1, scale: 1, floor: 0,
+  pos: new THREE.Vector3(), vel: new THREE.Vector3(),
+  rot: new THREE.Euler(), spin: new THREE.Vector3(), col: new THREE.Color(),
+});
+let splinterNext = 0;
+const _splC = new THREE.Color();
+/* `power` is the blast: 1 for a pistol, up to 5 for the laser. Everything about
+   a splinter scales off it and off the direction the round was going, so the
+   spray leaves the impact along the shot line and fans out from there. */
+function spawnSplinter(x, y, z, floorY, dx, dy, dz, power, tone, big) {
+  const k = splinters[splinterNext++ % SPLINTERS];
+  k.live = true; k.t = 0;
+  k.life = 2.6 + Math.random() * 2.2;
+  k.pos.set(x + (Math.random() - 0.5) * 0.16, y + (Math.random() - 0.5) * 0.16,
+            z + (Math.random() - 0.5) * 0.16);
+  // along the round, with a cone of spread that widens with the power
+  const spread = 0.45 + power * 0.16;
+  const sp = (1.9 + power * 1.5) * (0.55 + Math.random() * 0.9);
+  k.vel.set(dx + (Math.random() - 0.5) * spread,
+            dy + (Math.random() - 0.5) * spread + 0.42,
+            dz + (Math.random() - 0.5) * spread).normalize().multiplyScalar(sp);
+  k.rot.set(Math.random() * TAU, Math.random() * TAU, Math.random() * TAU);
+  k.spin.set((Math.random() - 0.5) * 16, (Math.random() - 0.5) * 16, (Math.random() - 0.5) * 16);
+  k.scale = (big ? 0.9 : 0.55) * (0.6 + Math.random() * 0.9);
+  k.floor = floorY;
+  k.col.setHex(tone === undefined || tone === null ? 0x8f8f8f : tone);
+  if (splinterMesh.count < SPLINTERS) splinterMesh.count = Math.min(SPLINTERS, splinterNext);
+}
+function updateSplinters(dt) {
+  for (let i = 0; i < splinterMesh.count; i++) {
+    const k = splinters[i];
+    if (!k.live) { splinterMesh.setMatrixAt(i, HIDDEN); continue; }
+    k.t += dt;
+    if (k.t >= k.life) { k.live = false; splinterMesh.setMatrixAt(i, HIDDEN); continue; }
+    k.vel.y -= 15.5 * dt;
+    k.pos.addScaledVector(k.vel, dt);
+    if (k.pos.y <= k.floor + 0.04) {
+      k.pos.y = k.floor + 0.04;
+      if (k.vel.y < -1.2) {                       // it bounces, then skids
+        k.vel.y = -k.vel.y * 0.30;
+        k.vel.x *= 0.62; k.vel.z *= 0.62;
+        k.spin.multiplyScalar(0.55);
+      } else {
+        k.vel.y = 0;
+        k.vel.x *= Math.max(0, 1 - 5.5 * dt);
+        k.vel.z *= Math.max(0, 1 - 5.5 * dt);
+        k.spin.multiplyScalar(Math.max(0, 1 - 6 * dt));
+      }
+    }
+    k.rot.x += k.spin.x * dt; k.rot.y += k.spin.y * dt; k.rot.z += k.spin.z * dt;
+    const fade = Math.min(1, (k.life - k.t) / 0.8);
+    const sc = k.scale * fade;
+    _qb.setFromEuler(k.rot);
+    _mI.compose(k.pos, _qb, _sc.set(sc, sc, sc));
+    splinterMesh.setMatrixAt(i, _mI);
+    splinterMesh.setColorAt(i, _splC.copy(k.col).multiplyScalar(0.55 + 0.45 * fade));
+  }
+  splinterMesh.instanceMatrix.needsUpdate = true;
+  if (splinterMesh.instanceColor) splinterMesh.instanceColor.needsUpdate = true;
+}
+
 // the fragments left clinging to the rim of an opening
 const RIMS = 90;
 const rimMesh = new THREE.InstancedMesh(chunkGeo, matWall, RIMS);
@@ -9389,6 +9618,167 @@ function tipOne(f, it, i, fromX, fromZ) {
   tipM.compose(new THREE.Vector3(it.p.x + dx * 0.06, it.p.y + 0.34, it.p.z + dz * 0.06), tipQ, tipS);
   f.mesh.setMatrixAt(i, tipM);
   f.mesh.instanceMatrix.needsUpdate = true;
+}
+
+/* ---- WRECKAGE -----------------------------------------------------------
+
+   The actual parts of the thing you broke, thrown across the floor and left
+   there. A chair scatters its seat and its four legs; a rack drops its uprights
+   and its shelves.
+
+   Each piece is a real Mesh rather than an instance, because every one is a
+   different shape — that is the whole point of it being a part rather than
+   rubble. They come out of a fixed pool built at load, and the pool is the
+   budget: PIECES of them can exist at once and the oldest is recycled when a
+   new one is needed, so a long session cannot fill the building with geometry.
+
+   They persist. Once a piece stops moving it stays where it stopped for the
+   rest of the game — a room you have shot up stays shot up.                */
+const PIECES = 150;
+const wreck = [];
+for (let i = 0; i < PIECES; i++) {
+  const mesh = new THREE.Mesh(splinterGeo,
+    new THREE.MeshPhongMaterial({ color: 0x8f8f8f, specular: 0x222222, shininess: 12 }));
+  mesh.castShadow = true;
+  mesh.visible = false;
+  mesh.frustumCulled = true;
+  scene.add(mesh);
+  wreck.push({ mesh, live: false, resting: false, floor: 0,
+               vel: new THREE.Vector3(), spin: new THREE.Vector3() });
+}
+let wreckNext = 0;
+function spawnPiece(geo, x, y, z, floorY, sx, dx, dy, dz, power, tone) {
+  const w = wreck[wreckNext++ % PIECES];
+  w.live = true; w.resting = false;
+  w.mesh.geometry = geo;
+  w.mesh.material.color.setHex(tone === undefined || tone === null ? 0x8f8f8f : tone);
+  w.mesh.scale.set(sx, sx, sx);
+  w.mesh.position.set(x, y, z);
+  w.mesh.rotation.set(Math.random() * TAU, Math.random() * TAU, Math.random() * TAU);
+  w.mesh.visible = true;
+  const sp = (1.7 + power * 1.1) * (0.5 + Math.random() * 0.8);
+  w.vel.set(dx + (Math.random() - 0.5) * 0.7,
+            dy + (Math.random() - 0.5) * 0.5 + 0.55,
+            dz + (Math.random() - 0.5) * 0.7).normalize().multiplyScalar(sp);
+  w.spin.set((Math.random() - 0.5) * 9, (Math.random() - 0.5) * 9, (Math.random() - 0.5) * 9);
+  w.floor = floorY;
+}
+function updateWreck(dt) {
+  for (const w of wreck) {
+    if (!w.live || w.resting) continue;          // settled pieces cost nothing
+    w.vel.y -= 15.5 * dt;
+    w.mesh.position.addScaledVector(w.vel, dt);
+    if (w.mesh.position.y <= w.floor + 0.05) {
+      w.mesh.position.y = w.floor + 0.05;
+      if (w.vel.y < -1.3) {
+        w.vel.y = -w.vel.y * 0.26;               // one bounce, then it lies down
+        w.vel.x *= 0.55; w.vel.z *= 0.55;
+        w.spin.multiplyScalar(0.4);
+      } else {
+        w.vel.y = 0;
+        w.vel.x *= Math.max(0, 1 - 7 * dt);
+        w.vel.z *= Math.max(0, 1 - 7 * dt);
+        w.spin.multiplyScalar(Math.max(0, 1 - 8 * dt));
+        if (w.vel.lengthSq() < 0.02) {
+          w.resting = true;                       // and there it stays
+          w.mesh.rotation.x = Math.round(w.mesh.rotation.x / (Math.PI / 2)) * (Math.PI / 2);
+          w.mesh.rotation.z = Math.round(w.mesh.rotation.z / (Math.PI / 2)) * (Math.PI / 2);
+        }
+      }
+    }
+    w.mesh.rotation.x += w.spin.x * dt;
+    w.mesh.rotation.y += w.spin.y * dt;
+    w.mesh.rotation.z += w.spin.z * dt;
+  }
+}
+
+/* A round goes into a piece of furniture. It takes a bite out of it, and when
+   it has taken enough the whole thing comes apart. */
+/* Two shots from a pistol; anything bigger takes it in one. The first round
+   punches holes and bites a piece out of it, the second breaks it up. */
+const BLAST = { 0: 1, 1: 1, 2: 2.5, 3: 1.2, 4: 4.5, 5: 5 };
+const FURN_HP = 2;
+const _wq = new THREE.Quaternion(), _wm = new THREE.Matrix4(), _wv = new THREE.Vector3();
+function shatterFurniture(f, it, i, x, y, z, dx, dy, dz, tier, powerOverride) {
+  if (it.gone) return;
+  const power = powerOverride !== undefined ? powerOverride
+              : (BLAST[tier] !== undefined ? BLAST[tier] : 1);
+  const lev = Math.round(it.p.y / LEVEL_H);
+  const rest = restFloorUnder(x, y, z, lev);
+  if (it.hp === undefined) it.hp = FURN_HP;
+  it.hp -= power;
+
+  /* THE HOLE IS IMMEDIATE, exactly as it is on a wall. Shooting a wall marks it
+     on the frame the round lands; furniture used to give you nothing you could
+     point at until it finally came apart, which read as the gun not working. */
+  placeDecal(x, y, z, -dx, -dy, -dz);
+  const n = Math.round(7 + power * 4);
+  for (let k = 0; k < n; k++) spawnSplinter(x, y, z, rest, dx, dy, dz, power, it.tone, false);
+  sfx.thud();
+
+  if (it.hp > 0) {
+    /* AND A BITE OUT OF IT. Still standing, but visibly smaller and knocked off
+       square, so a damaged piece looks damaged rather than untouched. */
+    it.dmg = (it.dmg || 0) + 1;
+    const shrink = 1 - 0.16 * it.dmg;
+    _wq.setFromAxisAngle(_UPY, it.rot);
+    _wv.set(it.scale * shrink, shrink, it.scale * shrink);
+    _wm.compose(_lp.set(it.p.x, it.p.y, it.p.z), _wq, _wv);
+    f.mesh.setMatrixAt(i, _wm);
+    f.mesh.instanceMatrix.needsUpdate = true;
+    return;
+  }
+
+  /* IT COMES APART INTO ITS OWN PARTS. The model was merged from a list of
+     them — a seat and four legs, uprights and shelves — and that list is kept
+     now, so what lands on the floor is the actual furniture in bits. Anything
+     without a recorded part list falls back to a handful of generic chunks. */
+  it.gone = true;
+  _wm.compose(_lp.set(it.p.x, -50, it.p.z), _qb.identity(), _sc.set(0, 0, 0));
+  f.mesh.setMatrixAt(i, _wm);
+  f.mesh.instanceMatrix.needsUpdate = true;
+
+  const parts = MODEL_PARTS[f.kind];
+  if (parts && parts.length) {
+    const cos = Math.cos(it.rot), sin = Math.sin(it.rot);
+    for (const g of parts) {
+      if (!g.boundingSphere) g.computeBoundingSphere();
+      const c = g.boundingSphere.center;
+      // the part's own place on the piece, turned by how the piece was set down
+      const ox = (c.x * cos + c.z * sin) * it.scale;
+      const oz = (-c.x * sin + c.z * cos) * it.scale;
+      spawnPiece(g, it.p.x + ox, it.p.y + c.y + 0.1, it.p.z + oz, rest,
+                 it.scale, dx, dy, dz, power, it.tone);
+    }
+  } else {
+    for (let k = 0; k < 14; k++)
+      spawnSplinter(it.p.x, it.p.y + 0.35, it.p.z, rest, dx, dy, dz, power * 1.2, it.tone, true);
+  }
+  sfx.thud(); sfx.clang && sfx.clang();
+}
+
+/* AN EXPLOSION TAKES THINGS APART, it does not merely knock them over. The
+   blaster used to call blowFurnitureOver, which tipped everything inside six
+   metres and left every piece intact however many rounds went off against it.
+   Now the same radius shatters, with the damage falling off toward the edge, so
+   a blast leaves a hole in the furniture and the pieces go outward from where
+   it went off rather than along the line you fired. */
+function shatterBlast(x, y, z, radius, power) {
+  const r2 = radius * radius;
+  for (const f of furniture) {
+    for (let i = 0; i < f.list.length; i++) {
+      const it = f.list[i];
+      if (it.gone) continue;
+      if (Math.abs(it.p.y - y) > 3) continue;
+      const dx = it.p.x - x, dz = it.p.z - z;
+      const d2 = dx * dx + dz * dz;
+      if (d2 > r2) continue;
+      const d = Math.sqrt(d2) || 0.001;
+      const falloff = 1 - d / radius;                 // full at the centre
+      shatterFurniture(f, it, i, it.p.x, it.p.y + 0.35, it.p.z,
+                       dx / d, 0.35, dz / d, 4, power * falloff);
+    }
+  }
 }
 
 function blowFurnitureOver(x, y, z, radius) {
@@ -10453,9 +10843,15 @@ function gunRay(spread, pierce, maxD) {
       if (!f.mesh.visible) continue;
       for (let i = 0; i < f.list.length; i++) {
         const it = f.list[i];
-        if (it.tipped) continue;
+        /* A piece that has gone over is still there to be shot. It used to be
+           skipped the moment it tipped, which was fine when tipping was the
+           whole interaction — now that furniture takes damage and comes apart,
+           skipping it meant only the first round of a burst ever landed and
+           nothing could be destroyed. Only what is actually gone is skipped,
+           and a tipped piece is aimed at near the floor where it now lies. */
+        if (it.gone) continue;
         const px = it.p.x - player.pos.x;
-        const py = it.p.y + f.rad * 0.55 - player.pos.y;
+        const py = it.p.y + f.rad * (it.tipped ? 0.20 : 0.55) - player.pos.y;
         const pz = it.p.z - player.pos.z;
         const along = px * rayDir.x + py * rayDir.y + pz * rayDir.z;
         if (along < 0.7 || along > maxD || along >= propD) continue;
@@ -10547,7 +10943,8 @@ function fireOnce() {
         spawnChunk(hit.x, hit.y, hit.z, restFloorUnder(hit.x, hit.y, hit.z, lev), 9);
       }
     }
-    blowFurnitureOver(hit.x, hit.y, hit.z, 6);
+    shatterBlast(hit.x, hit.y, hit.z, 6, 5.5);
+    blowFurnitureOver(hit.x, hit.y, hit.z, 6);       // whatever survived still goes over
     killFlash.pos.set(hit.x, hit.y, hit.z);
     killFlash.intensity = 60; killFlash.on = true;
     let n = 0;
@@ -10565,7 +10962,11 @@ function fireOnce() {
   const far = slowMoTarget();
   for (let i = 0; i < spec.pellets; i++) {
     const hit = gunRay(spec.spread, false, 60);
-    if (far) spawnTracer(rayDir, hit);       // rayDir is this pellet's line
+    /* The line the round was travelling, carried on the hit itself. Splinters
+       leave along it, and `rayDir` is a shared scratch vector that the next
+       pellet overwrites — by the time a tracer lands it is long gone. */
+    if (hit) { hit.dx = rayDir.x; hit.dy = rayDir.y; hit.dz = rayDir.z; }
+    if (far) spawnTracer(rayDir, hit);
     else if (hit) resolveHit(hit);
   }
   if (far) beginSlowMo();
@@ -10577,13 +10978,9 @@ function resolveHit(hit) {
   if (!hit) return;
   if (hit.kind === 'anti') hurtAnti(hit.a, gunState.tier, shotSeq);
   else if (hit.kind === 'prop') {
-    // it takes the round, and it goes over
-    const lev = Math.round(hit.it.p.y / LEVEL_H);
-    const rest = restFloorUnder(hit.x, hit.y, hit.z, lev);
-    tipOne(hit.f, hit.it, hit.i, player.pos.x, player.pos.z);
-    spawnChunk(hit.x, hit.y, hit.z, rest, 2.4);
-    spawnChunk(hit.x, hit.y, hit.z, rest, 1.8);
-    sfx.thud();
+    // it takes the round, and pieces of it leave along the round's own line
+    shatterFurniture(hit.f, hit.it, hit.i, hit.x, hit.y, hit.z,
+                     hit.dx || 0, hit.dy || 0, hit.dz || 0, gunState.tier);
   } else {
     placeDecal(hit.x, hit.y, hit.z, hit.nx, hit.ny, hit.nz);
     const lev = hit.kind === 'slab' ? hit.lev - (hit.up ? 1 : 0) : hit.lev;
@@ -10707,8 +11104,8 @@ function updateGuns(dt) {
             sfx.blastShot();
           } else if (hit.kind === 'prop') {
             laserBore = 0;
-            tipOne(hit.f, hit.it, hit.i, player.pos.x, player.pos.z);
-            sfx.thud();
+            shatterFurniture(hit.f, hit.it, hit.i, hit.x, hit.y, hit.z,
+                             rayDir.x, rayDir.y, rayDir.z, 5);
           }
         }
       }
@@ -11119,6 +11516,12 @@ function frame(dt) {
       el.prompt.classList.add('on');
     } else el.prompt.classList.remove('on');
   }
+  /* Standing at the coffin, before the end: the paper is the thing to press. */
+  if (!ending && started && !noteOpen && player.lev === 0
+      && Math.hypot(player.pos.x - coffin.pos.x, player.pos.z - coffin.pos.z) < 4.2) {
+    el.prompt.innerHTML = '<b>E</b> &nbsp;read the note';
+    el.prompt.classList.add('on');
+  }
   /* The prompt survives into the ending for exactly one thing. */
   if (ending === 3 && !coffin.opened
       && Math.hypot(player.pos.x - coffin.pos.x, player.pos.z - coffin.pos.z) < 4.2) {
@@ -11241,6 +11644,8 @@ function frame(dt) {
   updateBricks(dt);
   updateCoffin(dt);
   updateSparks(dt);
+  updateSplinters(dt);
+  updateWreck(dt);
   updateTracers(sdt);
   updateChunks(sdt);
   updateShards(sdt);
