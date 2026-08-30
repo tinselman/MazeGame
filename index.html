@@ -1987,6 +1987,15 @@ function wallSide(l, r, c) {
   for (const [dr, dc] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) if (at(l, r + dr, c + dc) === '#') return [dr, dc];
   return null;
 }
+/* Which way a paddle is lying. One function, because three places used to set
+   the same magic numbers and one of them could always drift. */
+function setRocker(grp, on) {
+  const k = grp && grp.userData && grp.userData.rocker;
+  if (!k) return;
+  k.rotation.x = on ? -0.30 : 0.30;      // tilted in at the bottom when on
+  k.position.y = on ? -0.012 : 0.012;
+}
+
 function makePanel(l, r, c, kind, label) {
   const side = wallSide(l, r, c);
   const p = cellCentre(r, c);
@@ -1995,11 +2004,37 @@ function makePanel(l, r, c, kind, label) {
   plate.castShadow = true;
   grp.add(plate);
   if (kind === 'switch') {
-    const rocker = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.42, 0.1),
+    /* A LIGHT SWITCH THAT LOOKS LIKE A LIGHT SWITCH.
+       It was a plain slab on a plain slab, resting at y=0 — which is neither
+       the on position nor the off one, so every switch in the building sat
+       half-thrown until you touched it. Now it is the thing on your own wall:
+       a screwed wall plate with a bevelled opening, and a paddle inside it that
+       TILTS rather than slides. Down is on, the way it is in this building's
+       part of the world, and it starts up. */
+    const face = new THREE.MeshPhongMaterial({ color: 0xf0eee8, specular: 0x777777, shininess: 70 });
+    // the plate gets a recessed opening, so the paddle sits IN it, not on it
+    const openW = 0.30, openH = 0.50;
+    for (const [w, h, x, y] of [[0.62, (0.82 - openH) / 2, 0, (openH + (0.82 - openH) / 2) / 2],
+                                [0.62, (0.82 - openH) / 2, 0, -(openH + (0.82 - openH) / 2) / 2],
+                                [(0.62 - openW) / 2, openH, (openW + (0.62 - openW) / 2) / 2, 0],
+                                [(0.62 - openW) / 2, openH, -(openW + (0.62 - openW) / 2) / 2, 0]]) {
+      const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, 0.05), face);
+      b.position.set(x, y, 0.055);
+      grp.add(b);
+    }
+    // the two screws, which is most of what makes a plate read as a plate
+    for (const sy of [0.33, -0.33]) {
+      const sc = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.028, 0.016, 8), matHousing);
+      sc.rotation.x = Math.PI / 2;
+      sc.position.set(0, sy, 0.082);
+      grp.add(sc);
+    }
+    const rocker = new THREE.Mesh(new THREE.BoxGeometry(0.27, 0.46, 0.075),
       new THREE.MeshPhongMaterial({ color: 0xdedede, specular: 0x555555, shininess: 60 }));
-    rocker.position.z = 0.07;
+    rocker.position.z = 0.045;
     grp.add(rocker);
     grp.userData.rocker = rocker;
+    setRocker(grp, false);          // every switch in the building starts OFF
   } else {
     // the knob carries its door's colour, and glows once pressed
     const knob = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.17, 0.1, 20),
@@ -2630,8 +2665,25 @@ const furniture = [];
     scene.add(mesh);
     propMeshes.push(mesh);
     mesh.geometry.computeBoundingSphere();
-    // so a blast can knock it over, and a bullet can find it
-    furniture.push({ mesh, list, rad: Math.max(0.5, mesh.geometry.boundingSphere.radius * 0.72) });
+    mesh.geometry.computeBoundingBox();
+    /* Two radii, because they answer different questions. `rad` is the old
+       bounding-sphere one and stays exactly as it was — a blast and a bullet
+       care how big the thing is in all three dimensions. `foot` is what you
+       walk into, and for that the height is a lie: a two-metre bookcase has an
+       enormous sphere and a small footprint, and blocking on the sphere would
+       wall off half a room. So the footprint comes from the box in x and z. */
+    /* HALF-EXTENTS, not one radius. A circle round a cubicle partition is a
+       circle the size of the partition's LENGTH — a metre and a half of empty
+       air either side of a panel two centimetres thick — and a row of them
+       seals the gaps between, which is how the computer room ended up with no
+       way in. The footprint is a rectangle, so a thin thing blocks a thin
+       line. */
+    const bb = mesh.geometry.boundingBox;
+    const hx = Math.max(Math.abs(bb.max.x), Math.abs(bb.min.x)) * 0.86;
+    const hz = Math.max(Math.abs(bb.max.z), Math.abs(bb.min.z)) * 0.86;
+    furniture.push({ mesh, list, kind,
+                     rad: Math.max(0.5, mesh.geometry.boundingSphere.radius * 0.72),
+                     hx, hz });
   }
 
   /* ---- the two chandelier rooms ------------------------------------------
@@ -3754,6 +3806,379 @@ const hubHeap = (() => {
   return { mesh, pos: new THREE.Vector3(hubCentre.x, 0, hubCentre.z) };
 })();
 
+/* ============================================================ THE COFFIN
+
+   Black, plain and narrow, lying flat and low over the crown of the heap. No
+   handles: they read as furniture fittings and this is not furniture. The gun
+   hangs above it, and going to fetch that gun is what brings you to the lid.
+
+   ExtrudeGeometry builds in XY and pushes along +Z, so a quarter turn about X
+   lays it down: width across X, length along Z, thickness in Y.            */
+const COFFIN_Y = 1.34;                   // low, just clear of the heap's crown
+const COFFIN_HW = 0.42, COFFIN_HL = 1.03; // half width and half length, for the collision
+const coffin = (() => {
+  const L = 2.05, W = 0.40, D = 0.30;
+  const OUT = [
+    [-L * 0.50, 0.30], [-L * 0.40, 0.74], [-L * 0.30, 1.00],
+    [ L * 0.02, 0.88], [ L * 0.50, 0.40],
+  ];
+  const ring = [];
+  for (const [z, w] of OUT) ring.push([-w * W, z]);
+  for (let i = OUT.length - 1; i >= 0; i--) ring.push([OUT[i][1] * W, OUT[i][0]]);
+  const shape = new THREE.Shape();
+  shape.moveTo(ring[0][0], ring[0][1]);
+  for (let i = 1; i < ring.length; i++) shape.lineTo(ring[i][0], ring[i][1]);
+  shape.closePath();
+  const box = new THREE.ExtrudeGeometry(shape, { depth: D, bevelEnabled: false });
+  box.rotateX(-Math.PI / 2);
+  const lid = new THREE.ExtrudeGeometry(shape, { depth: 0.05, bevelEnabled: false });
+  lid.rotateX(-Math.PI / 2);
+  lid.translate(0, D + 0.010, 0);
+  lid.scale(1.04, 1, 1.02);
+  const mat = new THREE.MeshPhongMaterial({ color: 0x0a0a0c, specular: 0x3a3a42, shininess: 48 });
+  const grp = new THREE.Group();
+  const boxMesh = new THREE.Mesh(box, mat);
+  const lidMesh = new THREE.Mesh(lid, mat);
+  grp.add(boxMesh);
+  grp.add(lidMesh);
+  grp.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+  grp.position.set(hubCentre.x, COFFIN_Y, hubCentre.z);
+  hubFloor.add(grp);
+  return { grp, mat, lidMesh, pos: new THREE.Vector3(hubCentre.x, COFFIN_Y, hubCentre.z),
+           spin: 1, stopped: false, shimmer: -1, crystal: 0, open: 0, opened: false };
+})();
+
+/* ---- SPARKS -------------------------------------------------------------
+   One pool, used by everything that glitters: the shimmer that runs down the
+   coffin when it stops turning, the crystalline state it takes on at the end,
+   and the trail the cicada leaves behind it. Unlit and additive, so they read
+   as light rather than as objects, and allocated once like everything else. */
+const SPARK_N = 700;
+const sparkGeo = new THREE.PlaneGeometry(1, 1);
+/* NO `vertexColors` HERE, and that is the whole point of this comment.
+   Per-instance colour comes from setColorAt, which sets USE_INSTANCING_COLOR
+   and starts vColor at white before multiplying the instance colour in. Turning
+   vertexColors on as well sets USE_COLOR, and the shader then also does
+   `vColor *= color` against a per-vertex attribute this plane does not have —
+   WebGL hands it (0,0,0), every spark multiplies to black, and additive black
+   is nothing at all. Three hundred and eighty of them were alive in the air and
+   the screen was empty. */
+/* A STAR, NOT A SQUARE. A bare plane under additive blending is a hard-edged
+   tile, and a sky full of them reads as confetti rather than as sparkle. One
+   32-pixel texture — a soft core with four spikes off it — turns each one into
+   a point of light. Drawn once at load into a canvas; no file to fetch. */
+const sparkTex = (() => {
+  const S = 64, cv = document.createElement('canvas');
+  cv.width = cv.height = S;
+  const x = cv.getContext('2d');
+  const g = x.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S / 2);
+  g.addColorStop(0, 'rgba(255,255,255,1)');
+  g.addColorStop(0.18, 'rgba(255,255,255,0.85)');
+  g.addColorStop(0.45, 'rgba(255,255,255,0.18)');
+  g.addColorStop(1, 'rgba(255,255,255,0)');
+  x.fillStyle = g; x.fillRect(0, 0, S, S);
+  // the four spikes
+  x.globalCompositeOperation = 'lighter';
+  const sp = x.createLinearGradient(0, S / 2, S, S / 2);
+  sp.addColorStop(0, 'rgba(255,255,255,0)');
+  sp.addColorStop(0.5, 'rgba(255,255,255,0.55)');
+  sp.addColorStop(1, 'rgba(255,255,255,0)');
+  x.fillStyle = sp; x.fillRect(0, S / 2 - 1.2, S, 2.4);
+  x.save(); x.translate(S / 2, S / 2); x.rotate(Math.PI / 2); x.translate(-S / 2, -S / 2);
+  x.fillStyle = sp; x.fillRect(0, S / 2 - 1.2, S, 2.4);
+  x.restore();
+  const t = new THREE.CanvasTexture(cv);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+})();
+const matSpark = new THREE.MeshBasicMaterial({
+  color: 0xffffff, map: sparkTex, transparent: true, opacity: 1,
+  blending: THREE.AdditiveBlending, depthWrite: false, fog: false, toneMapped: false,
+});
+const sparkMesh = (() => {
+  const m = new THREE.InstancedMesh(sparkGeo, matSpark, SPARK_N);
+  m.frustumCulled = false;
+  m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  m.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(SPARK_N * 3), 3);
+  m.renderOrder = 6;
+  scene.add(m);
+  return m;
+})();
+/* Tiny and every colour. One palette for every spark in the game — the coffin
+   shimmer, the crystalline box, and the cicada's trail all draw from it, so
+   the whole finale is the same confetti of light rather than three effects
+   that happen to be near each other. */
+const SPARK_HUES = [0xff3ec8, 0x9d5bff, 0x3ea8ff, 0x2ef0d0,
+                    0x8cff4a, 0xffe23c, 0xff8a2e, 0xff4a6a, 0xffffff];
+const sparkHue = () => SPARK_HUES[(Math.random() * SPARK_HUES.length) | 0];
+
+const sparks = [];
+for (let i = 0; i < SPARK_N; i++) sparks.push({
+  live: false, t: 0, life: 1, size: 0.1,
+  pos: new THREE.Vector3(), vel: new THREE.Vector3(), col: new THREE.Color(),
+});
+let sparkCursor = 0;
+function sparkAt(x, y, z, col, size, life, vx, vy, vz) {
+  const k = sparks[sparkCursor];
+  sparkCursor = (sparkCursor + 1) % SPARK_N;
+  k.live = true; k.t = 0; k.life = life; k.size = size;
+  k.pos.set(x, y, z);
+  k.vel.set(vx || 0, vy || 0, vz || 0);
+  k.col.set(col);
+}
+function updateSparks(dt) {
+  for (let i = 0; i < SPARK_N; i++) {
+    const k = sparks[i];
+    if (!k.live) { sparkMesh.setMatrixAt(i, HIDDEN); continue; }
+    k.t += dt;
+    if (k.t >= k.life) { k.live = false; sparkMesh.setMatrixAt(i, HIDDEN); continue; }
+    k.pos.addScaledVector(k.vel, dt);
+    k.vel.y -= 0.55 * dt;                       // they drift down as they fade
+    const u = k.t / k.life;
+    // a twinkle rather than a straight fade: it flickers as it dies
+    const a = (1 - u * u) * (0.72 + 0.28 * Math.sin(k.t * 26 + i));
+    const r = k.size * (0.55 + 0.45 * (1 - u));
+    _qb.copy(camera.quaternion);                // billboard
+    _mI.compose(k.pos, _qb, _sc.set(r, r, r));
+    sparkMesh.setMatrixAt(i, _mI);
+    sparkMesh.setColorAt(i, _sparkC.copy(k.col).multiplyScalar(Math.max(0, a)));
+  }
+  sparkMesh.instanceMatrix.needsUpdate = true;
+  if (sparkMesh.instanceColor) sparkMesh.instanceColor.needsUpdate = true;
+}
+const _sparkC = new THREE.Color();
+
+/* ============================================================ THE CICADA
+
+   What is in the box. Long enough to fill it end to end with its wings shut,
+   and a shade over three metres across when they open. White the colour of old
+   bone china, the plates and rings picked out in black, and gold at the eyes,
+   the wing edges and the joints — an insect made as a reliquary rather than as
+   an animal.
+
+   Built like everything else here: merged geometry with the colour written
+   into the vertices, so the whole body is one draw call. The four wings are
+   separate meshes because they have to move.                               */
+const cicada = (() => {
+  const C = (hex) => { const c = new THREE.Color(); c.setHex(hex); return [c.r, c.g, c.b]; };
+  const BONE = C(0xf2eee4), SHELL = C(0xe4ddcd), BLACK = C(0x141417), GOLD = C(0xd9a63c), DEEP = C(0x0a0a0c);
+  const parts = [], cols = [];
+  const I = new THREE.Matrix4();
+  const add = (geo, rgb) => { parts.push({ geo, m: I }); cols.push({ n: geo.attributes.position.count, rgb }); };
+  const at = (geo, x, y, z, rx, ry, rz, sx, sy, sz) => {
+    if (sx !== undefined) geo.scale(sx, sy === undefined ? sx : sy, sz === undefined ? sx : sz);
+    if (rx) geo.rotateX(rx); if (ry) geo.rotateY(ry); if (rz) geo.rotateZ(rz);
+    geo.translate(x, y, z);
+    return geo;
+  };
+
+  /* ---- head: broad and blunt, the way a cicada's is */
+  add(at(new THREE.SphereGeometry(0.30, 22, 16), 0, 0, -0.86, 0, 0, 0, 1.15, 0.82, 0.86), BONE);
+  // the face plate, a ribbed dome between the eyes
+  add(at(new THREE.SphereGeometry(0.20, 18, 12), 0, -0.04, -1.02, 0, 0, 0, 0.92, 0.86, 0.90), SHELL);
+  for (let i = 0; i < 6; i++) {
+    add(at(new THREE.TorusGeometry(0.155, 0.014, 5, 14), 0, -0.04 - i * 0.022, -1.05 + i * 0.012,
+           Math.PI / 2, 0, 0, 1, 1, 1), BLACK);
+  }
+  // the two big compound eyes, and a gold ring round each
+  for (const sd of [-1, 1]) {
+    add(at(new THREE.SphereGeometry(0.135, 18, 14), sd * 0.30, 0.03, -0.86, 0, 0, 0, 1, 0.92, 1), DEEP);
+    add(at(new THREE.TorusGeometry(0.128, 0.020, 6, 18), sd * 0.30, 0.03, -0.86, 0, Math.PI / 2, 0), GOLD);
+    // three ocelli on the crown, as a real cicada has
+  }
+  for (const ox of [-0.075, 0, 0.075]) {
+    add(at(new THREE.SphereGeometry(0.028, 8, 6), ox, 0.17, -0.80), GOLD);
+  }
+
+  /* ---- thorax: the bulk of it, plated and ridged */
+  add(at(new THREE.SphereGeometry(0.40, 24, 18), 0, 0.02, -0.34, 0, 0, 0, 1.05, 0.92, 1.35), BONE);
+  // the pronotum shield, black with a gold lip
+  add(at(new THREE.SphereGeometry(0.365, 20, 14, 0, Math.PI * 2, 0, Math.PI * 0.55),
+         0, 0.10, -0.52, 0, 0, 0, 1.06, 0.72, 1.0), BLACK);
+  add(at(new THREE.TorusGeometry(0.335, 0.024, 6, 26), 0, 0.06, -0.30, Math.PI / 2, 0, 0), GOLD);
+  // the X-shaped scutellum every cicada carries on its back
+  for (const rz of [0.72, -0.72]) {
+    add(at(new THREE.BoxGeometry(0.055, 0.045, 0.46), 0, 0.30, -0.18, 0, 0, rz), BLACK);
+  }
+
+  /* ---- abdomen: eight tapering rings, black between and gold at the seams */
+  for (let i = 0; i < 8; i++) {
+    const u = i / 7;
+    const r = 0.34 * (1 - u * 0.62);
+    const z = 0.02 + u * 0.86;
+    add(at(new THREE.SphereGeometry(r, 20, 12), 0, -0.01 * i, z, 0, 0, 0, 1, 0.88, 0.62), i % 2 ? SHELL : BONE);
+    add(at(new THREE.TorusGeometry(r * 0.99, 0.017, 5, 20), 0, -0.01 * i, z + r * 0.30, Math.PI / 2, 0, 0),
+        i % 2 ? GOLD : BLACK);
+  }
+  add(at(new THREE.ConeGeometry(0.13, 0.26, 12), 0, -0.08, 1.02, -Math.PI / 2, 0, 0), BLACK);
+
+  /* ---- six legs, folded up under the thorax the way a resting cicada holds
+     them: femur out and down, tibia tucked back in. */
+  for (const sd of [-1, 1]) for (let i = 0; i < 3; i++) {
+    const z0 = -0.52 + i * 0.28;
+    const spread = 0.30 + i * 0.06;
+    const fem = at(new THREE.CylinderGeometry(0.036, 0.028, 0.40, 8), 0, -0.20, 0, 0, 0, sd * 0.85);
+    fem.translate(sd * spread, -0.10, z0);
+    add(fem, BLACK);
+    const tib = at(new THREE.CylinderGeometry(0.026, 0.016, 0.36, 7), 0, -0.18, 0, 0.9, 0, sd * 0.30);
+    tib.translate(sd * (spread + 0.24), -0.32, z0 + 0.06);
+    add(tib, SHELL);
+    add(at(new THREE.SphereGeometry(0.038, 8, 6), sd * (spread + 0.10), -0.26, z0), GOLD);
+  }
+
+  const geo = mergeGeos(parts);
+  const total = geo.attributes.position.count;
+  const arr = new Float32Array(total * 3);
+  let o = 0;
+  for (const c of cols) {
+    for (let k = 0; k < c.n; k++) {
+      arr[(o + k) * 3] = c.rgb[0]; arr[(o + k) * 3 + 1] = c.rgb[1]; arr[(o + k) * 3 + 2] = c.rgb[2];
+    }
+    o += c.n;
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(arr, 3));
+  const matBody = new THREE.MeshPhongMaterial({
+    vertexColors: true, specular: 0x8a8375, shininess: 46,
+    /* Lit from within. The shell stays bone-white where your light lands on it
+       and burns fuchsia everywhere it does not, which is what reads as a thing
+       glowing from the inside rather than a thing painted pink. */
+    emissive: 0xc41a92, emissiveIntensity: 1,
+  });
+
+  /* ---- the wings. A long leaf with a gold leading edge and black veins
+     fanning out of the root. Translucent, so the hub shows through them. */
+  const wingGeo = (() => {
+    const wp = [], wc = [];
+    const wAdd = (g, rgb) => { wp.push({ geo: g, m: I }); wc.push({ n: g.attributes.position.count, rgb }); };
+    const sh = new THREE.Shape();
+    sh.moveTo(0, 0);
+    sh.bezierCurveTo(0.30, 0.26, 1.05, 0.30, 1.52, 0.10);
+    sh.bezierCurveTo(1.15, -0.16, 0.42, -0.20, 0, 0);
+    const blade = new THREE.ShapeGeometry(sh, 26);
+    wAdd(blade, C(0xe935b4));                       // solid fuchsia
+    // the leading edge, a lighter pink so the wing still has an edge to it
+    const edge = new THREE.BoxGeometry(1.5, 0.028, 0.012);
+    edge.translate(0.75, 0.20, 0.004);
+    wAdd(edge, C(0xffa6e4));
+    // veins fanning from the root
+    for (let i = 0; i < 7; i++) {
+      const a = -0.16 + i * 0.055;
+      const v = new THREE.BoxGeometry(1.34 - i * 0.05, 0.010, 0.008);
+      v.rotateZ(a);
+      v.translate(0.70, 0.03 + i * 0.006, 0.005);
+      wAdd(v, C(0x5c0742));                         // veins, deep magenta
+    }
+    const g2 = mergeGeos(wp);
+    const t2 = g2.attributes.position.count;
+    const a2 = new Float32Array(t2 * 3);
+    let o2 = 0;
+    for (const c of wc) {
+      for (let k = 0; k < c.n; k++) {
+        a2[(o2 + k) * 3] = c.rgb[0]; a2[(o2 + k) * 3 + 1] = c.rgb[1]; a2[(o2 + k) * 3 + 2] = c.rgb[2];
+      }
+      o2 += c.n;
+    }
+    g2.setAttribute('color', new THREE.BufferAttribute(a2, 3));
+    return g2;
+  })();
+  /* OPAQUE. They were glass with veins in them; now they are solid panels of
+     fuchsia, lit from within like the body. */
+  const matWing = new THREE.MeshPhongMaterial({
+    vertexColors: true, side: THREE.DoubleSide, specular: 0xffd0f0, shininess: 60,
+    emissive: 0x9a1272, emissiveIntensity: 1,
+  });
+
+  const grp = new THREE.Group();
+  const body = new THREE.Mesh(geo, matBody);
+  grp.add(body);
+  const wings = [];
+  for (const sd of [-1, 1]) for (const pair of [0, 1]) {
+    const w = new THREE.Mesh(wingGeo, matWing);
+    w.scale.set(sd * (pair ? 0.66 : 0.88), 0.88, 1);
+    w.rotation.y = sd * (pair ? -0.30 : -0.14);       // swept back along the body
+    w.position.set(sd * 0.20, 0.20 - pair * 0.06, -0.20 + pair * 0.26);
+    grp.add(w);
+    wings.push({ mesh: w, sd, pair });
+  }
+  grp.visible = false;
+  scene.add(grp);
+  return { grp, body, wings, matBody, matWing, t: 0, flying: false };
+})();
+
+/* ---- THE COFFIN TURNS ----------------------------------------------------
+   One revolution every thirty seconds, and it slows as you come near it: at
+   ten metres it is still turning, by four it has stopped. The stop is the
+   event — a shimmer runs the length of the lid and whoever is inside speaks.
+   It happens once. After that the coffin is a still object.                 */
+const COFFIN_RPS = (Math.PI * 2) / 30;
+function updateCoffin(dt) {
+  /* Black stone until the crystals come home, and then glass full of light.
+     `crystal` runs 0..1 across that change and `open` slides the lid off. */
+  if (coffin.crystal > 0) {
+    const k = coffin.crystal;
+    coffin.mat.color.setRGB(0.04 + k * 0.55, 0.04 + k * 0.80, 0.05 + k * 0.92);
+    coffin.mat.emissive.setRGB(k * 0.30, k * 0.52, k * 0.66);
+    coffin.mat.specular.setRGB(0.23 + k * 0.6, 0.23 + k * 0.7, 0.26 + k * 0.7);
+    coffin.mat.shininess = 48 + k * 60;
+    coffin.mat.transparent = k > 0.05;
+    coffin.mat.opacity = 1 - k * 0.28;
+    const sh = 1 + Math.sin(clock.elapsedTime * 4.2) * 0.10 * k;
+    coffin.mat.emissiveIntensity = sh;
+  }
+  if (coffin.open > 0) {
+    coffin.lidMesh.position.set(0, coffin.open * 0.9, -coffin.open * 1.35);
+    coffin.lidMesh.rotation.x = -coffin.open * 0.55;
+  }
+  if (!started || ending) return;
+  const d = Math.hypot(player.pos.x - coffin.pos.x, player.pos.z - coffin.pos.z);
+  if (!coffin.stopped) {
+    const want = Math.max(0, Math.min(1, (d - 4.0) / 6.0));
+    coffin.spin += (want - coffin.spin) * (1 - Math.exp(-2.6 * dt));
+    coffin.grp.rotation.y += COFFIN_RPS * coffin.spin * dt;
+    if (d < 4.6 && coffin.spin < 0.04) {
+      coffin.stopped = true;
+      coffin.shimmer = 0;
+      say('Help me! Find my crystals and free me from the curse. HURRY!', 7);
+      sfx.holy && sfx.holy();
+    }
+  }
+  /* The shimmer: a band of light travelling from the head of the box to the
+     foot, throwing sparks off the surface as it passes. */
+  if (coffin.shimmer >= 0) {
+    const SH = 1.8;
+    const prev = coffin.shimmer;
+    coffin.shimmer += dt;
+    if (coffin.shimmer > SH) { coffin.shimmer = -1; }
+    else {
+      const u = coffin.shimmer / SH;
+      const zc = -COFFIN_HL + u * (COFFIN_HL * 2);
+      const n = Math.max(0, Math.round((coffin.shimmer - prev) * 150));
+      for (let i = 0; i < n; i++) {
+        const zz = zc + (Math.random() - 0.5) * 0.26;
+        const xx = (Math.random() - 0.5) * COFFIN_HW * 1.9;
+        sparkAt(coffin.pos.x + xx, coffin.pos.y + 0.30 + Math.random() * 0.10, coffin.pos.z + zz,
+                sparkHue(),
+                0.028 + Math.random() * 0.030, 0.5 + Math.random() * 0.5,
+                (Math.random() - 0.5) * 0.3, 0.25 + Math.random() * 0.4, (Math.random() - 0.5) * 0.3);
+      }
+    }
+  }
+}
+
+/* Solid: you walk into it, not through it. The plea is delivered when it stops
+   turning, not here. */
+function collideCoffin(pos) {
+  if (player.lev !== 0) return;
+  const foot = pos.y - EYE;
+  if (foot > COFFIN_Y + 0.34 || foot + EYE < COFFIN_Y) return;
+  const dx = pos.x - coffin.pos.x, dz = pos.z - coffin.pos.z;
+  const ex = COFFIN_HW + RADIUS, ez = COFFIN_HL + RADIUS;
+  const ax = Math.abs(dx), az = Math.abs(dz);
+  if (ax >= ex || az >= ez) return;
+  if (ex - ax < ez - az) pos.x += (dx < 0 ? -1 : 1) * (ex - ax);
+  else                   pos.z += (dz < 0 ? -1 : 1) * (ez - az);
+}
+
 /* ============================================================ AUDIO
 
    Everything is synthesised — no files, so nothing to load and nothing to go
@@ -4237,6 +4662,14 @@ const sfx = {
   land:  () => { blip(58, 0.22, 'square', 0.07); setTimeout(() => blip(95, 0.14, 'sine', 0.04), 40); },
   finale:() => { [523, 659, 784, 1046].forEach((f, i) => setTimeout(() => blip(f, 1.6, 'sine', 0.06), i * 300)); },
   spawn: () => { [196, 147, 110, 82].forEach((f, i) => setTimeout(() => blip(f, 1.1, 'sawtooth', 0.05), i * 210)); },
+  /* The buzzer on the coffin. Three flat blasts on one note, square and ugly
+     and dry — a fire panel going off in an empty building, not a musical cue.
+     It is the last quiet moment of the game and it should sound like a mistake
+     you have just made. */
+  alarm: () => { for (let i = 0; i < 3; i++) setTimeout(() => {
+      blip(146.8, 0.42, 'square', 0.10, 0.35);
+      blip(147.6, 0.42, 'square', 0.09, 0.35);
+    }, i * 520); },
   charge:() => { [300, 460, 700, 1060].forEach((f, i) => setTimeout(() => blip(f, 0.16, 'square', 0.045), i * 120)); },
   // A prism, not a death. A bright cluster blooming upward and a scatter of
   // glass behind it, both drowned in the room.
@@ -4653,7 +5086,72 @@ function isSolid(l, r, c) {
   }
   return false;
 }
-function collide(pos, lev) {
+/* YOU WALK INTO FURNITURE NOW.
+
+   Bucketed by cell and built once on first use, because collide() runs every
+   frame and there are hundreds of pieces: without an index this is a scan of
+   the whole building's contents to take one step.
+
+   Only the player is stopped. collide() is shared with the creatures, and they
+   are supposed to go over furniture — that is what the long legs are for — so
+   the furniture test is opt-in and only the player's call passes it. */
+let _furnGrid = null;
+function furnGrid() {
+  if (_furnGrid) return _furnGrid;
+  _furnGrid = new Map();
+  for (const f of furniture) {
+    if (f.hx === undefined) continue;
+    for (const it of f.list) {
+      const sc = it.scale || 1;
+      const hx = f.hx * sc, hz = f.hz * sc;
+      if (Math.max(hx, hz) < 0.14) continue;     // clutter you would step over
+      const reach = Math.hypot(hx, hz);
+      const lev = Math.max(0, Math.min(NLEV - 1, Math.round(it.p.y / LEVEL_H)));
+      const c0 = Math.floor((it.p.x - reach) / CELL), c1 = Math.floor((it.p.x + reach) / CELL);
+      const r0 = Math.floor((it.p.z - reach) / CELL), r1 = Math.floor((it.p.z + reach) / CELL);
+      const rot = it.rot || 0;
+      const rec = { x: it.p.x, z: it.p.z, hx, hz, cos: Math.cos(rot), sin: Math.sin(rot) };
+      for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) {
+        const k = `${lev},${r},${c}`;
+        let b = _furnGrid.get(k);
+        if (!b) { b = []; _furnGrid.set(k, b); }
+        b.push(rec);
+      }
+    }
+  }
+  return _furnGrid;
+}
+/* Pushed out of a rotated rectangle rather than a circle. The player is
+   swallowed into the box as a margin (a Minkowski expansion), the point is
+   taken into the item's own frame, and the escape is along whichever of the two
+   local axes it is nearest to leaving by — which is what makes you slide along
+   the face of a desk instead of being flung round it. */
+function collideFurniture(pos, lev) {
+  const g = furnGrid();
+  const c0 = Math.floor((pos.x - RADIUS) / CELL), c1 = Math.floor((pos.x + RADIUS) / CELL);
+  const r0 = Math.floor((pos.z - RADIUS) / CELL), r1 = Math.floor((pos.z + RADIUS) / CELL);
+  for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) {
+    const b = g.get(`${lev},${r},${c}`);
+    if (!b) continue;
+    for (const o of b) {
+      const dx = pos.x - o.x, dz = pos.z - o.z;
+      // into the item's frame: world = R(rot) * local, so local = R(-rot) * world
+      const lx = dx * o.cos - dz * o.sin;
+      const lz = dx * o.sin + dz * o.cos;
+      const ex = o.hx + RADIUS, ez = o.hz + RADIUS;
+      const ax = Math.abs(lx), az = Math.abs(lz);
+      if (ax >= ex || az >= ez) continue;
+      const px = ex - ax, pz = ez - az;
+      let ox, oz;
+      if (px < pz) { const m = px * (lx < 0 ? -1 : 1); ox = m * o.cos;  oz = m * -o.sin; }
+      else         { const m = pz * (lz < 0 ? -1 : 1); ox = m * o.sin;  oz = m * o.cos; }
+      pos.x += ox; pos.z += oz;
+    }
+  }
+}
+
+function collide(pos, lev, alsoFurniture = false) {
+  if (alsoFurniture) collideFurniture(pos, lev);
   const c0 = Math.floor((pos.x - RADIUS) / CELL), c1 = Math.floor((pos.x + RADIUS) / CELL);
   const r0 = Math.floor((pos.z - RADIUS) / CELL), r1 = Math.floor((pos.z + RADIUS) / CELL);
   for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) {
@@ -4780,6 +5278,82 @@ function playerGround(r, c, x, z, lev, ceilY) {
   if (!best || d.y > best.y) return { y: d.y, lev: d.lev };
   return best;
 }
+/* THE HEAP IS A HILL. It was scenery you walked through; now it is a dome you
+   walk up, which is what lets a brick land on top of it instead of inside it.
+   The same curve the pieces were scattered along, evaluated as a height field —
+   no collision mesh, just an answer to "how high is the candy here". */
+const CANDY_R = 4.05, CANDY_H = 0.92;
+function candyTopAt(x, z, lev) {
+  if (lev !== 0 && lev !== null) return null;
+  const dx = x - hubHeap.pos.x, dz = z - hubHeap.pos.z;
+  const d2 = dx * dx + dz * dz;
+  if (d2 > CANDY_R * CANDY_R) return null;
+  const t = Math.sqrt(d2) / CANDY_R;
+  return levelY(0) + CANDY_H * Math.pow(Math.max(0, 1 - t * t), 0.62) + 0.05;
+}
+
+/* ONE COURSE IS A KERB, TWO IS A WALL.
+
+   A brick top within STEP_UP of your feet is something you step onto — the
+   movement code snaps you up to whatever surface it is given, so simply
+   offering the top of a single course makes you climb it like a stair. Two
+   courses is 1.22 m, past the limit, so no surface is offered and the brick
+   blocks you instead. That one number is the whole rule.                   */
+const STEP_UP = 0.72;
+function brickTopAt(x, z, footY) {
+  let best = null;
+  for (const b of bricks) {
+    if (!b.set) continue;
+    if (Math.abs(x - b.pos.x) > BRICK * 0.5 + RADIUS * 0.5) continue;
+    if (Math.abs(z - b.pos.z) > BRICK * 0.5 + RADIUS * 0.5) continue;
+    const top = b.pos.y + BRICK * 0.5;
+    if (top > footY + STEP_UP) continue;         // too high to climb onto
+    if (best === null || top > best) best = top;
+  }
+  return best;
+}
+
+/* THE DOORWAY MOULDINGS ARE SOLID. They stand proud of the jamb on both sides
+   of every door, and until now you walked straight through them — so a brick
+   set against one looked embedded and you could stand inside one yourself.
+   Built once from props.doors, on first use, because that list is filled long
+   after this file position. */
+let _jambs = null;
+function jambBoxes() {
+  if (_jambs) return _jambs;
+  _jambs = new Map();
+  for (const d of props.doors) {
+    const p = cellCentre(d.cell[0], d.cell[1]);
+    const alongZ = at(d.lev, d.cell[0] - 1, d.cell[1]) === '#' && at(d.lev, d.cell[0] + 1, d.cell[1]) === '#';
+    for (const sgn of [-1, 1]) {
+      const x = p.x + (alongZ ? 0 : sgn * (CELL / 2 + 0.06));
+      const z = p.z + (alongZ ? sgn * (CELL / 2 + 0.06) : 0);
+      // the jamb profile is about 0.26 across the opening and 0.38 through it
+      const hx = alongZ ? 0.19 : 0.13, hz = alongZ ? 0.13 : 0.19;
+      const k = `${d.lev},${d.cell[0]},${d.cell[1]}`;
+      if (!_jambs.has(k)) _jambs.set(k, []);
+      _jambs.get(k).push({ x, z, hx, hz, lev: d.lev });
+    }
+  }
+  return _jambs;
+}
+function collideJambs(pos, lev) {
+  const g = jambBoxes();
+  const [r, c] = cellOf(pos);
+  for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) {
+    const list = g.get(`${lev},${r + dr},${c + dc}`);
+    if (!list) continue;
+    for (const o of list) {
+      const dx = pos.x - o.x, dz = pos.z - o.z;
+      const ex = o.hx + RADIUS, ez = o.hz + RADIUS;
+      const ax = Math.abs(dx), az = Math.abs(dz);
+      if (ax >= ex || az >= ez) continue;
+      if (ex - ax < ez - az) pos.x += (dx < 0 ? -1 : 1) * (ex - ax);
+      else                   pos.z += (dz < 0 ? -1 : 1) * (ez - az);
+    }
+  }
+}
+
 // Keep the player on the deck. The sides are railed on every one of them; the
 // front is railed on half, and open on the other half so you can step off.
 function deckClamp() {
@@ -4802,6 +5376,10 @@ function deckClamp() {
    you are on is drawn solid; the others sit behind it, faint, so the vertical
    structure is legible without swamping where you actually are.            */
 const MM_PX = 280, MM_REVEAL = 3;
+/* TESTING SWITCH. true puts every living creature on the chart wherever it is;
+   false is the shipping behaviour — the six guards only, and only on ground you
+   have already charted. */
+const MM_ALL = true;
 const mmCanvas = document.getElementById('minimap');
 const mmCtx = mmCanvas.getContext('2d');
 {
@@ -5113,6 +5691,40 @@ function drawMinimap() {
     g.restore();
   }
 
+  /* EVERY CREATURE, WHILE WE ARE TESTING.
+     Normally this is gated on charted ground and on carrying a gate, so only
+     the six guards appear and only where you have walked. Both gates are off
+     for now so the chart shows the lot — put MM_ALL back to false to return it
+     to what it was.
+
+     A guard is a disc in its own vault's colour: the same colour its switch
+     will be when it comes up out of the floor where the thing went down. A head
+     is a bone-white diamond, so the two never have to be told apart by colour
+     alone on a chart this small. */
+  for (const a of antis) {
+    if (!a.live) continue;
+    if (!MM_ALL && !a.gate) continue;
+    const r = Math.floor(a.pos.z / CELL), c = Math.floor(a.pos.x / CELL);
+    if (!MM_ALL && !revealed.has(`${a.lev},${r},${c}`)) continue;
+    const ax = mmX(a.pos.x / CELL), ay = mmY(a.pos.z / CELL);
+    const here = a.lev === player.lev;
+    g.save();
+    g.globalAlpha = here ? 1 : 0.38;
+    const hex = a.gate ? doorHex(a.gate) : '#9fb4cc';
+    g.fillStyle = 'rgba(6,8,12,.9)';
+    g.beginPath(); g.arc(ax, ay, 5.6, 0, Math.PI * 2); g.fill();
+    g.fillStyle = hex;
+    g.beginPath(); g.arc(ax, ay, 3.6, 0, Math.PI * 2); g.fill();
+    g.strokeStyle = hex;
+    // a tick showing which way it is looking, so a still one still reads as facing
+    g.lineWidth = 1.6;
+    g.beginPath();
+    g.moveTo(ax, ay);
+    g.lineTo(ax - Math.sin(a.yaw) * 9, ay - Math.cos(a.yaw) * 9);
+    g.stroke();
+    g.restore();
+  }
+
   /* THEY ARE NOT ON THE CHART. They used to be — a facing wedge, a dot and a
      tag apiece — from back when they were flashlights and watching them come
      WAS the counterplay. It is not any more: they crawl in the dark, they hunt
@@ -5237,6 +5849,7 @@ function nearestTarget() {
 }
 
 function interact() {
+  if (tryOpenCoffin()) return;              // the box, once the crystals are home
   if (!started || ending) return;
   const t = nearestTarget();
   if (!t) return;
@@ -5247,17 +5860,20 @@ function interact() {
     const room = props.switches.find((s) => s.cell === t.obj.cell) || t.obj;
     if (room.eaten) { sfx.click(); say('this one will not come back on'); return; }
     const turnOn = !room.on;
-    /* The switch lights its own room now, and every room stacked above it — a
-       storey at a time, later the higher you go, so the column comes up from
-       where you are standing rather than all at once. */
-    const column = [room, ...(room.above || [])];
+    /* ONE SWITCH, ONE ROOM.
+       It used to light its own room and every room stacked above it, a storey
+       at a time. Twenty-two of the forty-one rooms sit in such a column, so a
+       single flip on the ground floor lit up to three more upstairs — rooms
+       whose switches you had never touched, standing in the on position with
+       their lanterns burning. That is not a light coming up the building, that
+       is the building lighting itself, and there is no reading of a light
+       switch in which it operates a room you have not found yet. */
+    const column = [room];
     const now2 = clock.elapsedTime;
     column.forEach((rm) => {
       if (rm.eaten) return;
       rm.on = turnOn;
-      if (rm.mesh && rm.mesh.userData && rm.mesh.userData.rocker) {
-        rm.mesh.userData.rocker.position.y = turnOn ? -0.12 : 0.12;
-      }
+      setRocker(rm.mesh, turnOn);
       if (turnOn) rm.litAt = now2 + Math.max(0, rm.lev - room.lev) * 1.1;   // flicker up
       else for (const f of rm.fixtures) setFixture(f, 0);
     });
@@ -5481,28 +6097,115 @@ function updateEnding(dt) {
     endLight.intensity = e * 55;
     if (endTime > 4.5) { ending = 2; endTime = 0; }
   } else if (ending === 2) {
+    /* The light comes DOWN into the box. Where it used to bloom and lift the
+       whole floor, it now sinks into the coffin and stays there. */
     for (const p of props.pedestals) if (p.filled) p.gem.visible = false;
-    endLight.intensity = 55 + Math.sin(endTime * 5) * 10;
-    hubLamp.color.lerp(new THREE.Color(0xffffff), dt * 2);
-    hubLamp.intensity += dt * 22;
-    scene.fog.density = Math.max(0.005, scene.fog.density - dt * 0.014);
-    if (endTime > 1.9) { ending = 3; endTime = 0; }
+    const k = Math.min(1, endTime / 2.4);
+    endLight.position.set(hubCentre.x, 3.0 + (coffin.pos.y - 3.0) * k, hubCentre.z);
+    endLight.intensity = 55 * (1 - k * 0.45);
+    /* THE ROOM STAYS DARK. The old ending flooded the hub to white because it
+       was about to lift you out of it — but this one is about what is coming
+       out of the box, and a white room kills it: the sparks are additive, and
+       additive light on a white wall is nothing at all. A hundred and twenty of
+       them were live in the air and not one was visible. So the ceiling is left
+       alone and the fog is left alone, and everything you see from here is lit
+       by the coffin and then by the cicada. */
+    hubLamp.color.lerp(new THREE.Color(0xbfd8ff), dt * 1.2);
+    scene.fog.density = Math.max(0.030, scene.fog.density - dt * 0.004);
+    coffin.crystal = k;
+    if (endTime > 2.4) {
+      ending = 3; endTime = 0;
+      say('the box has changed. open it', 8);
+      sfx.holy && sfx.holy();
+    }
   } else if (ending === 3) {
-    const k = Math.min(1, endTime / 9);
-    riseY = k ** 1.7 * 58;
-    hubFloor.position.y = riseY;
-    endLight.position.y = 3.0 + riseY;
-    for (const p of props.pedestals) p.emitter.pos.y = 1.42 + riseY;
-    endLight.intensity = 55 + riseY * 3.2;
-    // the one place the camera leaves level: a glance down at what you escaped
-    camTilt = -Math.sin(Math.min(1, endTime / 7) * Math.PI) * 0.55;
-    if (endTime > 4.5 && !endShown) {
+    /* CRYSTALLINE, AND WAITING FOR YOU. It shimmers and throws sparks off
+       itself, and does nothing else until you walk up and press E. */
+    coffin.crystal = 1;
+    endLight.intensity = 34 + Math.sin(endTime * 3.4) * 9;
+    if (Math.random() < dt * 42) {
+      const zz = (Math.random() - 0.5) * COFFIN_HL * 2;
+      const xx = (Math.random() - 0.5) * COFFIN_HW * 1.9;
+      sparkAt(coffin.pos.x + xx, coffin.pos.y + 0.30, coffin.pos.z + zz,
+              sparkHue(),
+              0.030 + Math.random() * 0.034, 0.7 + Math.random() * 0.6,
+              (Math.random() - 0.5) * 0.4, 0.4 + Math.random() * 0.5, (Math.random() - 0.5) * 0.4);
+    }
+  } else if (ending === 4) {
+    /* The lid comes off and what is inside is asleep and glowing. */
+    const k = Math.min(1, endTime / 2.2);
+    coffin.open = k;
+    cicada.grp.visible = true;
+    cicada.grp.position.set(coffin.pos.x, coffin.pos.y + 0.22 + k * 0.10, coffin.pos.z);
+    cicada.grp.rotation.set(0, 0, 0);
+    cicada.matBody.emissiveIntensity = 0.35 + k * 0.9;
+    cicada.matWing.emissiveIntensity = 0.30 + k * 0.7;
+    for (const w of cicada.wings) w.mesh.rotation.z = w.sd * 0.06;   // shut
+    endLight.position.set(coffin.pos.x, coffin.pos.y + 0.5, coffin.pos.z);
+    endLight.intensity = 30 + k * 40;
+    if (Math.random() < dt * 30) {
+      sparkAt(coffin.pos.x + (Math.random() - 0.5) * 0.8, coffin.pos.y + 0.4,
+              coffin.pos.z + (Math.random() - 0.5) * 1.9, sparkHue(),
+              0.034, 0.9, 0, 0.5, 0);
+    }
+    if (endTime > 2.2) { ending = 5; endTime = 0; cicada.flying = true; sfx.holy && sfx.holy(); }
+  } else if (ending === 5) {
+    /* IT WAKES AND FLIES. A wide, banking circuit of the hub, climbing as it
+       goes, wings beating, and everywhere it passes it throws off starry
+       sparks and drops little lights behind it. */
+    const T = endTime;
+    const climb = Math.min(1, T / 5);
+    const rad = 3.2 + climb * 7.5;
+    const ang = T * 0.85;
+    const y = coffin.pos.y + 0.3 + climb * 4.2 + Math.sin(T * 1.7) * 0.55;
+    const px = hubCentre.x + Math.cos(ang) * rad;
+    const pz = hubCentre.z + Math.sin(ang) * rad;
+    _lp.set(px, y, pz);
+    cicada.grp.position.copy(_lp);
+    // it faces the way it is going, and banks into the turn
+    cicada.grp.rotation.set(0, -ang + Math.PI / 2, 0);
+    cicada.grp.rotateZ(-0.42);
+    cicada.grp.rotateX(Math.sin(T * 1.7) * 0.12);
+    /* A beat, not a semaphore. At three quarters of a radian each way the
+       wings swung right up over the back and read as one enormous blade rather
+       than as four wings. */
+    const beat = Math.sin(T * 19);
+    for (const w of cicada.wings) {
+      w.mesh.rotation.z = w.sd * (0.16 + beat * 0.34 - w.pair * 0.06);
+      w.mesh.rotation.y = w.sd * (-(w.pair ? 0.30 : 0.14) + beat * 0.10);
+    }
+    cicada.matBody.emissiveIntensity = 0.85 + Math.sin(T * 6) * 0.18;
+    cicada.matWing.emissiveIntensity = 0.95 + Math.sin(T * 6 + 1) * 0.15;
+    endLight.position.copy(_lp);
+    endLight.intensity = 46;
+    // the trail, and the lights that fall out of it
+    for (let i = 0; i < 5; i++) {
+      sparkAt(px + (Math.random() - 0.5) * 1.2, y + (Math.random() - 0.5) * 0.55, pz + (Math.random() - 0.5) * 1.2,
+              sparkHue(),
+              0.045 + Math.random() * 0.055, 2.6 + Math.random() * 2.4,
+              (Math.random() - 0.5) * 0.4, -0.22 - Math.random() * 0.45, (Math.random() - 0.5) * 0.4);
+    }
+    if (T > 1.4 && !endShown) {
       endShown = true;
+      say('THANK YOU, MORTAL!  The spell is broken and I am FREE!  I will have my revenge someday soon!', 12);
+    }
+    if (T > 9.5 && !el.endscreen.classList.contains('lit')) {
       el.endscreen.classList.remove('hidden');
       setTimeout(() => el.endscreen.classList.add('lit'), 60);
     }
-    if (k >= 1) ending = 4;
   }
+}
+
+/* The one thing you can still press E on once the crystals are home: the box.
+   interact() bails the moment `ending` is set, so this is checked ahead of it. */
+function tryOpenCoffin() {
+  if (ending !== 3 || coffin.opened) return false;
+  const d = Math.hypot(player.pos.x - coffin.pos.x, player.pos.z - coffin.pos.z);
+  if (d > 4.2) return false;
+  coffin.opened = true;
+  ending = 4; endTime = 0;
+  sfx.door && sfx.door();
+  return true;
 }
 
 /* ============================================================ LOOP */
@@ -5553,7 +6256,7 @@ function assignPool() {
    They cannot enter the crystal vaults: a shut gate stops them the same way it
    stops you. Lit rooms and the hub are still sanctuary.                      */
 
-const ANTI_PERIOD = 240;                 // 4:00 on the clock
+const ANTI_PERIOD = 60;                  // 1:00 on the clock
 /* Twelve. Six of them are on the board from the first second, one to a gate,
    and every death adds another — so the pool has to hold the starting six plus
    room to grow. It costs nothing to raise: the eight SpotLights that used to
@@ -6065,8 +6768,325 @@ function updatePuffs(dt) {
   smokeMesh.instanceMatrix.needsUpdate = true;
 }
 
+/* Every instanced mesh a walker writes into, so one loop can flag them all
+   dirty. Restored after the shades were cut out — both this and HIDDEN were
+   declared in the middle of that block and went with it. */
 const MON_MESHES = [bodyMesh, femurMesh, tibiaMesh, handMesh, eyeMesh, mouthMesh];
 const HIDDEN = new THREE.Matrix4().makeScale(0, 0, 0);
+
+/* ============================================================ THE BRICKS
+
+   Two feet of dark grey, walking on six thin legs, and it is not hunting you.
+   It comes down out of the clock once a minute, crosses the hub, finds a way
+   out and puts itself in the gap. Then the next one comes and sets itself
+   beside the first, and the one after that on top of them, and what you are
+   watching is a doorway being bricked up while you are still inside — or
+   still outside.
+
+   They cannot touch you. They do not have to: everything you have to do in
+   this building involves going through one of six openings and coming back
+   with a crystal, and every minute there is one less gap to do it through.
+
+   Immovable and indestructible, so a wall is a fact rather than an obstacle.
+   The only thing that beats them is being finished.
+
+   Slotting: each opening is two cells wide, so a course is BRICKS_WIDE across
+   and a wall is BRICKS_HIGH courses tall. A brick is handed the next free slot
+   the moment it is born, walks to the foot of it and climbs into place. */
+const BRICK = 0.61;                      // two feet
+const BRICK_PERIOD = 60;                 // one a minute
+/* Nine across, not ten. Ten bricks is 6.10 m in a 6.00 m opening, so the end
+   of every course drove five centimetres into the wall — and further into the
+   moulded reveal standing proud of it. Nine is 5.49 m, which leaves a clear
+   quarter-metre at each jamb and lets a course sit against the trim instead of
+   inside it. */
+const BRICKS_WIDE = 9, BRICKS_HIGH = 6;
+const BRICK_MAX = 240;
+/* A PERFECT CUBE. No inset panels, no chamfer — a plain two-foot block, so it
+   reads as masonry the moment it stops moving. Everything that makes it alive
+   is outside the cube: the legs, the eyes and the way it moves. */
+const brickGeo = new THREE.BoxGeometry(BRICK, BRICK, BRICK);
+const matBrick = new THREE.MeshPhongMaterial({ color: 0x3a3d42, specular: 0x6a6e76, shininess: 26 });
+const matBrickLeg = new THREE.MeshPhongMaterial({ color: 0x24262a, specular: 0x40444a, shininess: 20 });
+/* Two small white eyes on the front face, halfway down and hard against the
+   edges. Unlit and unfogged like every other eye in this building, so they are
+   the one part of a brick you can see across a dark hub. */
+const matBrickEye = new THREE.MeshBasicMaterial({ color: 0xf2f0e8, fog: false, toneMapped: false });
+const brickMesh = mkInst(brickGeo, matBrick, BRICK_MAX);
+const BRICK_LEGS = 6;
+const legGeo = new THREE.CylinderGeometry(0.5, 0.5, 1, 5);
+const brickLegMesh = mkInst(legGeo, matBrickLeg, BRICK_MAX * BRICK_LEGS * 2);
+const brickEyeGeo = (() => { const g = new THREE.SphereGeometry(1, 10, 8); return g; })();
+const brickEyeMesh = mkInst(brickEyeGeo, matBrickEye, BRICK_MAX * 2);
+for (let i = 0; i < BRICK_MAX; i++) brickMesh.setMatrixAt(i, HIDDEN);
+for (let i = 0; i < BRICK_MAX * BRICK_LEGS * 2; i++) brickLegMesh.setMatrixAt(i, HIDDEN);
+for (let i = 0; i < BRICK_MAX * 2; i++) brickEyeMesh.setMatrixAt(i, HIDDEN);
+brickMesh.instanceMatrix.needsUpdate = true;
+brickLegMesh.instanceMatrix.needsUpdate = true;
+brickEyeMesh.instanceMatrix.needsUpdate = true;
+
+let _brickSlots = null;
+function brickSlots() {
+  if (_brickSlots) return _brickSlots;
+  const walls = [];
+  const cells = HUB_DOORS.map((d) => ({ x: d.x, z: d.z }));
+  const used = new Set();
+  for (const c of cells) {
+    const k = `${Math.round(c.x)},${Math.round(c.z)}`;
+    if (used.has(k)) continue;
+    // gather this opening's neighbours
+    const grp = cells.filter((o) => Math.abs(o.x - c.x) < CELL * 1.5 && Math.abs(o.z - c.z) < CELL * 1.5);
+    for (const o of grp) used.add(`${Math.round(o.x)},${Math.round(o.z)}`);
+    let mx = 0, mz = 0;
+    for (const o of grp) { mx += o.x; mz += o.z; }
+    mx /= grp.length; mz /= grp.length;
+    // which way the opening runs: along x or along z
+    const spanX = Math.max(...grp.map((o) => o.x)) - Math.min(...grp.map((o) => o.x));
+    const alongX = spanX > 0.1;
+    const slots = [];
+    for (let row = 0; row < BRICKS_HIGH; row++) {
+      for (let i = 0; i < BRICKS_WIDE; i++) {
+        const off = (i - (BRICKS_WIDE - 1) / 2) * BRICK;
+        slots.push({
+          x: mx + (alongX ? off : 0),
+          y: levelY(0) + BRICK * 0.5 + row * BRICK,
+          z: mz + (alongX ? 0 : off),
+          alongX, filled: false,
+        });
+      }
+    }
+    walls.push({ x: mx, z: mz, alongX, slots, done: 0 });
+  }
+  _brickSlots = walls;
+  return walls;
+}
+
+const bricks = [];
+/* The next gap worth filling: the least-finished wall, so they close evenly
+   rather than sealing one door while five stand open. */
+function nextBrickSlot() {
+  let best = null, bestN = 1e9;
+  for (const w of brickSlots()) {
+    if (w.done >= w.slots.length) continue;
+    if (w.done < bestN) { bestN = w.done; best = w; }
+  }
+  if (!best) return null;
+  const slot = best.slots[best.done++];
+  return slot;
+}
+function spawnBrick() {
+  const slot = nextBrickSlot();
+  if (!slot || bricks.length >= BRICK_MAX) return null;
+  /* Out of a trap door in the underside of the clock, straight down onto the
+     crown of the heap. It falls as a thing with weight: gravity, a tumble it
+     picked up on the way out, and a bounce off whatever it lands on. */
+  const ang = Math.random() * TAU, rad = Math.random() * 1.1;
+  const b = {
+    i: bricks.length,
+    pos: new THREE.Vector3(hubCentre.x + Math.cos(ang) * rad, levelY(0) + 7.2, hubCentre.z + Math.sin(ang) * rad),
+    vel: new THREE.Vector3((Math.random() - 0.5) * 0.7, 0, (Math.random() - 0.5) * 0.7),
+    spin: new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).multiplyScalar(3.4),
+    rot: new THREE.Quaternion().setFromAxisAngle(_UPY, Math.random() * TAU),
+    slot, phase: Math.random() * TAU, blink: Math.random() * 7,
+    state: 'fall', set: false, walked: 0, yaw: 0, settle: 0,
+  };
+  bricks.push(b);
+  return b;
+}
+const _bk = new THREE.Vector3(), _bk2 = new THREE.Vector3(), _bq = new THREE.Quaternion();
+function updateBricks(dt) {
+  for (const b of bricks) {
+    if (b.state === 'fall') {
+      /* REAL FALL. Gravity, a tumble, and it bounces off whatever it meets —
+         the crown of the heap first, then the candy slope, then the floor. The
+         heap is a dome now, so it lands ON the sweets rather than inside them,
+         and slides off the side under its own momentum. */
+      b.vel.y -= 15.0 * dt;
+      b.pos.addScaledVector(b.vel, dt);
+      _bq.setFromAxisAngle(_ax.copy(b.spin).normalize(), b.spin.length() * dt);
+      b.rot.premultiply(_bq).normalize();
+      const cy = candyTopAt(b.pos.x, b.pos.z, 0);
+      const ground = (cy !== null ? cy : levelY(0)) + BRICK * 0.5;
+      if (b.pos.y <= ground) {
+        b.pos.y = ground;
+        if (b.vel.y < -1.4) {
+          b.vel.y = -b.vel.y * 0.34;                 // it bounces
+          b.spin.multiplyScalar(0.55);
+          sfx.thud && sfx.thud();
+          // and it rolls off the dome: the slope pushes it outward
+          if (cy !== null) {
+            const dx = b.pos.x - hubHeap.pos.x, dz = b.pos.z - hubHeap.pos.z;
+            const L = Math.hypot(dx, dz) || 1;
+            b.vel.x += (dx / L) * 2.4; b.vel.z += (dz / L) * 2.4;
+          }
+        } else {
+          b.vel.y = 0;
+          // still on the slope? keep sliding down it
+          if (cy !== null && cy > levelY(0) + 0.06) {
+            const dx = b.pos.x - hubHeap.pos.x, dz = b.pos.z - hubHeap.pos.z;
+            const L = Math.hypot(dx, dz) || 1;
+            b.vel.x += (dx / L) * 5.5 * dt; b.vel.z += (dz / L) * 5.5 * dt;
+          } else {
+            b.vel.x *= Math.max(0, 1 - 5 * dt);
+            b.vel.z *= Math.max(0, 1 - 5 * dt);
+            b.spin.multiplyScalar(Math.max(0, 1 - 4 * dt));
+            if (b.vel.lengthSq() < 0.05) {
+              /* Down, still, and on the floor. It stands up, squares itself to
+                 the world and walks. */
+              b.state = 'walk';
+              b.rot.setFromAxisAngle(_UPY, 0);
+              b.pos.y = levelY(0) + BRICK * 0.5;
+            }
+          }
+        }
+      }
+    } else if (b.state === 'walk') {
+      _bk.set(b.slot.x - b.pos.x, 0, b.slot.z - b.pos.z);
+      const flat = _bk.length();
+      if (flat > 0.05) {
+        const step = Math.min(flat, 1.25 * dt);
+        b.walked += step;
+        b.pos.x += (_bk.x / flat) * step;
+        b.pos.z += (_bk.z / flat) * step;
+        b.yaw = Math.atan2(-_bk.x, -_bk.z);
+        const cy = candyTopAt(b.pos.x, b.pos.z, 0);
+        b.pos.y = (cy !== null ? cy : levelY(0)) + BRICK * 0.5;
+      } else if (b.pos.y < b.slot.y - 0.01) {
+        b.pos.y = Math.min(b.slot.y, b.pos.y + 1.0 * dt);   // it climbs the courses
+        b.walked += 1.0 * dt;
+      } else {
+        b.pos.set(b.slot.x, b.slot.y, b.slot.z);
+        /* SQUARE TO THE WALL IT IS BLOCKING. The slot knows which way its
+           opening runs, so a finished brick sits flush with the hallway rather
+           than at whatever angle it happened to arrive at. */
+        b.yaw = b.slot.alongX ? 0 : Math.PI / 2;
+        b.state = 'set'; b.set = true;
+        b.slot.filled = true;
+        sfx.clang && sfx.clang();
+      }
+    }
+
+    /* The gait: the same bob and sway the spiders have, at a fraction of the
+       size, and only while it is on its feet. */
+    const moving = b.state === 'walk';
+    const bob = moving ? Math.sin(b.walked * 6.0 + b.phase) * 0.022 : 0;
+    const sway = moving ? Math.sin(b.walked * 3.0 + b.phase) * 0.055 : 0;
+    if (b.state === 'fall') {
+      _bq.copy(b.rot);
+    } else {
+      _bq.setFromAxisAngle(_UPY, b.yaw);
+      _qr.setFromAxisAngle(_NEGZ, sway);
+      _bq.multiply(_qr);
+    }
+    _mI.compose(_bk.copy(b.pos).setY(b.pos.y + bob), _bq, _sc.set(1, 1, 1));
+    brickMesh.setMatrixAt(b.i, _mI);
+
+    /* THE LEGS, AND THE WAY THEY GO ROUND.
+
+       Not a spider's alternating tripod. Each leg runs a CONVEYOR: two thirds
+       of the cycle it is planted and travelling backwards along the ground
+       under the body, and the last third it lifts, swings up OVER THE TOP of
+       the cube and comes down at the front to start again. The three on a side
+       are a third of a cycle apart, so at any moment two are dragging back and
+       one is going over the roof. It reads as something hauling itself rather
+       than something walking.
+
+       The knee is solved rather than guessed. Two equal bones of length `seg`
+       and a hip-to-foot span `d` put the knee out at sqrt(seg^2 - (d/2)^2) from
+       the midpoint — so it folds hard when the leg is gathered and straightens
+       as it reaches, which is the bend you can actually see. */
+    /* Long, but not a daddy-long-legs. At a two-metre reach on a sixty-centimetre
+       cube the legs sprawled past each other into a tangle and you could not
+       follow one round its cycle, which is the whole point of the gait. */
+    const REACH_F = 0.86, REACH_B = 0.74;      // how far ahead and behind a foot goes
+    const LEG_OUT = 0.60;                      // and how far out to the side
+    const ARC_H = BRICK * 0.5 + 0.46;          // the height it clears the roof by
+    for (let k = 0; k < BRICK_LEGS; k++) {
+      const idx = (b.i * BRICK_LEGS + k) * 2;
+      if (!moving) { brickLegMesh.setMatrixAt(idx, HIDDEN); brickLegMesh.setMatrixAt(idx + 1, HIDDEN); continue; }
+      const sd = k < 3 ? -1 : 1;
+      const lane = k % 3;
+      // where this leg is in its own cycle
+      const ph = (b.walked * 0.62 + lane / 3 + (sd > 0 ? 0.5 / 3 : 0)) % 1;
+      let fx, fy, fz;
+      if (ph < 0.667) {
+        // planted: dragging backwards under the body, foot on the floor
+        const u = ph / 0.667;
+        fx = sd * LEG_OUT;
+        fy = -BRICK * 0.5;
+        fz = -REACH_F + u * (REACH_F + REACH_B);
+      } else {
+        // over the top: up, across the roof, and down at the front again
+        const u = (ph - 0.667) / 0.333;
+        const a = Math.PI * u;
+        fx = sd * LEG_OUT * Math.cos(a * 0.5) * 0.55 + sd * LEG_OUT * 0.45;
+        fy = -BRICK * 0.5 + Math.sin(a) * ARC_H;
+        fz = REACH_B - u * (REACH_F + REACH_B);
+      }
+      const hip = _lp.set(sd * BRICK * 0.46, bob + BRICK * 0.18, (lane - 1) * BRICK * 0.30)
+                     .applyQuaternion(_bq).add(b.pos);
+      const foot = _lp2.set(fx, fy + bob, fz).applyQuaternion(_bq).add(b.pos);
+      _ctrl.copy(foot).sub(hip);
+      const d = Math.max(0.001, _ctrl.length());
+      const seg = 0.70;                                  // each bone, so the knee folds visibly
+      const half = Math.min(seg * 0.999, d * 0.5);
+      const bulge = Math.sqrt(Math.max(0, seg * seg - half * half));
+      // the knee pushes up and outward, away from the body
+      _bk2.set(0, 1, 0).applyQuaternion(_bq);
+      _ax.copy(_ctrl).divideScalar(d);
+      _bk2.addScaledVector(_ax, -_bk2.dot(_ax));         // perpendicular to the bone
+      if (_bk2.lengthSq() < 1e-6) _bk2.set(0, 1, 0);
+      _bk2.normalize();
+      const knee = _mid.copy(hip).addScaledVector(_ctrl, 0.5).addScaledVector(_bk2, bulge);
+      for (let s2 = 0; s2 < 2; s2++) {
+        const A = s2 ? knee : hip, B = s2 ? foot : knee;
+        _ctrl.copy(B).sub(A);
+        const len = _ctrl.length() || 0.001;
+        _qr.setFromUnitVectors(_UPY, _ax.copy(_ctrl).divideScalar(len));
+        _mI.compose(_mid2.copy(A).addScaledVector(_ctrl, 0.5), _qr, _sc.set(0.021, len, 0.021));
+        brickLegMesh.setMatrixAt(idx + s2, _mI);
+      }
+    }
+
+    /* The eyes: halfway down the front face, hard against each edge, and they
+       blink on their own clock so a row of them never blinks together. */
+    const bt = (clock.elapsedTime * 0.5 + b.blink) % 1;
+    const shut = bt < 0.05 ? Math.sin((bt / 0.05) * Math.PI) : 0;
+    for (let e = 0; e < 2; e++) {
+      const ei = b.i * 2 + e;
+      if (b.state === 'fall') { brickEyeMesh.setMatrixAt(ei, HIDDEN); continue; }
+      const sd = e ? 1 : -1;
+      _lp.set(sd * BRICK * 0.40, bob, -BRICK * 0.5 - 0.012).applyQuaternion(_bq).add(b.pos);
+      const r = 0.036 * (1 - 0.94 * shut);
+      _mI.compose(_lp, _bq, _sc.set(0.036, r, 0.036));
+      brickEyeMesh.setMatrixAt(ei, _mI);
+    }
+  }
+  brickMesh.instanceMatrix.needsUpdate = true;
+  brickLegMesh.instanceMatrix.needsUpdate = true;
+  brickEyeMesh.instanceMatrix.needsUpdate = true;
+}
+/* A finished brick is as solid as the wall it is part of. Checked against the
+   player only — the guards are on the other side of the same problem, but they
+   have their own pathing and shoving them out of a wall they walked into would
+   cost more than it is worth. */
+function collideBricks(pos) {
+  if (player.lev !== 0) return;
+  const foot = pos.y - EYE;
+  for (const b of bricks) {
+    if (!b.set) continue;
+    // if you can step onto it, it is a kerb and must not push you back
+    if (b.pos.y + BRICK * 0.5 <= foot + STEP_UP) continue;
+    if (b.pos.y - BRICK * 0.5 > foot + EYE) continue;   // above your head
+    if (b.pos.y + BRICK * 0.5 < foot - 0.1) continue;   // below your feet
+    const dx = pos.x - b.pos.x, dz = pos.z - b.pos.z;
+    const ex = BRICK * 0.5 + RADIUS, ez = BRICK * 0.5 + RADIUS;
+    const ax = Math.abs(dx), az = Math.abs(dz);
+    if (ax >= ex || az >= ez) continue;
+    if (ex - ax < ez - az) pos.x += (dx < 0 ? -1 : 1) * (ex - ax);
+    else                   pos.z += (dz < 0 ? -1 : 1) * (ez - az);
+  }
+}
 
 const antis = [];
 for (let i = 0; i < MAX_ANTI; i++) {
@@ -6107,7 +7127,8 @@ for (let i = 0; i < MAX_ANTI; i++) {
                goalRef: null, bestD: 1e9 });
 }
 
-let clockT = ANTI_PERIOD, antiOn = true, hitFlash = 0, caughtT = 0;
+let clockT = BRICK_PERIOD, antiOn = true, hitFlash = 0, caughtT = 0;
+let firstBrickDropped = false;
 /* How far the score is pulled down, and for how long. duckHold is set by the
    roar — a one-shot has no running voice to detect, so it declares itself. */
 let musicDuck = 1, duckHold = 0;
@@ -6182,6 +7203,11 @@ function spawnAnti(atPos, atLev) {
               hubCentre.z + 3.2 + Math.sin(ang) * 1.5);
     a.lev = 0; a.face = 0; a.nTilt.set(0, 1, 0); a.prev.copy(a.pos); seat(a);
   }
+  /* The six that start on the board are given a gate a moment after this by
+     spawnGuards(); anything born later has none, and anything without a gate
+     is a head. That covers the clock and it covers the one that comes up where
+     you went down — both are "new", and a spider that was never anybody's
+     guard would have no switch to leave behind anyway. */
   a.repath = 4; a.stuck = 0;
   // the first thing it does is leave: a point out in the building, well clear of
   // the hub, so it walks off into the halls rather than milling by the exit
@@ -6494,12 +7520,15 @@ function caughtBy(how) {
   for (const b of props.buttons) {
     if (b.mesh.userData.knob) b.mesh.userData.knob.material.emissiveIntensity = 0.25;
   }
-  // demoted to a pistol, and the ladder restarts: the shotgun goes back out.
-  // Unless you never fetched the pistol — dying empty-handed does not arm you,
-  // and the one on the heap is still turning where you left it.
+  /* YOU KEEP THE GUN. Being caught used to strip you back to the pistol and
+     restart the whole ladder, which meant one bad corner undid an hour of
+     climbing it. You keep what you climbed to; what being caught costs you is
+     the crystals and the walk back. The magazine is refilled, because being
+     sent home empty is the same punishment wearing a different coat. */
   if (gunState.tier > 0) {
-    gunState.tier = 1; gunState.ammo = GUNS[0].mag; gunState.charge = 0;
-    placeNextGun(2);
+    const sp = GUNS[gunState.tier - 1];
+    gunState.ammo = sp.mag || 0;
+    gunState.charge = sp.charge || 0;
   }
   rebuildReveal();
   sfx.caught();
@@ -6637,14 +7666,13 @@ function pickGoal(a) {
       && Math.hypot(player.pos.x - a.pos.x, player.pos.z - a.pos.z) < 30) {
     return { x: player.pos.x, z: player.pos.z, gun: null, isPlayer: true };
   }
-  // a gun it can smell — near, and on its own floor
-  let best = null, bestD = GUN_SCENT * GUN_SCENT;
-  for (const g of worldGuns) {
-    if (!g.onFloor || g.lev !== a.lev) continue;
-    const d = (g.pos.x - a.pos.x) ** 2 + (g.pos.z - a.pos.z) ** 2;
-    if (d < bestD) { bestD = d; best = { x: g.pos.x, z: g.pos.z, gun: g }; }
-  }
-  if (best) return best;
+  /* THEY DO NOT TAKE GUNS ANY MORE.
+     They used to smell one out and carry it off, which read well and played
+     appallingly: the ladder puts exactly one gun in the building at a time, so
+     a creature reaching it first removed the only weapon there was. You would
+     hunt a shotgun across three floors, arrive, and find nothing — because
+     something had walked off with it before you got there. There is no counter
+     to that and no way to tell it had happened. */
   // it wants to be on some floor, re-rolled now and then, so over time the
   // crowd spreads through all three storeys rather than pooling on the ground
   if (a.destLev !== a.lev) {
@@ -6677,14 +7705,23 @@ function pickGoal(a) {
      and the score sits on its drone forever. */
   if (a.goal && !a.goal.isPlayer && !a.goal.gun
       && Math.hypot(a.goal.x - a.pos.x, a.goal.z - a.pos.z) > 2.5) return a.goal;
-  // a far corner of its own floor, biased away so it crosses ground
-  for (let tries = 0; tries < 30; tries++) {
-    const r = 2 + Math.floor(Math.random() * (ROWS - 4));
-    const c = 2 + Math.floor(Math.random() * (COLS - 4));
-    if (at(a.lev, r, c) !== '.') continue;
-    const p = cellCentre(r, c);
-    if ((p.x - a.pos.x) ** 2 + (p.z - a.pos.z) ** 2 < 12 * 12) continue;
-    return { x: p.x, z: p.z, gun: null };
+  /* A far corner of its own floor, biased away so it crosses ground — and for a
+     head, biased into the CORRIDORS. A cell that belongs to no room is a hall,
+     and a head would rather work the halls than wander the offices: it keeps
+     them on the routes you have to use, it keeps them out of the rooms you can
+     light against them, and it is where a thing with no legs floating at head
+     height belongs. Two passes rather than a filter, so if a floor has no free
+     corridor left it still finds somewhere to go instead of freezing. */
+  for (let pass = 1; pass < 2; pass++) {
+    for (let tries = 0; tries < 30; tries++) {
+      const r = 2 + Math.floor(Math.random() * (ROWS - 4));
+      const c = 2 + Math.floor(Math.random() * (COLS - 4));
+      if (at(a.lev, r, c) !== '.') continue;
+      if (pass === 0 && roomOf.has(`${a.lev},${r},${c}`)) continue;   // halls only
+      const p = cellCentre(r, c);
+      if ((p.x - a.pos.x) ** 2 + (p.z - a.pos.z) ** 2 < 12 * 12) continue;
+      return { x: p.x, z: p.z, gun: null };
+    }
   }
   return { x: a.pos.x + (Math.random() - 0.5) * 20, z: a.pos.z + (Math.random() - 0.5) * 20, gun: null };
 }
@@ -6890,8 +7927,10 @@ function goalPoint(a, out) {
    cannot pass through the body it hangs from — and that is the point of it.  */
 
 const _lp = new THREE.Vector3(), _ld = new THREE.Vector3(), _ls = new THREE.Vector3();
+const _lp2 = new THREE.Vector3();
 const _hip = new THREE.Vector3(), _aHat = new THREE.Vector3(), _bHat = new THREE.Vector3();
 const _mid = new THREE.Vector3(), _ax = new THREE.Vector3(), _sc = new THREE.Vector3();
+const _mid2 = new THREE.Vector3();
 const _drawP = new THREE.Vector3(), _ctrl = new THREE.Vector3(), _eye = new THREE.Vector3();
 const _qb = new THREE.Quaternion(), _qL = new THREE.Quaternion();
 const _mB = new THREE.Matrix4(), _mI = new THREE.Matrix4();
@@ -6900,6 +7939,7 @@ const _AXX = new THREE.Vector3(1, 0, 0), _AXZ = new THREE.Vector3(0, 0, 1);
 const _NEGZ = new THREE.Vector3(0, 0, -1);
 const _drawJit = new THREE.Vector3();
 const _qr = new THREE.Quaternion(), _qBody = new THREE.Quaternion();
+const _qt = new THREE.Quaternion();
 const _qHead = new THREE.Quaternion(), _qTmp = new THREE.Quaternion();
 const _bX = new THREE.Vector3(), _bF = new THREE.Vector3();
 const _probe = new THREE.Vector3(), _probeN = new THREE.Vector3();
@@ -7801,6 +8841,11 @@ function stepAnti(a, dt, sdt) {
        distance travelled, its legs never froze either. The stare only works if
        nothing moves. */
     let speed = MODE_V[a.mode] !== undefined ? MODE_V[a.mode] : CRAWL;
+    /* A head is quicker than a spider at everything it does. It has no gait to
+       sell — it floats — so speed is the only thing telling you which of the
+       two is coming down the hall at you. The multiplier is applied to whatever
+       the mode asked for, so the stock-still modes stay stock still and the
+       coil still draws back rather than creeping forward. */
     // it crawls until it has you in view, and then it comes on
     if (a.mode === 'crawl' && a.goal && (a.goal.isPlayer || a.goal.chase)) speed = STALK;
     // steer: the goal, flattened onto whichever plane it is standing on
@@ -7890,19 +8935,19 @@ function stepAnti(a, dt, sdt) {
     // the minimap's facing cone still wants a plain compass yaw
     _hw.copy(FACES[a.face].u).multiplyScalar(a.hu).addScaledVector(FACES[a.face].v, a.hv);
     a.yaw = Math.atan2(-_hw.x, -_hw.z);
-  } else if (a.goal.gun && a.goal.gun.onFloor) {
-    // it found what it was looking for
-    a.gun = a.goal.gun;
-    a.goal.gun.onFloor = false;
-    a.goal.gun.mesh.visible = false;
-    a.goal = null;
-    sfx.click();
-    if (a.lev === player.lev) say('something just picked a gun up', 4.5);
   } else {
     a.goal = null;
     if (a.mode === 'crawl') enterSeek(a);       // it arrives, and then it looks about
   }
 
+  /* A HEAD KEEPS OUT OF THE LIGHT, and it will not climb.
+
+     It never leaves face 0, so it does not go up a wall or across a ceiling —
+     it has nothing to climb with. And a lit room turns it back at the
+     threshold: it can sit in the doorway and wait, but it cannot come in.
+     Which makes a room you have switched on the one place on the floor that is
+     safe from it, and makes the light switch a piece of counterplay rather
+     than decoration. */
   douseNearby(a);
   headStep(a, dt);
   moodOf(a, dt);
@@ -7917,7 +8962,7 @@ function douseNearby(a) {
     if ((room.pos.x - a.pos.x) ** 2 + (room.pos.z - a.pos.z) ** 2 > (CELL * 1.8) ** 2) continue;
     room.on = false;
     for (const f of room.fixtures) setFixture(f, 0);
-    if (room.mesh.userData.rocker) room.mesh.userData.rocker.position.y = 0.12;
+    setRocker(room.mesh, false);
     rebuildReveal();
     sfx.hum();
   }
@@ -7942,12 +8987,28 @@ function updateAntis(dt, sdt) {
   }
   el.hudclockwrap.classList.add('on');
 
+  /* THE CLOCK IS THE BRICKS' CLOCK NOW. It used to let another walker loose
+     every four minutes; at a one-minute period that is a new spider every sixty
+     seconds on top of the six guards, which is a different game entirely and
+     not the one that was asked for. The countdown hanging over the hub is the
+     thing on the doors, and it does not start until you have read the lid. */
+  /* ONE FALLS FIRST, AND THEN THE CLOCK STARTS. The order matters: you see the
+     thing arrive before you are told you are being timed, so the countdown is
+     an explanation of something you have already watched rather than an
+     abstraction that turns up first. */
   if (antiOn) {
-    clockT -= dt;
-    if (clockT <= 0) {
-      clockT = ANTI_PERIOD;
-      const born = spawnAnti();
-      if (born) { sfx.spawn(); announce(`F${born.tag} IS LOOSE`, '#cfe0ff', 4); }
+    if (!firstBrickDropped) {
+      firstBrickDropped = true;
+      clockT = BRICK_PERIOD;
+      const b = spawnBrick();
+      if (b) { sfx.spawn(); announce('SOMETHING CAME DOWN', '#9fa6b4', 3.4); }
+    } else {
+      clockT -= dt;
+      if (clockT <= 0) {
+        clockT = BRICK_PERIOD;
+        const b = spawnBrick();
+        if (b) { sfx.spawn(); announce('ANOTHER ONE', '#9fa6b4', 2.6); }
+      }
     }
   }
   drawClockFace(clockT);
@@ -8986,15 +10047,12 @@ const worldGuns = [];
      the hub. Taking it is what sends the shotgun out into the halls. */
   {
     const g = worldGuns.find((w) => w.tier === 1);
-    /* Clear of the crown, not sunk in it. The heap settles at about 0.95 m
-       now, and the gun rides the same distance above it as before. */
-    g.pos.set(hubHeap.pos.x, levelY(0) + 1.9, hubHeap.pos.z);
+    /* It hangs over the lid and waits. Walking out to fetch it is what takes
+       you to the coffin, which is where the writing is. */
+    g.pos.set(hubHeap.pos.x, levelY(0) + COFFIN_Y + 0.72, hubHeap.pos.z);
     g.lev = 0;
     g.onFloor = true;
-    /* And you take it by reaching the heap, not by wading into the middle of
-       it — the pile is over three metres across and you would have to stand
-       inside the candy to trip the ordinary pickup. */
-    g.reach = 20.3;                         // 4.5 m — the pile is 4.05 across now
+    g.reach = 5.3;                          // taken from beside the coffin, not on top of it
     g.mesh.visible = false;                 // until light finds it
   }
 }
@@ -9568,13 +10626,14 @@ function updateGuns(dt) {
       gunState.charge = g.spec.charge || 0;
       sfx.gunget();
       if (g.tier === 1) {
-        /* One line, not two. Split across the announce and the subtitle it came
-           out stacked in the wrong order — the subtitle sits above the banner,
-           so the punchline arrived before the greeting. */
-        say("HEY DUDE! You have a pistol. Not a great weapon but it'll do the job.", 5.5);
+        /* Whoever is in the box speaks when you take the gun off the lid. One
+           line, in the subtitle: split across the banner and the subtitle it
+           came out stacked in the wrong order, because the subtitle sits above
+           the banner and the punchline arrived before the greeting. */
+        say('You got a PISTOL!', 4.0);
       } else {
         announce(g.spec.name, '#ffffff', 3.6);
-        say('what you were carrying is on the floor behind you', 5);
+        say('Congratulations! You got a gun!', 5);
       }
       placeNextGun(g.tier + 1);            // and the next rung goes out somewhere
     }
@@ -9908,7 +10967,10 @@ function frame(dt) {
       player.pos.z += player.vel.z * dt;
       tmp.copy(player.pos);
       playerColliding = true;          // the decks exist only for this call
-      collide(player.pos, player.lev);
+      collide(player.pos, player.lev, true);
+      collideBricks(player.pos);
+      collideCoffin(player.pos);
+      collideJambs(player.pos, player.lev);
       playerColliding = false;
       deckClamp();
       const pushX = player.pos.x - tmp.x, pushZ = player.pos.z - tmp.z;
@@ -9924,7 +10986,14 @@ function frame(dt) {
        real fall under gravity — off a balcony, off the side of a stair flight,
        off anything — and you land with a jolt scaled by how hard you hit. */
     const [cr, cc] = cellOf(player.pos);
-    const here = playerGround(cr, cc, player.pos.x, player.pos.z, player.lev);
+    let here = playerGround(cr, cc, player.pos.x, player.pos.z, player.lev);
+    {
+      const foot = player.pos.y - EYE;
+      const cy = candyTopAt(player.pos.x, player.pos.z, player.lev);
+      if (cy !== null && (!here || cy > here.y)) here = { y: cy, lev: 0 };
+      const by = brickTopAt(player.pos.x, player.pos.z, foot);
+      if (by !== null && (!here || by > here.y)) here = { y: by, lev: 0 };
+    }
 
     if (!player.falling) {
       const footY = player.pos.y - EYE;
@@ -9941,7 +11010,13 @@ function frame(dt) {
       const prevFoot = player.pos.y - EYE;
       player.vy -= GRAVITY * dt;
       player.pos.y += player.vy * dt;
-      const land = playerGround(cr, cc, player.pos.x, player.pos.z, null, prevFoot + 0.25);
+      let land = playerGround(cr, cc, player.pos.x, player.pos.z, null, prevFoot + 0.25);
+      {
+        const cy = candyTopAt(player.pos.x, player.pos.z, null);
+        if (cy !== null && cy <= prevFoot + 0.25 && (!land || cy > land.y)) land = { y: cy, lev: 0 };
+        const by = brickTopAt(player.pos.x, player.pos.z, prevFoot);
+        if (by !== null && (!land || by > land.y)) land = { y: by, lev: 0 };
+      }
       // never let a fall run away if a cell has nothing walkable at all
       if (!land && player.pos.y - EYE < -3) {
         player.pos.y = EYE; player.lev = 0; player.falling = false; player.vy = 0;
@@ -10034,6 +11109,12 @@ function frame(dt) {
       el.prompt.classList.add('on');
     } else el.prompt.classList.remove('on');
   }
+  /* The prompt survives into the ending for exactly one thing. */
+  if (ending === 3 && !coffin.opened
+      && Math.hypot(player.pos.x - coffin.pos.x, player.pos.z - coffin.pos.z) < 4.2) {
+    el.prompt.innerHTML = '<b>E</b> &nbsp;open the coffin';
+    el.prompt.classList.add('on');
+  } else if (ending) el.prompt.classList.remove('on');
 
   if (ending) updateEnding(dt);
 
@@ -10147,6 +11228,9 @@ function frame(dt) {
   const sdt = slowT > 0 ? dt * SLOW_SCALE : dt;
 
   if (started) { updateAntis(dt, sdt); updateGuns(dt); updatePowers(dt); }
+  updateBricks(dt);
+  updateCoffin(dt);
+  updateSparks(dt);
   updateTracers(sdt);
   updateChunks(sdt);
   updateShards(sdt);
@@ -10246,6 +11330,7 @@ window.__maze = {
   cloak: () => cloakT,
   flying: () => flight && { id: flight.crystal.id, t: +flight.t.toFixed(2) },
   seatCrystal, unseatCrystal, beginFlight, aimFriction, vendorsOf: () => vendors, hubHeap,
+  coffin, sparks, bricks, cicada,
   setCloak(s) { cloakT = s; if (s <= 0) el.cloak.classList.remove('on'); },
   grantAll() { while (held.length < POWERS.length) grantPower(); },
   clock: () => clockT,
