@@ -599,7 +599,7 @@ const DROP_POINTS = [{"lev":1,"at":[27,36],"into":[26,36]},{"lev":1,"at":[58,40]
    the game falls back to its own rules — so a level that says nothing about
    machines still gets twelve of them in the corridors. Anything listed here
    overrides that entirely for its own kind. */
-const PLACED = {"vendors":[{"lev":2,"r":36,"c":18},{"lev":2,"r":56,"c":67},{"lev":2,"r":10,"c":70},{"lev":1,"r":32,"c":69},{"lev":1,"r":24,"c":10},{"lev":1,"r":69,"c":58},{"lev":1,"r":8,"c":46},{"lev":0,"r":9,"c":14},{"lev":0,"r":25,"c":28},{"lev":0,"r":41,"c":68},{"lev":0,"r":66,"c":29},{"lev":2,"r":62,"c":20},{"lev":2,"r":6,"c":44}],"guns":[{"tier":2,"lev":0,"r":63,"c":39},{"tier":5,"lev":2,"r":15,"c":68},{"tier":4,"lev":2,"r":8,"c":9},{"tier":3,"lev":1,"r":12,"c":66},{"tier":3,"lev":1,"r":53,"c":36},{"tier":2,"lev":0,"r":64,"c":57},{"tier":2,"lev":0,"r":17,"c":13},{"tier":4,"lev":2,"r":48,"c":40},{"tier":5,"lev":2,"r":64,"c":16},{"tier":2,"lev":1,"r":64,"c":13},{"tier":1,"lev":1,"r":9,"c":11},{"tier":3,"lev":2,"r":68,"c":53},{"tier":4,"lev":2,"r":29,"c":39}]};
+const PLACED = {"vendors":[{"lev":2,"r":36,"c":18},{"lev":2,"r":56,"c":67},{"lev":2,"r":10,"c":70},{"lev":1,"r":32,"c":69},{"lev":1,"r":24,"c":10},{"lev":1,"r":69,"c":58},{"lev":1,"r":8,"c":46},{"lev":0,"r":9,"c":14},{"lev":0,"r":25,"c":28},{"lev":0,"r":41,"c":68},{"lev":0,"r":66,"c":29},{"lev":2,"r":62,"c":20},{"lev":2,"r":6,"c":44}],"guns":[{"tier":2,"lev":0,"r":63,"c":39},{"tier":5,"lev":1,"r":53,"c":36},{"tier":4,"lev":2,"r":8,"c":9},{"tier":3,"lev":1,"r":12,"c":66},{"tier":3,"lev":1,"r":53,"c":36},{"tier":2,"lev":0,"r":64,"c":57},{"tier":2,"lev":0,"r":17,"c":13},{"tier":4,"lev":2,"r":48,"c":40},{"tier":5,"lev":2,"r":64,"c":16},{"tier":2,"lev":1,"r":64,"c":13},{"tier":1,"lev":1,"r":9,"c":11},{"tier":3,"lev":2,"r":68,"c":53},{"tier":4,"lev":2,"r":29,"c":39}]};
 /* MAP:END */
 
 const NLEV = MAPS.length;
@@ -6779,6 +6779,201 @@ function burstBits(at, n) {
     b.spin = 6 + Math.random() * 14;
   }
 }
+/* ---- WHAT THE BLAST LEAVES ------------------------------------------------
+   Every other weapon that finishes one of these ends it the same way: it drops,
+   it swells, and it goes out in a flash. The blaster does something else. It
+   does not so much kill the thing as RESOLVE it — the shell comes apart into
+   the cubes it was apparently made of all along, and for a second and a half
+   the cubes go on doing exactly what the creature was doing, walking or
+   charging down a hall at you, because nothing has told them yet. Then it
+   catches up with them: they stop, they shudder, and the whole animal falls
+   out of the air in a heap.
+
+   While it still walks (stage 0) the cloud is BOUND to the creature — every
+   cube is either an offset inside the body's own ellipsoid or a parameter
+   along one leg — and drawMonster writes their world positions from the same
+   transforms it would have drawn the shell with. At the freeze they cut loose,
+   the creature's slot is retired, and the cubes are on their own.
+
+   Nothing is allocated at the moment of the kill. The pool is fixed, a heap's
+   cubes are a contiguous run of it, and the oldest run is what gets recycled —
+   which is also why every cube re-checks that it still belongs to the creature
+   it thinks it does before following it anywhere. */
+/* Six heaps' worth. HOLY LIGHT kills everything inside nineteen metres on one
+   frame, so the whole board coming apart at once is a real case, not a corner
+   one — sized under that, the earliest heaps would be recycled out from under
+   themselves while still in mid-air. */
+const VOX_N = 3200;
+const VOX_GRID = 8;                     // cubes across the body, whatever its size
+/* And down each leg — which on this animal is a LONG way. It stands 2.4 m off
+   the floor on feet splayed several metres out, so a leg is routinely five
+   metres of bone: eleven cubes along one left gaps you could walk through and
+   the legs read as scattered dots rather than as legs. */
+const VOX_LEG = 34;
+const VOX_WALK = 1.6;                   // how long the cubes go on walking
+const VOX_HOLD = 0.40;                  // stopped dead, and shuddering
+const VOX_LIE = 26;                     // the heap lies on the floor this long
+const VOX_FADE = 4.5;                   // and then it is not there
+/* No vertexColors — the box geometry has no colour attribute and asking for one
+   multiplies every cube by black. Per-instance colour alone, which is what
+   setColorAt gives. Lambert so the heap still takes your torch. */
+const matVox = new THREE.MeshLambertMaterial({});
+const voxMesh = mkInst(new THREE.BoxGeometry(1, 1, 1), matVox, VOX_N);
+const vox = [];
+{
+  /* Every instance is shrunk to nothing HERE, at creation. An InstancedMesh
+     starts every unused instance at the identity matrix, so skipping this
+     leaves fourteen hundred unit cubes stacked on the world origin from the
+     first frame. It cannot use HIDDEN — that const is declared a few hundred
+     lines below and reading it now is the temporal dead zone. */
+  const zero = new THREE.Matrix4().makeScale(0, 0, 0);
+  for (let i = 0; i < VOX_N; i++) {
+    vox.push({ live: false, stage: 0, t: 0, a: null, leg: -1, u: 0,
+               off: new THREE.Vector3(), pos: new THREE.Vector3(),
+               vel: new THREE.Vector3(), jit: new THREE.Vector3(),
+               ax: new THREE.Vector3(0, 1, 0), spin: 0, roll: 0,
+               col: new THREE.Color(), size: 0.1, floorY: 0 });
+    voxMesh.setMatrixAt(i, zero);
+  }
+  voxMesh.instanceMatrix.needsUpdate = true;
+}
+let voxCursor = 0;
+const _vq = new THREE.Quaternion(), _vs = new THREE.Vector3(), _vp = new THREE.Vector3();
+const _vm = new THREE.Matrix4(), _vc = new THREE.Color(), _vc2 = new THREE.Color();
+
+/* Take one apart. The grid is a fixed COUNT rather than a fixed cube size, so a
+   half-again-as-big top-floor guard comes apart into the same few hundred
+   cubes, only bigger ones — "hundreds" is the thing being promised, and it
+   should not depend on which one you shot. */
+function voxelize(a) {
+  const sz = a.size || 1;
+  const R = BODY_R * sz;
+  const cube = (R * 2 / VOX_GRID) * 0.92;
+  const own = _vc2.setHex(a.eyeEm.color.getHex());
+  const from = voxCursor;
+  let count = 0;
+  const claim = () => {
+    const v = vox[voxCursor]; voxCursor = (voxCursor + 1) % VOX_N; count++;
+    v.live = true; v.stage = 0; v.t = 0; v.a = a; v.size = cube;
+    v.vel.set(0, 0, 0); v.jit.set(0, 0, 0); v.roll = Math.random() * TAU;
+    v.ax.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize();
+    v.spin = (Math.random() - 0.5) * 7;
+    /* RAINBOW SHOT THROUGH WITH ITS OWN COLOUR. Two cubes in five wear the
+       gate's colour, so across a hall you can still read which guard you just
+       took apart; the rest are a full spread, which is what keeps it reading as
+       something coming apart into confetti rather than a coloured smear. */
+    if (Math.random() < 0.38) v.col.copy(own).offsetHSL(0, 0, (Math.random() - 0.5) * 0.30);
+    else v.col.copy(_vc.setHSL(Math.random(), 0.88, 0.44 + Math.random() * 0.24));
+    return v;
+  };
+  // the shell: a solid grid of cubes inside the ellipsoid it is drawn as
+  const ea = 0.94, eb = 1.14, ec = 0.97;        // drawMonster's own axes
+  for (let ix = 0; ix < VOX_GRID; ix++)
+   for (let iy = 0; iy < VOX_GRID; iy++)
+    for (let iz = 0; iz < VOX_GRID; iz++) {
+      const x = (ix + 0.5) / VOX_GRID * 2 - 1;
+      const y = (iy + 0.5) / VOX_GRID * 2 - 1;
+      const z = (iz + 0.5) / VOX_GRID * 2 - 1;
+      if ((x / ea) ** 2 + (y / eb) ** 2 + (z / ec) ** 2 > 1) continue;
+      const v = claim(); v.leg = -1; v.off.set(x, y, z);   // unit body space
+    }
+  a.voxBody = count;
+  // and a string of them down each leg, hip to knee to foot
+  for (let i = 0; i < MON_LEGS; i++)
+    for (let k = 0; k < VOX_LEG; k++) {
+      const v = claim(); v.leg = i; v.u = (k + 0.5) / VOX_LEG; v.size = cube * 0.95;
+    }
+  a.voxFrom = from; a.voxN = count;
+  a.vox = true; a.voxT = 0;
+  a.eyeEm.on = false; a.eyeEm.intensity = 0;   // it has no eyes any more
+  sfx.kill();
+  hitFlash = Math.max(hitFlash, 0.3);
+}
+
+/* The beat runs out. The cubes stop belonging to anything, the slot goes back
+   in the pool, and the switch comes up out of the floor where it fell — the
+   heap collapsing and the switch growing are the same moment on purpose. */
+function voxCutLoose(a) {
+  const g = groundUnder(Math.floor(a.pos.z / CELL), Math.floor(a.pos.x / CELL),
+                        a.pos.x, a.pos.z, a.lev, a.pos.y);
+  /* A TOP-FLOOR HEAP STAYS ON THE TOP FLOOR. The charge it was still finishing
+     can carry it out over a stairwell, where groundUnder honestly reports the
+     storey below — and then the cubes AND the switch they leave behind would
+     land a floor down, out of sight of the player who just watched it come
+     apart up here. The two stationed up there never leave it, dead or alive. */
+  const raw = g ? g.y : levelY(0);
+  const floorY = a.top ? Math.max(raw, levelY(a.lev)) : raw;
+  for (let k = 0; k < a.voxN; k++) {
+    const v = vox[(a.voxFrom + k) % VOX_N];
+    if (v.a !== a) continue;                  // its run was recycled under it
+    v.a = null; v.stage = 1; v.t = 0; v.floorY = floorY;
+  }
+  if (a.gate) growSwitch(a.gate, a.pos.x, floorY, a.pos.z);
+  retireAnti(a);
+}
+
+function voxTick(a, dt) {
+  a.voxT += dt;
+  if (a.voxT >= VOX_WALK) voxCutLoose(a);
+}
+
+function updateVox(dt) {
+  for (let i = 0; i < VOX_N; i++) {
+    const v = vox[i];
+    if (!v.live) continue;
+    v.t += dt;
+    let fade = 1;
+    if (v.stage === 0) {
+      // drawMonster writes v.pos while the creature is still walking
+      if (!v.a || !v.a.live) { v.stage = 1; v.t = 0; }
+    } else if (v.stage === 1) {
+      /* Stopped dead in the air. The shudder builds rather than starting at
+         full size, so the freeze reads as a held beat and not as a glitch. */
+      const k = Math.min(1, v.t / VOX_HOLD);
+      const j = 0.016 + 0.055 * k * k;
+      v.jit.set((Math.random() - 0.5) * j, (Math.random() - 0.5) * j, (Math.random() - 0.5) * j);
+      v.roll += v.spin * 0.25 * dt;
+      if (v.t >= VOX_HOLD) {
+        v.stage = 2; v.t = 0; v.jit.set(0, 0, 0);
+        // it lets go where it hangs: it does not explode, it falls out of itself
+        v.vel.set((Math.random() - 0.5) * 1.1, (Math.random() - 0.5) * 0.5, (Math.random() - 0.5) * 1.1);
+      }
+    } else if (v.stage === 2) {
+      v.vel.y -= 17 * dt;
+      v.pos.addScaledVector(v.vel, dt);
+      v.roll += v.spin * dt;
+      const rest = v.floorY + v.size * 0.5;
+      if (v.pos.y <= rest) {
+        v.pos.y = rest;
+        if (v.vel.y < -1.3) {                 // one bounce, and it is a small one
+          v.vel.y = -v.vel.y * 0.24;
+          v.vel.x *= 0.5; v.vel.z *= 0.5; v.spin *= 0.35;
+        } else {
+          /* Down for good, and it lands SQUARE. A heap of cubes at arbitrary
+             angles reads as gravel; snapped to the quarter turn it reads as
+             what it is, which is the creature in pieces. */
+          v.stage = 3; v.t = 0; v.vel.set(0, 0, 0); v.spin = 0;
+          v.ax.set(0, 1, 0);
+          v.roll = Math.round(v.roll / (Math.PI / 2)) * (Math.PI / 2);
+        }
+      }
+    } else if (v.stage === 3) {
+      if (v.t >= VOX_LIE) { v.stage = 4; v.t = 0; }
+    } else {
+      if (v.t >= VOX_FADE) { v.live = false; voxMesh.setMatrixAt(i, HIDDEN); continue; }
+      fade = 1 - v.t / VOX_FADE;              // it shrinks into the floor
+    }
+    _vq.setFromAxisAngle(v.ax, v.roll);
+    _vp.copy(v.pos).add(v.jit);
+    const sc = v.size * fade;
+    _vm.compose(_vp, _vq, _vs.set(sc, sc, sc));
+    voxMesh.setMatrixAt(i, _vm);
+    voxMesh.setColorAt(i, v.col);
+  }
+  voxMesh.instanceMatrix.needsUpdate = true;
+  if (voxMesh.instanceColor) voxMesh.instanceColor.needsUpdate = true;
+}
+
 function updateBits(dt) {
   for (let i = 0; i < BIT_N; i++) {
     const b = bits[i];
@@ -7375,6 +7570,8 @@ function spawnAnti(atPos, atLev) {
   a.pauseT = 5 + 7 * hash01(a.tag, 0); a.climb = 0; a.home = null;
   a.snapT = 0; a.lookYawT = 0; a.lookPitchT = 0; a.heardAt.copy(a.pos);
   a.deadY = 0; a.deadV = 0; a.deadFloor = 0; a.gate = 0;
+  a.top = false; a.size = 1;   // reset with the slot; spawnGuards sets them again
+  a.vox = false; a.voxT = 0; a.voxN = 0; a.voxFrom = 0; a.voxBody = 0;
   a.hp = HP_MAX; a.hurtT = 99; a.flinch = 0; a.shotId = -1; a.flinchDir.set(0, 0, 0);
   a.goalRef = null; a.bestD = 1e9;
   for (const L of a.legs) { L.stretch = 1; L.rch.set(0, 0, 0); }
@@ -7389,6 +7586,7 @@ function spawnAnti(atPos, atLev) {
 }
 
 function retireAnti(a) {
+  a.vox = false;                    // the cubes have already been cut loose
   // whatever it was holding falls where it stood
   if (a.gun && !a.gun.virtual) { dropGunAt(a.gun, a.pos.x, a.pos.z, a.lev); }
   a.gun = null;
@@ -7451,21 +7649,44 @@ function updateGrowth(dt) {
    the route through it — and a guard on each turns the map from somewhere you
    explore into somewhere that is already occupied. None of them start in the
    hub; the hub is yours until you leave it. */
+/* WHERE EACH GUARD STANDS. Two to a storey, evenly — which is NOT how the level
+   file lays the vaults out. It puts three on the ground, two on the second and
+   one up top, so two of the six are posted away from their own vault: violet up
+   to the top floor, cyan up from the ground to the second. That costs nothing
+   structurally, because growSwitch puts a switch wherever the thing FALLS — so
+   each of those two leaves its switch on its new storey while its GATE stays
+   downstairs where the building put it. */
+const POSTED = {
+  5: { lev: 2, r: 11, c: 32 },     // violet, up from the second floor
+  6: { lev: 1, r: 58, c: 27 },     // cyan, up from the ground
+};
+
 function spawnGuards() {
   for (const b of props.buttons) {
+    const po = POSTED[b.id];
+    const plev = po ? po.lev : b.lev;
+    const pcell = po ? [po.r, po.c] : b.cell;
+    const ppost = po ? cellCentre(po.r, po.c) : b.post;
     let best = null, bd = 1e9;
     for (let rr = -8; rr <= 8; rr++) for (let cc = -8; cc <= 8; cc++) {
-      const r = b.cell[0] + rr, c = b.cell[1] + cc;
-      if (at(b.lev, r, c) !== '.' || inHub(b.lev, r, c)) continue;
+      const r = pcell[0] + rr, c = pcell[1] + cc;
+      if (at(plev, r, c) !== '.' || inHub(plev, r, c)) continue;
       const d = Math.hypot(rr, cc);
       if (d < 2.5 || d >= bd) continue;
       bd = d; best = [r, c];
     }
     if (!best) continue;
     const q = cellCentre(best[0], best[1]);
-    const a = spawnAnti(new THREE.Vector3(q.x, levelY(b.lev), q.z), b.lev);
+    const a = spawnAnti(new THREE.Vector3(q.x, levelY(plev), q.z), plev);
     if (!a) break;
-    a.home = { x: b.post.x, z: b.post.z, lev: b.lev };
+    a.home = { x: ppost.x, z: ppost.z, lev: plev };
+    /* THE TOP FLOOR IS A DIFFERENT ANIMAL. The two stationed up there are half
+       again as big and nothing but the blast opens them, and they never come
+       down — the guard was already fixed to its own storey (destTimer below),
+       which is the whole reason that rule can be a property of the creature
+       rather than a check on where it happens to be standing. */
+    a.top = plev === NLEV - 1;
+    a.size = a.top ? 1.5 : 1;
     a.gate = b.id;                    // this one is carrying that gate's switch
     /* AND IT WEARS THAT GATE'S COLOUR. The body stays black and the eyes stay
        red; what changes is the light the thing throws, so the wall beside the
@@ -7473,7 +7694,7 @@ function spawnGuards() {
        shapes become six you can tell apart down a corridor, and the colour is
        a promise about which gate its switch will open. */
     a.eyeEm.color.setHex(DOOR_COLORS[b.id - 1]);
-    a.destLev = b.lev;
+    a.destLev = plev;
     a.destTimer = 1e9;                 // a guard does not decide to go upstairs
     a.goal = null; a.repath = 0.5 + Math.random();
   }
@@ -7589,10 +7810,54 @@ let shotSeq = 0;                            // one trigger pull, however many pe
 /* A round lands. Returns true if that was the one that finished it.
    `seq` makes a shotgun's nine pellets count as ONE shot: without it a single
    trigger pull would land nine times and kill at any range. */
+let lastWard = -99;
+/* A ROUND THAT REFUSED. Built to read as the vault wall reads when you shoot
+   it — the same flat clang, a small hard flash, and a throttled line — because
+   it is the same statement: this is not the thing that opens it. Sparks come
+   off the near face of the shell and away along the line back to you, so it
+   is unmistakably a ricochet and not a miss. */
+function warded(a) {
+  sparkOff(a);
+  if (clock.elapsedTime - lastWard > 3.5) {
+    lastWard = clock.elapsedTime;
+    say('it shrugs it off — only the BLASTER opens this one', 4.2);
+  }
+}
+function sparkOff(a) {
+  const dx = player.pos.x - a.pos.x, dy = player.pos.y - a.pos.y, dz = player.pos.z - a.pos.z;
+  const L = Math.hypot(dx, dy, dz) || 1;
+  const ux = dx / L, uy = dy / L, uz = dz / L;
+  const off = BODY_R * (a.size || 1) + 0.06;
+  const hx = a.pos.x + ux * off, hy = a.pos.y + uy * off, hz = a.pos.z + uz * off;
+  for (let i = 0; i < 10; i++) {
+    const sp = 1.6 + Math.random() * 3.4;
+    sparkAt(hx, hy, hz, 0xffd9a0, 0.05 + Math.random() * 0.05, 0.24 + Math.random() * 0.22,
+            (ux + (Math.random() - 0.5) * 1.5) * sp,
+            (uy + Math.random() * 0.9) * sp,
+            (uz + (Math.random() - 0.5) * 1.5) * sp);
+  }
+  killFlash.pos.set(hx, hy, hz);
+  killFlash.color.setHex(0xffe4b0);
+  killFlash.intensity = 9; killFlash.on = true;
+  sfx.clang();
+}
+
 function hurtAnti(a, tier, seq) {
-  if (!a.live || a.mode === 'dying' || a.mode === 'burn') return false;
+  if (!a.live || a.vox || a.mode === 'dying' || a.mode === 'burn') return false;
   if (seq !== undefined && a.shotId === seq) return false;
   a.shotId = seq;
+  /* THE TOP FLOOR TAKES ONLY THE BLAST. Lead skids off the two stationed up
+     there and so does the laser; tier 4 is the one thing that opens them. It
+     has to READ as refusal rather than as a miss, so the round still lands —
+     sparks off the shell, a flat clang instead of the wet hit, and the eyes
+     flare at you — it simply does not cost it anything. */
+  if (a.top && tier !== 4) {
+    a.flinch = Math.max(a.flinch, 0.45);
+    a.flinchDir.set(a.pos.x - player.pos.x, 0, a.pos.z - player.pos.z);
+    if (a.flinchDir.lengthSq() > 1e-6) a.flinchDir.normalize();
+    warded(a);
+    return false;
+  }
   const d = Math.hypot(a.pos.x - player.pos.x, a.pos.z - player.pos.z)
           + Math.abs(a.pos.y - player.pos.y) * 0.5;
   const dmg = (DMG[tier] || DMG[1])[bandOf(d)];
@@ -7607,26 +7872,38 @@ function hurtAnti(a, tier, seq) {
   return false;
 }
 
+/* HOW ALL SIX OF THEM END. There used to be two endings here: a fall, a swell
+   and a white flash for an ordinary round, and the cubes only for the blast.
+   The flash is the worse of the two and it is gone — whatever finishes one of
+   these now, a pistol round or the laser sweep or HOLY LIGHT or the blast, it
+   comes apart where it stands into a few hundred coloured cubes and goes on
+   walking for a second and a half before it catches up with itself.
+
+   dyingStep and the 'dying' mode survive below but nothing reaches them any
+   more; they are left alone rather than torn out, because half the animation
+   still reads a.mode and this is not the change to go pruning that in. */
 function killAnti(a) {
-  if (!a.live || a.mode === 'dying' || a.mode === 'burn') return;   // already going
+  if (!a.live || a.vox || a.mode === 'burn') return;      // already going
+  const was = a.mode;                     // what it was doing when the round landed
   hushAnti(a);                            // shot mid-charge: it stops mid-scream
   const had = a.carrying;
-  a.mode = 'dying'; a.modeT = 0; a.deadY = 0; a.deadV = 0;
-  // whatever is under it right now, however many storeys down
-  {
-    const g = groundUnder(Math.floor(a.pos.z / CELL), Math.floor(a.pos.x / CELL),
-                          a.pos.x, a.pos.z, a.lev, a.pos.y);
-    a.deadFloor = g ? g.y : levelY(0);
-  }
-  abortSeek(a);
-  a.goal = null;
   if (had) {
     say(`the ${had.name.toLowerCase()} twin goes out with it — your crystal is safe`, 5.5);
   }
   clockT = ANTI_PERIOD;                     // you bought yourself five minutes
   clockShown = -1;
-  sfx.hit && sfx.hit();
-  announce(`F${a.tag} GOES OUT`, '#cfe0ff', 3.4);
+  /* It has to KEEP MOVING — that is the whole beat. A creature shot mid-stare
+     is in `alert` or `coil`, both of which are deliberately speed ZERO, so
+     carrying those modes forward would leave a cloud of cubes standing
+     perfectly still for the second and a half it is meant to spend walking. A
+     charge carries on as a charge; anything else walks. The goal is left alone
+     on purpose — abortSeek would stop it dead. */
+  a.mode = was === 'rush' ? 'rush' : 'crawl';
+  a.modeT = 0;
+  a.pauseT = 99;                            // and it does not stop to look around
+  a.deadY = 0; a.deadV = 0;
+  voxelize(a);
+  announce(`F${a.tag} COMES APART`, '#ffd7f2', 3.4);
 }
 
 // Lit rooms and the hub are sanctuary: no knife and no bullet takes you there.
@@ -8265,6 +8542,16 @@ function drawMonster(a, sdt) {
      lateral signal — what the footfalls really produce is 3x and 6x, far too
      fast to read. The 1x lateral is authored body weight at a frequency the eye
      can follow, which is why the rush scales its AMPLITUDE, not its rate.   */
+  /* HALF AGAIN AS BIG, and it rides at the same height. Scaling the standoff
+     too would push a top-floor guard's back through the slab — the floor is
+     3.6 m and it already floats at 2.40 — so what grows is the animal, not its
+     clearance: body, head, eyes, and the length and thickness of the legs. The
+     legs simply straighten less to reach the same floor, which is exactly how a
+     bigger one of these would stand. */
+  const sz = a.size || 1;
+  swell *= sz;
+  const vx = !!a.vox;               // drawn as its own cubes rather than as itself
+
   const gth = TAU * (a.walked / STRIDE);
   const BOB_OF = { crawl: 1.00, lurk: 0.55, seek: 0, alert: 0, coil: 0,
                    rush: 1.85, recover: 0.62, burn: 0 };
@@ -8380,7 +8667,21 @@ function drawMonster(a, sdt) {
   // the body
   _sc.set(BODY_R * 2 * swell * across, BODY_R * 2 * swell, BODY_R * 2 * swell * along).divideScalar(BODY_R * 2);
   _mI.compose(_drawP, _qBody, _sc);
-  bodyMesh.setMatrixAt(bi, _mI);
+  bodyMesh.setMatrixAt(bi, vx ? HIDDEN : _mI);
+  /* IT IS CUBES NOW, and they are placed from this exact transform — the same
+     position, the same orientation, the same swell — so the cloud is the body,
+     not an effect standing in for it. The offsets are in unit body space; this
+     is where they pick up the metres. */
+  if (vx) {
+    const br = BODY_R * swell;
+    for (let k = 0; k < a.voxBody; k++) {
+      const v = vox[(a.voxFrom + k) % VOX_N];
+      if (v.a !== a) continue;
+      v.pos.set(v.off.x * br * across, v.off.y * br, v.off.z * br * along)
+           .applyQuaternion(_qBody).add(_drawP);
+      v.roll += v.spin * 0.15 * sdt;
+    }
+  }
 
   if (a.mode === 'rush') {
     _lp.subVectors(a.pos, a.prev);
@@ -8452,14 +8753,14 @@ function drawMonster(a, sdt) {
     _qr.setFromAxisAngle(_FWD, roll * sd);
     _qTmp.setFromUnitVectors(_NEGZ, _lp);
     _qb.copy(_qTmp).multiply(_qr).premultiply(_qHead);
-    _mI.compose(_eye, _qb, _sc.set(ew * 0.66, eh, 1));            // a tall oval
-    eyeMesh.setMatrixAt(bi * 2 + e, _mI);
+    _mI.compose(_eye, _qb, _sc.set(ew * 0.66 * sz, eh * sz, 1));   // a tall oval
+    eyeMesh.setMatrixAt(bi * 2 + e, vx ? HIDDEN : _mI);
     if (e === 0) a.eyeEm.pos.copy(_eye);
   }
   /* The strip is baked in head-local metres, so placing it is just the head's
      own position, orientation and swell — no per-vertex work at all. */
   _mI.compose(_drawP, _qHead, _sc.set(swell, swell, swell));
-  mouthMesh.setMatrixAt(bi, _mI);
+  mouthMesh.setMatrixAt(bi, vx ? HIDDEN : _mI);
 
   a.eyeEm.pos.lerp(_drawP, 0.4);
   a.eyeEm.intensity = eyeInt;
@@ -8475,7 +8776,7 @@ function drawMonster(a, sdt) {
   for (let i = 0; i < MON_LEGS; i++) {
     const L = a.legs[i];
     legDir(a, i, _lp);
-    _hip.copy(_drawP).addScaledVector(_lp, BODY_R * 0.92);
+    _hip.copy(_drawP).addScaledVector(_lp, BODY_R * 0.92 * sz);
     const raw = _hip.distanceTo(L.foot);
     // the legs draw out as they reach, and thin as they draw out
     /* Slack, and it is the whole reason the knees show. Sized to exactly reach,
@@ -8484,7 +8785,7 @@ function drawMonster(a, sdt) {
        the distance to the foot leaves a real triangle, and the knee rides high
        above the body the way it does in a harvestman. */
     const stretch = L.stretch;      // frozen at plant; see stepLegs
-    const l1 = L1 * stretch, l2 = L2 * stretch;
+    const l1 = L1 * stretch * sz, l2 = L2 * stretch * sz;
     const d = Math.min(raw, (l1 + l2) * 0.999);
     _aHat.subVectors(L.foot, _hip).divideScalar(Math.max(raw, 1e-6));
     _bHat.copy(a.nTilt).addScaledVector(_aHat, -a.nTilt.dot(_aHat));
@@ -8494,12 +8795,28 @@ function drawMonster(a, sdt) {
     const x = (d * d + l1 * l1 - l2 * l2) / (2 * d);
     const y = Math.sqrt(Math.max(0, l1 * l1 - x * x));
     L.knee.copy(_hip).addScaledVector(_aHat, x).addScaledVector(_bHat, y);
-    const th = LEG_T / (0.6 + 0.4 * stretch);
+    const th = LEG_T * sz / (0.6 + 0.4 * stretch);
+    if (vx) {
+      /* The leg is still SOLVED — hip, knee and foot are real every frame — and
+         the cubes are strung along the two bones, so the cloud goes on walking
+         on six legs it no longer has. */
+      femurMesh.setMatrixAt(a.base + i, HIDDEN);
+      tibiaMesh.setMatrixAt(a.base + i, HIDDEN);
+      handMesh.setMatrixAt(a.base + i, HIDDEN);
+      for (let k = 0; k < VOX_LEG; k++) {
+        const v = vox[(a.voxFrom + a.voxBody + i * VOX_LEG + k) % VOX_N];
+        if (v.a !== a) continue;
+        if (v.u < 0.5) v.pos.lerpVectors(_hip, L.knee, v.u * 2);
+        else           v.pos.lerpVectors(L.knee, L.foot, (v.u - 0.5) * 2);
+        v.roll += v.spin * 0.15 * sdt;
+      }
+      continue;
+    }
     bone(femurMesh, a.base + i, _hip, L.knee, th);
     bone(tibiaMesh, a.base + i, L.knee, L.foot, th * 0.74);
     // the hand, turned to lie against whatever it has hold of
     _qb.setFromUnitVectors(_UPY, L.fn);
-    _mI.compose(L.foot, _qb, _sc.set(1, 1, 1));
+    _mI.compose(L.foot, _qb, _sc.set(sz, sz, sz));
     handMesh.setMatrixAt(a.base + i, _mI);
   }
 }
@@ -8756,6 +9073,15 @@ function claimVoice(a) {
   return true;
 }
 
+/* Once it is cubes the mood machine stops choosing for it. Left running, a
+   creature shot while it was staring at you goes straight back into `alert` and
+   then `coil` — both deliberately speed ZERO — and the cloud stands perfectly
+   still for the second and a half it is supposed to spend walking. Holding the
+   mode also means a charge stays a charge all the way through. */
+function voxMood(a, dt) {
+  if (a.vox) { a.modeT += dt; return; }
+  moodOf(a, dt);
+}
 function moodOf(a, dt) {
   a.modeT += dt;
   /* It heals. A pool that lasted would turn every creature into a tally you
@@ -8889,7 +9215,9 @@ function faceThePlayer(a, dt) {
    0.38 m in a frame — its own radius — so a point test would step straight
    over you and the charge would miss for reasons no player could ever see. */
 function contactKill(a) {
-  if (caughtT > 0 || safeInLight() || a.mode !== 'rush') return false;
+  /* A cloud of cubes still charging down the hall at you is the best beat in
+     the whole effect, and it must not be able to finish the charge. */
+  if (caughtT > 0 || a.vox || safeInLight() || a.mode !== 'rush') return false;
   const ex = a.pos.x - a.prev.x, ey = a.pos.y - a.prev.y, ez = a.pos.z - a.prev.z;
   const l2 = ex * ex + ey * ey + ez * ez;
   const t = l2 < 1e-9 ? 0 : Math.max(0, Math.min(1,
@@ -8967,7 +9295,7 @@ function stepAnti(a, dt, sdt) {
     else if (a.mode === 'dying') dyingStep(a, dt);
     headStep(a, dt);
     douseNearby(a);
-    moodOf(a, dt);
+    voxMood(a, dt);
     return;
   }
   // pick a new floor to head for every so often, so the crowd spreads upward
@@ -9097,7 +9425,7 @@ function stepAnti(a, dt, sdt) {
      than decoration. */
   douseNearby(a);
   headStep(a, dt);
-  moodOf(a, dt);
+  voxMood(a, dt);
   contactKill(a);
 }
 
@@ -9165,6 +9493,8 @@ function updateAntis(dt, sdt) {
 
   for (const a of antis) {
     if (!a.live) continue;
+    if (a.vox) voxTick(a, dt);          // and it may cut loose inside this call
+    if (!a.live) continue;
     stepAnti(a, dt, sdt);
     /* It may have finished dying inside that call. retireAnti hid every one of
        its instances — and then drawMonster, four lines below, wrote them all
@@ -9189,6 +9519,7 @@ function updateAntis(dt, sdt) {
   }
 
   for (const mm of MON_MESHES) mm.instanceMatrix.needsUpdate = true;
+  updateVox(dt);
   updateBits(dt);
   updateStreaks(dt);
   updatePuffs(dt);
@@ -9995,6 +10326,7 @@ function fireHeld() {
     for (const a of antis) {
       if (!a.live || a.lev !== player.lev) continue;
       if ((a.pos.x - player.pos.x) ** 2 + (a.pos.z - player.pos.z) ** 2 > 19 ** 2) continue;
+      if (a.top) { warded(a); continue; }           // the top floor takes only the blast
       killAnti(a); n++;
     }
     if (n) { clockT = ANTI_PERIOD; clockShown = -1; }
@@ -10034,6 +10366,7 @@ function fireHeld() {
       const dx = a.pos.x - player.pos.x, dz = a.pos.z - player.pos.z;
       const d = Math.hypot(dx, dz);
       if (d > 1e-3 && (fx * dx + fz * dz) / d < Math.cos(0.42)) continue;
+      if (a.top) { warded(a); continue; }           // ditto: nothing but the blaster
       killAnti(a); n++;
     }
     if (n) { clockT = ANTI_PERIOD; clockShown = -1; }
@@ -11091,7 +11424,16 @@ function updateGuns(dt) {
          better power and a fairer one. The bore is permanent. */
       let reach = len;
       const hit = gunRay(0, false, len);
-      if (hit) {
+      /* A CREATURE DOES NOT STOP THE BEAM. gunRay halts on the first thing it
+         meets, creatures included, and it reports that hit SHORT of the body —
+         it returns at the first 0.3 m step within 0.9 m of the centre. Letting
+         that set `reach` meant the sweep below, which rejects anything with
+         `along > reach`, threw out the very creature the beam had just struck:
+         aimed dead at one, the tier-5 weapon killed nothing at all, and it
+         could only ever land in a hairline band about a metre off-axis. Only
+         solid things — wall, slab, furniture — shorten the beam now, which is
+         also the only kind of hit the bore below knows what to do with. */
+      if (hit && hit.kind !== 'anti') {
         reach = Math.hypot(hit.x - player.pos.x, hit.y - player.pos.y, hit.z - player.pos.z);
         if ((laserBore = (laserBore || 0) + dt) > 0.35) {
           if (hit.kind === 'wall' && at(hit.lev, hit.r, hit.c) === '#') {
@@ -11120,6 +11462,10 @@ function updateGuns(dt) {
         if (along < 0 || along > reach) continue;
         const ox = px - rayDir.x * along, oy = py - rayDir.y * along, oz = pz - rayDir.z * along;
         if (ox * ox + oy * oy + oz * oz < 1.1) {
+          /* The laser sweep kills on contact and never goes near hurtAnti, so
+             the blaster-only rule has to be restated here or tier 5 would quietly
+             be the top floor's weapon after all. */
+          if (a.top) { warded(a); continue; }
           killAnti(a);          // one touch at any range — the sweep IS the weapon
         }
       }
@@ -11735,6 +12081,7 @@ window.__maze = {
   music, startMusic, metal, drip, retune, legatoStep, CHORDS, DESCENTS, scaleWalk,
   shards, spectrumBurst, SPECTRUM, clearSight,
   worldGuns, GUNS, gunState, dropGunAt, fireOnce, vendors, seenNow, litAt, torchFallsOn,
+  vox, VOX_N, voxMesh, VOX_WALK, VOX_HOLD, VOX_LIE, VOX_FADE,
   vaultCells, isVaultWall, isVaultSlab, breachSlab, wanderGoal,
   chunks, debrisMesh, rimMesh, burstWall, blowFurnitureOver, furniture, punchHole,
   getBus: () => bus, sfx, CHORD_SECS, LEG_STEPS,
