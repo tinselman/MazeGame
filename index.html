@@ -6794,7 +6794,17 @@ const HIDDEN = new THREE.Matrix4().makeScale(0, 0, 0);
    and a wall is BRICKS_HIGH courses tall. A brick is handed the next free slot
    the moment it is born, walks to the foot of it and climbs into place. */
 const BRICK = 0.61;                      // two feet
-const BRICK_PERIOD = 60;                 // one a minute
+/* TWENTY-FIVE SECONDS, and the number is arithmetic rather than taste. Sealing
+   the hub takes 108 bricks — six openings, nine wide and two courses high, and
+   two courses is the height you can no longer step over. At 108 bricks a run
+   of forty-five minutes divides to exactly twenty-five seconds each.
+
+   The shape of that pressure is worth knowing: bricks always go to the least
+   finished opening, so all six rise together. Nothing is blocked at all for the
+   first twenty-two minutes — one course is a kerb you walk over — and then
+   every door closes within about two minutes of the end. It arrives as a cliff,
+   not a ramp. */
+const BRICK_PERIOD = 25;
 /* Nine across, not ten. Ten bricks is 6.10 m in a 6.00 m opening, so the end
    of every course drove five centimetres into the wall — and further into the
    moulded reveal standing proud of it. Nine is 5.49 m, which leaves a clear
