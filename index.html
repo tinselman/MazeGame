@@ -593,7 +593,40 @@ const MAPS = [
                                                                                  
 `
 ].map((s) => s.replace(/^\n/, '').replace(/\n$/, '').split('\n'));
-const ROOM_META = [{"lev":0,"r1":11,"c1":13,"r2":17,"c2":17,"type":"warehouse"},{"lev":0,"r1":10,"c1":34,"r2":14,"c2":43,"type":"gallery","items":{"remove":["fairyLights"]}},{"lev":0,"r1":10,"c1":49,"r2":14,"c2":56,"type":"cubicles"},{"lev":0,"r1":11,"c1":61,"r2":15,"c2":68,"type":"warehouse"},{"lev":0,"r1":22,"c1":12,"r2":27,"c2":16,"type":"restaurant"},{"lev":0,"r1":20,"c1":34,"r2":26,"c2":44,"type":"hall"},{"lev":0,"r1":19,"c1":50,"r2":27,"c2":55,"type":"museum"},{"lev":0,"r1":32,"c1":12,"r2":42,"c2":16,"type":"cubicles"},{"lev":0,"r1":36,"c1":22,"r2":45,"c2":28,"type":"gallery","items":{"remove":["hungPanel"]}},{"lev":0,"r1":35,"c1":53,"r2":45,"c2":56,"type":"restaurant","items":{"remove":["chandelier","chair","hearth"]}},{"lev":0,"r1":30,"c1":61,"r2":34,"c2":69,"type":"living"},{"lev":0,"r1":50,"c1":22,"r2":55,"c2":29,"type":"museum","items":{"add":["plinth"]}},{"lev":0,"r1":50,"c1":34,"r2":54,"c2":45,"type":"hall","items":{"remove":["fairyLights"]}},{"lev":0,"r1":39,"c1":61,"r2":47,"c2":66,"type":"restaurant","items":{"add":["paperLanterns"],"remove":["fairyLights"]}},{"lev":0,"r1":61,"c1":12,"r2":68,"c2":16,"type":"cubicles"},{"lev":0,"r1":60,"c1":22,"r2":68,"c2":27,"type":"warehouse"},{"lev":0,"r1":61,"c1":53,"r2":66,"c2":58,"type":"living","items":{"remove":["fairyLights"]}},{"lev":0,"r1":52,"c1":63,"r2":68,"c2":69,"type":"gallery","items":{"remove":["fairyLights"]}},{"lev":1,"r1":11,"c1":13,"r2":15,"c2":17,"type":"cubicles"},{"lev":1,"r1":10,"c1":34,"r2":14,"c2":47,"type":"museum"},{"lev":1,"r1":11,"c1":62,"r2":14,"c2":69,"type":"living"},{"lev":1,"r1":25,"c1":22,"r2":28,"c2":27,"type":"gallery"},{"lev":1,"r1":32,"c1":12,"r2":41,"c2":16,"type":"restaurant"},{"lev":1,"r1":34,"c1":22,"r2":43,"c2":27,"type":"warehouse"},{"lev":1,"r1":19,"c1":52,"r2":25,"c2":57,"type":"cubicles","items":{"add":["fairyLights"]}},{"lev":1,"r1":34,"c1":62,"r2":46,"c2":69,"type":"cubicles"},{"lev":1,"r1":51,"c1":58,"r2":55,"c2":67,"type":"warehouse"},{"lev":1,"r1":60,"c1":53,"r2":67,"c2":68,"type":"museum"},{"lev":2,"r1":24,"c1":21,"r2":29,"c2":26,"type":"gallery"},{"lev":2,"r1":10,"c1":52,"r2":15,"c2":55,"type":"living"},{"lev":2,"r1":51,"c1":22,"r2":66,"c2":27,"type":"museum"},{"lev":2,"r1":39,"c1":61,"r2":48,"c2":69,"type":"cubicles"},{"lev":1,"r1":20,"c1":12,"r2":25,"c2":16,"type":"alcove"},{"lev":2,"r1":25,"c1":11,"r2":29,"c2":15,"type":"alcove"},{"lev":2,"r1":10,"c1":61,"r2":15,"c2":68,"type":"alcove"},{"lev":2,"r1":32,"c1":61,"r2":34,"c2":65,"type":"alcove"},{"lev":2,"r1":64,"c1":12,"r2":67,"c2":16,"type":"alcove"},{"lev":2,"r1":51,"c1":53,"r2":53,"c2":55,"type":"alcove"},{"lev":1,"r1":50,"c1":33,"r2":54,"c2":47,"type":"gallery","items":{"remove":["hungPanel"]}},{"lev":2,"r1":58,"c1":60,"r2":67,"c2":69,"type":"gallery"},{"lev":2,"r1":35,"c1":11,"r2":42,"c2":16,"type":"gallery"}];
+
+/* ---- THE TWO STATIONS ARE CUT INTO THE BOUNDARY ------------------------------
+   The building's outer wall is the last ring of '#'; everything past it is the
+   black the map sits in. The stations belong out THERE, past the edge, so they
+   are carved straight out of that blackness before anything reads the grid —
+   the wall meshes, the rooms, the chart and the reveal are all baked from it
+   further down, so a bay cut here is simply part of the building as far as the
+   rest of the file is concerned, and a bay cut any later would be invisible to
+   all of them.
+
+   One bay north, one bay south, dead opposite each other, each opening onto the
+   outermost lane of the ring corridor — which is the lane the train runs in. */
+const STATION_C0 = 35, STATION_C1 = 45;      // the columns a platform spans
+const STATION_N = { r0: 2, r1: 5 };          // rows cut out of the north edge
+const STATION_S = { r0: 73, r1: 76 };        // and out of the south edge
+{
+  const carve = (lev, r, c0, c1, ch) => {
+    const row = MAPS[lev][r];
+    MAPS[lev][r] = row.slice(0, c0) + ch.repeat(c1 - c0 + 1) + row.slice(c1 + 1);
+  };
+  for (const st of [STATION_N, STATION_S]) {
+    for (let r = st.r0; r <= st.r1; r++) {
+      // a floor with its own side walls, so the bay reads as a building and not
+      // as a hole punched in the dark
+      carve(0, r, STATION_C0, STATION_C1, '.');
+      carve(0, r, STATION_C0, STATION_C0, '#');
+      carve(0, r, STATION_C1, STATION_C1, '#');
+    }
+    // and the far end closed off
+    const cap = st.r0 === 2 ? st.r0 : st.r1;
+    carve(0, cap, STATION_C0, STATION_C1, '#');
+  }
+}
+const ROOM_META = [{"lev":0,"r1":11,"c1":13,"r2":17,"c2":17,"type":"warehouse"},{"lev":0,"r1":10,"c1":34,"r2":14,"c2":43,"type":"gallery","items":{"remove":["fairyLights"]}},{"lev":0,"r1":10,"c1":49,"r2":14,"c2":56,"type":"cubicles"},{"lev":0,"r1":11,"c1":61,"r2":15,"c2":68,"type":"warehouse"},{"lev":0,"r1":22,"c1":12,"r2":27,"c2":16,"type":"restaurant"},{"lev":0,"r1":20,"c1":34,"r2":26,"c2":44,"type":"hall"},{"lev":0,"r1":19,"c1":50,"r2":27,"c2":55,"type":"museum"},{"lev":0,"r1":32,"c1":12,"r2":42,"c2":16,"type":"cubicles"},{"lev":0,"r1":36,"c1":22,"r2":45,"c2":28,"type":"teacup"},{"lev":0,"r1":35,"c1":53,"r2":45,"c2":56,"type":"restaurant","items":{"remove":["chandelier","chair","hearth"]}},{"lev":0,"r1":30,"c1":61,"r2":34,"c2":69,"type":"living"},{"lev":0,"r1":50,"c1":22,"r2":55,"c2":29,"type":"museum","items":{"add":["plinth"]}},{"lev":0,"r1":50,"c1":34,"r2":54,"c2":45,"type":"hall","items":{"remove":["fairyLights"]}},{"lev":0,"r1":39,"c1":61,"r2":47,"c2":66,"type":"restaurant","items":{"add":["paperLanterns"],"remove":["fairyLights"]}},{"lev":0,"r1":61,"c1":12,"r2":68,"c2":16,"type":"cubicles"},{"lev":0,"r1":60,"c1":22,"r2":68,"c2":27,"type":"warehouse"},{"lev":0,"r1":61,"c1":53,"r2":66,"c2":58,"type":"living","items":{"remove":["fairyLights"]}},{"lev":0,"r1":52,"c1":63,"r2":68,"c2":69,"type":"gallery","items":{"remove":["fairyLights"]}},{"lev":1,"r1":11,"c1":13,"r2":15,"c2":17,"type":"cubicles"},{"lev":1,"r1":10,"c1":34,"r2":14,"c2":47,"type":"museum"},{"lev":1,"r1":11,"c1":62,"r2":14,"c2":69,"type":"living"},{"lev":1,"r1":25,"c1":22,"r2":28,"c2":27,"type":"gallery"},{"lev":1,"r1":32,"c1":12,"r2":41,"c2":16,"type":"restaurant"},{"lev":1,"r1":34,"c1":22,"r2":43,"c2":27,"type":"warehouse"},{"lev":1,"r1":19,"c1":52,"r2":25,"c2":57,"type":"cubicles","items":{"add":["fairyLights"]}},{"lev":1,"r1":34,"c1":62,"r2":46,"c2":69,"type":"teacup"},{"lev":1,"r1":51,"c1":58,"r2":55,"c2":67,"type":"warehouse"},{"lev":1,"r1":60,"c1":53,"r2":67,"c2":68,"type":"museum"},{"lev":2,"r1":24,"c1":21,"r2":29,"c2":26,"type":"gallery"},{"lev":2,"r1":10,"c1":52,"r2":15,"c2":55,"type":"living"},{"lev":2,"r1":51,"c1":22,"r2":66,"c2":27,"type":"museum"},{"lev":2,"r1":39,"c1":61,"r2":48,"c2":69,"type":"cubicles"},{"lev":1,"r1":20,"c1":12,"r2":25,"c2":16,"type":"alcove"},{"lev":2,"r1":25,"c1":11,"r2":29,"c2":15,"type":"alcove"},{"lev":2,"r1":10,"c1":61,"r2":15,"c2":68,"type":"alcove"},{"lev":2,"r1":32,"c1":61,"r2":34,"c2":65,"type":"alcove"},{"lev":2,"r1":64,"c1":12,"r2":67,"c2":16,"type":"alcove"},{"lev":2,"r1":51,"c1":53,"r2":53,"c2":55,"type":"alcove"},{"lev":1,"r1":50,"c1":33,"r2":54,"c2":47,"type":"gallery","items":{"remove":["hungPanel"]}},{"lev":2,"r1":58,"c1":60,"r2":67,"c2":69,"type":"gallery"},{"lev":2,"r1":35,"c1":11,"r2":42,"c2":16,"type":"gallery"}];
 const DROP_POINTS = [{"lev":1,"at":[27,36],"into":[26,36]},{"lev":1,"at":[58,40],"into":[59,40]}];
 /* Hand-placed fittings. Empty means "scatter them the way you always did" —
    the game falls back to its own rules — so a level that says nothing about
@@ -1977,6 +2010,10 @@ scene.add(camera);
 
 /* ============================================================ PROPS */
 const props = { switches: [], buttons: [], doors: [], crystals: [], pedestals: [], portals: [] };
+/* The teacup ride, and the rooms that asked to be one. furnish() only records
+   the room — the ride itself is built far below, once every helper it needs
+   exists, which is the same two-step the paper lanterns already use. */
+const RIDES = [], TEACUP_ROOMS = [];
 const fixtures = [];
 const matFixOff = new THREE.MeshPhongMaterial({ color: 0x3a3a3a, specular: 0x111111, shininess: 20 });
 const matFixGlim = new THREE.MeshPhongMaterial({ color: 0x4a453c, emissive: 0x2a2113, emissiveIntensity: 1 });
@@ -2136,6 +2173,13 @@ function makePanel(l, r, c, kind, label) {
 /* ---- rooms ------------------------------------------------------------
    A room is a connected patch of room floor. Its switch lights that patch and
    nothing else, so corridors stay dark and a lit room is a place you found.  */
+/* A TEACUP ROOM IS LIT BY ITS OWN LANTERNS AND BY NOTHING ELSE. No strip light
+   goes in one — a fairground under fluorescent tubes is a warehouse with a ride
+   in it. The switch on the wall still works; what it brings up is the silk. */
+const TEACUP_RECTS = ROOM_META.filter((q) => q.type === 'teacup');
+const inTeacupRoom = (l, rr, cc) => TEACUP_RECTS.some(
+  (q) => q.lev === l && rr >= q.r1 && rr <= q.r2 && cc >= q.c1 && cc <= q.c2);
+
 const roomOf = new Map();
 for (let l = 0; l < NLEV; l++) for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
   if (at(l, r, c) !== '*') continue;
@@ -2166,6 +2210,8 @@ for (let l = 0; l < NLEV; l++) for (let r = 0; r < ROWS; r++) for (let c = 0; c 
     if (cr % 3 === 0 || cc % 3 === 0) continue;
     // and never on a stair, where the flight climbs through the ceiling plane
     if (stairAt.has(`${l},${cr},${cc}`)) continue;
+    if (inTeacupRoom(l, cr, cc)) continue;         // the lanterns are its lighting
+
     const p = cellCentre(cr, cc);
     const housing = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.14, 0.34), matHousing);
     housing.position.set(p.x, levelY(l) + WALL_H - 0.09, p.z);
@@ -2578,6 +2624,12 @@ const furniture = [];
         put('column', x0 + ((i + 0.5) / cols) * w, y, z0 + ((j + 0.5) / rows) * d, 0, g(i + j));
       }
 
+    } else if (t === 'teacup') {
+      /* A FAIRGROUND RIDE INDOORS. It takes the whole floor, so it gets none of
+         the ordinary furniture — the turntable, the cups on it and the lanterns
+         over it are the entire room, and they are built below where the ride
+         system lives. */
+      TEACUP_ROOMS.push(rm);
     } else if (t === 'alcove') {
       // A recess off the hall with somewhere to sit. Three cells square, so it
       // takes one bench against the blind corner and a low table, and that is
@@ -4994,6 +5046,13 @@ const sfx = {
   blastShot: () => { blip(60, 1.1, 'sawtooth', 0.11, 0.9);
       setTimeout(() => blip(42, 1.5, 'square', 0.07, 0.95), 60); },
   laserHum: () => blip(880 + Math.random() * 60, 0.12, 'sawtooth', 0.035, 0.6),
+  /* A CHIME WHISTLE: three tones a little out of tune with each other, which is
+     what gives a steam whistle its beating warble, and a breathy top. */
+  whistle: () => { [523, 659, 784, 1046].forEach((f, i) =>
+      setTimeout(() => { blip(f * (1 + (i % 2 ? 0.006 : -0.004)), 1.5, 'sawtooth', 0.045, 0.8);
+                         blip(f * 2.004, 1.3, 'sine', 0.018, 0.85); }, i * 18));
+    setTimeout(() => [523, 659, 784].forEach((f) =>
+      blip(f, 0.55, 'sawtooth', 0.028, 0.8)), 1250); },
   dry:   () => blip(1250, 0.05, 'square', 0.05, 0.3),
   ping:  (near) => blip(1300 + near * 900, 0.05, 'sine', 0.03 + near * 0.05, 0.4),
   clang: () => { blip(2600, 0.05, 'square', 0.07, 0.5);
@@ -5393,7 +5452,11 @@ function deckLocal(d, x, z) {
 // The player's ground, decks included. Anti-players call groundUnder directly
 // and so never find one — which is what keeps the drop yours alone.
 function playerGround(r, c, x, z, lev, ceilY) {
-  const best = groundUnder(r, c, x, z, lev, ceilY);
+  let best = groundUnder(r, c, x, z, lev, ceilY);
+  for (const f of [rideTopAt, stationTopAt, trainTopAt]) {
+    const t = f(x, z, lev);   // turntable, station platform, and the coach floor
+    if (t && (ceilY == null || t.y <= ceilY) && (!best || t.y > best.y)) best = t;
+  }
   // lev is null while falling — the deck is then found by its own level
   const d = lev == null ? (deckCells.get(`1,${r},${c}`) || deckCells.get(`2,${r},${c}`))
                         : deckCells.get(`${lev},${r},${c}`);
@@ -6779,6 +6842,1136 @@ function burstBits(at, n) {
     b.spin = 6 + Math.random() * 14;
   }
 }
+/* The fairground palette. Shared by the station's strung lamps and the ride's
+   silk lanterns, and declared HERE rather than beside the lanterns because the
+   station is built first and reading it from down there is the temporal dead
+   zone — which is exactly how it failed the first time. */
+const LANT_HUE_BIG = [0xff4a2e, 0xffb01e, 0xffe14a, 0xf4f0e4, 0xff6f9c,
+                      0xd14ad6, 0x7fd4ff, 0xa8d84a, 0xff8a3d];
+
+/* ============================================================ THE STEAM TRAIN
+
+   It runs the outermost lane of the ring corridor — the one lane that is
+   continuous on all four sides of the building — anticlockwise, once round
+   every two minutes, stopping ten seconds at each of the two stations cut into
+   the north and south boundary.
+
+   THE RULE THAT MAKES IT WORK: it kills only while it is MOVING. Standing on
+   the track when it comes through is death, exactly as a creature is; standing
+   on the track while it waits at a platform is boarding. That single condition
+   is what lets the same object be both the threat in the corridor and the
+   transport you are meant to take, without needing a separate notion of a safe
+   tile. And it does nothing whatever to a creature — it passes straight
+   through them, so the hunting is never done for you.                        */
+const TRK_X0 = 7 * CELL + CELL / 2, TRK_X1 = 73 * CELL + CELL / 2;
+const TRK_Z0 = 6 * CELL + CELL / 2, TRK_Z1 = 72 * CELL + CELL / 2;
+const TRK_CR = 4.0;                          // corner radius
+/* TWENTY SECONDS FROM ONE PLATFORM TO THE NEXT, which is the number the ride is
+   actually specified by — everything else here is derived from it. The two
+   stops are opposite each other, so a run is half the loop, and the train has
+   to accelerate away and brake in before it stands still again. With a constant
+   acceleration over BRAKE_D at each end the whole run takes (L + 2*BRAKE_D) / V
+   seconds, so that is what V is solved from rather than guessed at. */
+const TRAIN_RUN = 20;                        // seconds, platform to platform
+const TRAIN_DWELL = 10;                      // and ten seconds to load
+const BRAKE_D = 25;                          // metres of pulling away, and of braking
+const RAIL_Y = 0.10, DECK_Y = 0.86;          // rail head, and the floor you ride on
+
+/* The loop as a table of segments, so a distance along it is a position and a
+   heading and nothing has to be solved. Anticlockwise from the north-west. */
+const TRK = [];
+{
+  const add = (kind, len, o) => { TRK.push(Object.assign({ kind, len, s0: 0 }, o)); };
+  const Lx = (TRK_X1 - TRK_X0) - 2 * TRK_CR, Lz = (TRK_Z1 - TRK_Z0) - 2 * TRK_CR;
+  const Q = Math.PI / 2 * TRK_CR;
+  add('line', Lx, { x0: TRK_X0 + TRK_CR, z0: TRK_Z0, dx: 1, dz: 0 });
+  add('arc',  Q,  { cx: TRK_X1 - TRK_CR, cz: TRK_Z0 + TRK_CR, a0: -Math.PI / 2, dir: 1 });
+  add('line', Lz, { x0: TRK_X1, z0: TRK_Z0 + TRK_CR, dx: 0, dz: 1 });
+  add('arc',  Q,  { cx: TRK_X1 - TRK_CR, cz: TRK_Z1 - TRK_CR, a0: 0, dir: 1 });
+  add('line', Lx, { x0: TRK_X1 - TRK_CR, z0: TRK_Z1, dx: -1, dz: 0 });
+  add('arc',  Q,  { cx: TRK_X0 + TRK_CR, cz: TRK_Z1 - TRK_CR, a0: Math.PI / 2, dir: 1 });
+  add('line', Lz, { x0: TRK_X0, z0: TRK_Z1 - TRK_CR, dx: 0, dz: -1 });
+  add('arc',  Q,  { cx: TRK_X0 + TRK_CR, cz: TRK_Z0 + TRK_CR, a0: Math.PI, dir: 1 });
+  let acc = 0;
+  for (const g of TRK) { g.s0 = acc; acc += g.len; }
+}
+const TRK_LEN = TRK[TRK.length - 1].s0 + TRK[TRK.length - 1].len;
+/* Where the two platforms are, as distances along the loop: the middle of the
+   north straight and the middle of the south one, which is what puts them dead
+   opposite each other. */
+const STATION_X = (STATION_C0 + STATION_C1 + 1) / 2 * CELL;
+const STOPS = [
+  TRK[0].s0 + (STATION_X - (TRK_X0 + TRK_CR)),
+  TRK[4].s0 + ((TRK_X1 - TRK_CR) - STATION_X),
+].sort((a, b) => a - b);
+const RUN_LEN = TRK_LEN / STOPS.length;       // one platform to the next
+/* The closed form gives 19.75 s measured rather than 20.00: the speed floor that
+   stops the sqrt ramp crawling forever at the very end, and the quarter-metre
+   snap onto the stop, both shave a little off. Corrected by the measured ratio
+   rather than by pretending the model is exact. */
+const TRAIN_V = ((RUN_LEN + 2 * BRAKE_D) / TRAIN_RUN) * (19.75 / 20);
+const TRAIN_LOOP = STOPS.length * (TRAIN_RUN + TRAIN_DWELL);   // a whole lap
+
+const _tp = { x: 0, z: 0, yaw: 0 };
+function trackAt(s) {
+  s = ((s % TRK_LEN) + TRK_LEN) % TRK_LEN;
+  for (let i = TRK.length - 1; i >= 0; i--) {
+    const g = TRK[i];
+    if (s < g.s0) continue;
+    const u = s - g.s0;
+    if (g.kind === 'line') {
+      _tp.x = g.x0 + g.dx * u; _tp.z = g.z0 + g.dz * u;
+      _tp.yaw = Math.atan2(-g.dx, -g.dz);
+    } else {
+      const a = g.a0 + g.dir * (u / TRK_CR);
+      _tp.x = g.cx + Math.cos(a) * TRK_CR;
+      _tp.z = g.cz + Math.sin(a) * TRK_CR;
+      const tx = -Math.sin(a) * g.dir, tz = Math.cos(a) * g.dir;
+      _tp.yaw = Math.atan2(-tx, -tz);
+    }
+    return _tp;
+  }
+  return _tp;
+}
+
+const matSteel = new THREE.MeshPhongMaterial({ color: 0x585c62, specular: 0x9aa0a8, shininess: 55 });
+const matSteelD = new THREE.MeshPhongMaterial({ color: 0x33363b, specular: 0x606468, shininess: 40 });
+const matSteelL = new THREE.MeshPhongMaterial({ color: 0x7c8189, specular: 0xb0b6be, shininess: 65 });
+const matTrackRail = new THREE.MeshPhongMaterial({ color: 0x4a4640, specular: 0x8a8680, shininess: 50 });
+const matLamp = new THREE.MeshBasicMaterial({ color: 0xfff4d0, fog: false, toneMapped: false });
+
+// one wheel, spoked, so the thing has running gear rather than discs
+/* Built with its axle along X, which is across the track, so the whole wheel
+   turns on rotation.x and nothing has to fight Euler order later. A torus lies
+   in XY by default and needs the Y quarter-turn; a cylinder stands on Y and
+   needs the Z one; the spokes are radial in YZ and so take the X one. */
+function wheelGeo(r, tw) {
+  return mergeGeos([
+    at3(Tor(r - 0.05, 0.055, 6, 20), 0, 0, 0, 0, Math.PI / 2, 0),   // tyre
+    at3(Cyl(r - 0.10, r - 0.10, tw * 0.45, 18), 0, 0, 0, 0, 0, Math.PI / 2),
+    at3(Cyl(r * 0.24, r * 0.24, tw * 1.05, 12), 0, 0, 0, 0, 0, Math.PI / 2),  // hub
+    ...Array.from({ length: 10 }, (_, k) =>
+      at3(Box(tw * 0.42, r * 1.62, 0.055), 0, 0, 0, k * Math.PI / 10, 0, 0)),
+  ]);
+}
+const WHEEL_BIG = wheelGeo(0.62, 0.20), WHEEL_SM = wheelGeo(0.38, 0.17);
+
+/* THE ENGINE. Built lying along -Z, which is the heading trackAt hands back, so
+   placing it is a position and a yaw and nothing else. */
+const ENGINE_GEO = mergeGeos([
+  at3(Box(1.94, 0.16, 6.60), 0, 0.70, 0),                       // main frame
+  at3(Box(2.14, 0.10, 6.20), 0, 0.80, 0),                       // running board
+  // boiler, smokebox and the door on the front of it
+  at3(Cyl(0.70, 0.70, 3.70, 20), 0, 1.62, -0.75, Math.PI / 2, 0, 0),
+  at3(Cyl(0.745, 0.745, 1.05, 20), 0, 1.62, -3.05, Math.PI / 2, 0, 0),
+  at3(Cyl(0.70, 0.70, 0.12, 20), 0, 1.62, -3.60, Math.PI / 2, 0, 0),
+  at3(Cyl(0.09, 0.09, 0.20, 8), 0, 1.62, -3.66, Math.PI / 2, 0, 0),
+  // boiler bands
+  ...[-2.2, -1.2, -0.2, 0.7].map((z) =>
+    at3(Tor(0.715, 0.035, 5, 20), 0, 1.62, z, Math.PI / 2, 0, 0)),
+  // chimney, dome, safety valves
+  at3(Cyl(0.30, 0.24, 0.72, 14), 0, 2.62, -3.00),
+  at3(Tor(0.31, 0.06, 6, 14), 0, 2.96, -3.00, Math.PI / 2, 0, 0),
+  at3(Cyl(0.34, 0.40, 0.42, 14), 0, 2.42, -1.10),
+  at3(Sph(0.34, 12, 8), 0, 2.60, -1.10, 0, 0, 0, 1, 0.62, 1),
+  at3(Cyl(0.10, 0.12, 0.30, 8), -0.13, 2.42, 0.20),
+  at3(Cyl(0.10, 0.12, 0.30, 8), 0.13, 2.42, 0.20),
+  // firebox and cab
+  at3(Box(1.70, 1.10, 1.30, 0), 0, 1.45, 1.35),
+  at3(Box(1.86, 1.70, 1.90), 0, 1.90, 2.35),
+  at3(Box(2.16, 0.12, 2.16), 0, 2.80, 2.35),                    // cab roof
+  at3(Cyl(0.05, 0.05, 0.60, 6), -0.86, 3.06, 2.35),             // whistle
+  // buffers and coupling, both ends
+  ...[-1, 1].map((sgn) => at3(Box(0.90, 0.20, 0.16), 0, 0.86, sgn * 3.42)),
+  ...[[-0.62, -3.52], [0.62, -3.52], [-0.62, 3.46], [0.62, 3.46]].map(([x, z]) =>
+    at3(Cyl(0.13, 0.13, 0.26, 10), x, 0.92, z, Math.PI / 2, 0, 0)),
+  // cylinders and slide bars, one each side
+  ...[-1, 1].map((sx) => at3(Cyl(0.26, 0.26, 0.92, 12), sx * 0.86, 0.92, -2.55, Math.PI / 2, 0, 0)),
+  ...[-1, 1].map((sx) => at3(Box(0.10, 0.10, 1.50), sx * 0.86, 0.98, -1.55)),
+  // handrails down the boiler
+  ...[-1, 1].map((sx) => at3(Cyl(0.028, 0.028, 4.60, 6), sx * 0.74, 2.05, -1.35, Math.PI / 2, 0, 0)),
+  // the lamp bracket on the smokebox
+  at3(Box(0.34, 0.34, 0.26), 0, 2.16, -3.58),
+  /* THE FRONT END. A tank engine with a flat face reads as a boiler on wheels;
+     what makes it a locomotive is the clutter — the plough on the front, the
+     bell, the sandbox, and a way for a driver to climb into the cab. */
+  at3(Box(0.16, 0.86, 0.10), -0.62, 0.52, -3.74, 0.34, 0, 0),      // cowcatcher slats
+  at3(Box(0.16, 0.86, 0.10), -0.32, 0.52, -3.74, 0.34, 0, 0),
+  at3(Box(0.16, 0.86, 0.10), 0, 0.52, -3.74, 0.34, 0, 0),
+  at3(Box(0.16, 0.86, 0.10), 0.32, 0.52, -3.74, 0.34, 0, 0),
+  at3(Box(0.16, 0.86, 0.10), 0.62, 0.52, -3.74, 0.34, 0, 0),
+  at3(Box(1.60, 0.12, 0.14), 0, 0.86, -3.60),                      // its top rail
+  at3(Box(1.30, 0.10, 0.12), 0, 0.22, -3.94),                      // and the bar at the bottom
+  // the bell, on a yoke behind the chimney
+  at3(Box(0.09, 0.26, 0.09), -0.17, 2.72, -2.20),
+  at3(Box(0.09, 0.26, 0.09), 0.17, 2.72, -2.20),
+  { geo: Turned([[0, 0], [0.15, 0.02], [0.16, 0.10], [0.12, 0.22], [0.06, 0.30],
+                 [0.05, 0.30], [0.10, 0.22], [0.14, 0.10], [0.13, 0.02], [0, 0]], 12),
+    m: new THREE.Matrix4().compose(new THREE.Vector3(0, 2.56, -2.20),
+        new THREE.Quaternion(), new THREE.Vector3(1, 1, 1)) },
+  at3(Box(0.30, 0.05, 0.05), 0, 2.86, -2.20),
+  // sandbox, and the pipes down to the rails
+  at3(Cyl(0.22, 0.26, 0.30, 12), 0, 2.36, -1.95),
+  ...[-1, 1].map((sx) => at3(Cyl(0.035, 0.035, 1.30, 6), sx * 0.60, 1.75, -1.95, 0.25, 0, 0)),
+  // steps up into the cab, one each side
+  ...[-1, 1].flatMap((sx) => [0, 1].map((k) =>
+    at3(Box(0.44, 0.06, 0.34), sx * 1.02, 0.30 + k * 0.28, 3.05))),
+  ...[-1, 1].map((sx) => at3(Cyl(0.028, 0.028, 1.40, 6), sx * 1.14, 1.30, 3.15)),
+  // number plate on the smokebox door
+  at3(Box(0.42, 0.20, 0.04), 0, 1.62, -3.68),
+]);
+const ENGINE_DARK = mergeGeos([
+  at3(Box(1.60, 0.90, 0.06), 0, 2.10, 1.38),                     // cab front window
+  at3(Box(0.06, 0.86, 1.10), -0.94, 2.10, 2.35),                 // and the side ones
+  at3(Box(0.06, 0.86, 1.10), 0.94, 2.10, 2.35),
+  at3(Box(1.40, 0.70, 0.06), 0, 1.42, 0.70),                     // the firehole
+]);
+/* THE SEATING AREA. Open-sided, so you can see the grey bench interior from the
+   platform and know it is something you get into. */
+/* THE COACH. The side wall is broken in the MIDDLE on both sides, and a flight
+   of steps comes down from each gap to the platform — so the way in is a thing
+   you can see from across the corridor rather than a rule you have to be told.
+   Both sides, because there is a station on the north of the loop and one on
+   the south, and the train faces opposite ways at the two. */
+const DOOR_HW = 0.85;                        // half-width of the doorway
+const COACH_GEO = mergeGeos([
+  at3(Box(2.10, 0.16, 6.20), 0, 0.78, 0),                       // floor
+  at3(Box(2.10, 0.14, 6.20), 0, 0.68, 0),
+  // side walls, in two lengths each, with the doorway between them
+  ...[-1, 1].flatMap((sx) => [-1, 1].map((sz) =>
+    at3(Box(0.10, 0.66, 3.10 - DOOR_HW), sx * 1.00, 1.19, sz * (DOOR_HW + (3.10 - DOOR_HW) / 2)))),
+  ...[-1, 1].flatMap((sx) => [-1, 1].map((sz) =>
+    at3(Cyl(0.05, 0.05, 3.10 - DOOR_HW, 5), sx * 1.00, 1.52,
+        sz * (DOOR_HW + (3.10 - DOOR_HW) / 2), Math.PI / 2, 0, 0))),
+  // the door pillars, and a grab rail beside each opening
+  ...[-1, 1].flatMap((sx) => [-1, 1].map((sz) =>
+    at3(Cyl(0.06, 0.06, 1.70, 8), sx * 1.00, 2.21, sz * DOOR_HW))),
+  ...[-1, 1].flatMap((sx) => [-1, 1].map((sz) =>
+    at3(Cyl(0.030, 0.030, 1.20, 6), sx * 1.10, 1.55, sz * (DOOR_HW + 0.10)))),
+  // THE STEPS DOWN. Two treads on stringers, one flight each side.
+  ...[-1, 1].flatMap((sx) => [0, 1].map((k) =>
+    at3(Box(0.46, 0.07, 1.30), sx * (1.16 + k * 0.20), 0.62 - k * 0.24, 0))),
+  ...[-1, 1].flatMap((sx) => [-1, 1].map((sz) =>
+    at3(Box(0.05, 0.62, 0.10), sx * 1.30, 0.46, sz * 0.62, 0, 0, sx * -0.42))),
+  // corner posts and a roof with ribs
+  ...[[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([sx, sz]) =>
+    at3(Cyl(0.07, 0.07, 1.70, 8), sx * 0.98, 2.21, sz * 2.90)),
+  at3(Box(2.34, 0.14, 6.50), 0, 3.10, 0),
+  ...[-2.6, -1.3, 0, 1.3, 2.6].map((z) => at3(Box(2.42, 0.07, 0.12), 0, 3.16, z)),
+  at3(Box(2.34, 0.10, 0.22), 0, 2.98, -3.20),
+  at3(Box(2.34, 0.10, 0.22), 0, 2.98, 3.20),
+  // four benches, back to back — grey, and detailed enough to read as seats
+  ...[-2.05, -0.70, 0.70, 2.05].map((z) => at3(Box(1.80, 0.12, 0.62), 0, 1.28, z)),
+  ...[-2.05, -0.70, 0.70, 2.05].map((z) => at3(Box(1.80, 0.56, 0.10), 0, 1.58, z + 0.30)),
+  ...[-2.05, -0.70, 0.70, 2.05].flatMap((z) => [-1, 1].map((sx) =>
+    at3(Box(0.10, 0.44, 0.56), sx * 0.82, 1.02, z))),
+  // the lamp housings they hang from
+  ...[-1.9, 0, 1.9].map((z) => at3(Cyl(0.09, 0.13, 0.16, 10), 0, 2.94, z)),
+  // buffers
+  ...[-1, 1].map((sgn) => at3(Box(0.90, 0.18, 0.14), 0, 0.86, sgn * 3.24)),
+]);
+// three shades burning under the roof — what makes it read as occupied
+const COACH_LAMP_GEO = mergeGeos([-1.9, 0, 1.9].map((z) =>
+  at3(Sph(0.15, 10, 8), 0, 2.76, z, 0, 0, 0, 1, 0.78, 1)));
+
+/* TWO OF THEM, half a lap apart. One train on a two-minute loop means a wait of
+   up to two minutes at a platform, which is most of a brick cycle spent doing
+   nothing; two, started 180 degrees out, halve that to a minute. They are
+   identical and independent — each keeps its own distance, its own dwell and
+   its own roll — so nothing has to coordinate them and they can never collide,
+   being permanently the same distance apart on a closed loop. */
+const TRAINS = [];
+function makeTrain(s0) {
+  const T = {
+    s: s0, stopT: 0, moving: true, jitT: s0 * 0.37, shake: 0, roll: 0,
+    riding: false, swayK: 1, whistled: false, seated: false, seatZ: 0,
+    cars: [], wheels: [], lamp: null, inside: [],
+  };
+  const mk = (geo, dark, wheelSpec, len) => {
+    const g = new THREE.Group();
+    g.add(new THREE.Mesh(geo, matSteel));
+    if (dark) g.add(new THREE.Mesh(dark, matSteelD));
+    const ws = [];
+    for (const [x, z, big] of wheelSpec) {
+      const w = new THREE.Mesh(big ? WHEEL_BIG : WHEEL_SM, matSteelL);
+      w.position.set(x, big ? 0.62 : 0.38, z);
+      g.add(w); ws.push(w);
+    }
+    scene.add(g);
+    T.wheels.push(...ws);
+    return { grp: g, len, half: len / 2 };
+  };
+  const eng = mk(ENGINE_GEO, ENGINE_DARK, [
+    [-0.92, -2.55, false], [0.92, -2.55, false],
+    [-0.92, -0.90, true], [0.92, -0.90, true],
+    [-0.92, 0.55, true], [0.92, 0.55, true],
+    [-0.92, 2.00, true], [0.92, 2.00, true],
+  ], 7.2);
+  // the headlamp: a real light on the pool, and a lens you can see burning
+  const lens = new THREE.Mesh(mergeGeos([
+    at3(Cyl(0.19, 0.19, 0.06, 14), 0, 0, 0, Math.PI / 2, 0, 0),
+  ]), matLamp);
+  lens.position.set(0, 2.16, -3.74);
+  eng.grp.add(lens);
+  T.lamp = { pos: new THREE.Vector3(), color: new THREE.Color(0xfff0c8), intensity: 0, on: true };
+  emitters.push(T.lamp);
+  const coach = mk(COACH_GEO, null, [
+    [-0.96, -2.30, false], [0.96, -2.30, false],
+    [-0.96, 2.30, false], [0.96, 2.30, false],
+  ], 6.8);
+  coach.grp.add(new THREE.Mesh(COACH_LAMP_GEO, matLamp));
+  /* Three lights inside, carried on the pool and moved with the car every
+     frame. Lit inside is what turns a passing box into somewhere to be. */
+  T.inside = [-1.9, 0, 1.9].map(() => {
+    const em = { pos: new THREE.Vector3(), color: new THREE.Color(0xffe9bc),
+                 intensity: 11, on: true };
+    emitters.push(em);
+    return em;
+  });
+  T.cars.push(eng, coach);
+  TRAINS.push(T);
+  return T;
+}
+makeTrain(0);
+makeTrain(TRK_LEN / 2);
+const TRAIN = TRAINS[0];              // the tests and the map still name one
+
+/* THE PERMANENT WAY. Two rails and a sleeper every ninety centimetres, laid by
+   walking the loop — the same trackAt the train itself rides, so they cannot
+   drift apart from it. */
+{
+  const parts = [], GAUGE = 1.52;
+  const STEP = 0.90;
+  for (let s2 = 0; s2 < TRK_LEN; s2 += STEP) {
+    const a = trackAt(s2), ax = a.x, az = a.z, ay = a.yaw;
+    const b = trackAt(s2 + STEP);
+    const seg = Math.hypot(b.x - ax, b.z - az) * 1.06;
+    for (const sx of [-1, 1]) {
+      const ox = Math.cos(ay) * sx * GAUGE / 2, oz = -Math.sin(ay) * sx * GAUGE / 2;
+      parts.push(at3(Box(0.09, 0.13, seg), ax + ox, RAIL_Y, az + oz, 0, ay, 0));
+    }
+    parts.push(at3(Box(2.10, 0.09, 0.24), ax, RAIL_Y - 0.10, az, 0, ay, 0));
+  }
+  const rails = new THREE.Mesh(mergeGeos(parts), matTrackRail);
+  rails.receiveShadow = true;
+  scene.add(rails);
+}
+
+/* THE TWO STATIONS. Decorative because they are the only built thing outside the
+   building — a raised platform with a lip, a canopy on cast columns, lamps
+   along it and a running board of a sign. */
+const STATIONS = [], SIGNS = [];
+for (const st of [STATION_N, STATION_S]) {
+  const north = st.r0 === 2;
+  const z0 = st.r0 * CELL, z1 = (st.r1 + 1) * CELL;
+  const x0 = (STATION_C0 + 1) * CELL, x1 = STATION_C1 * CELL;
+  const cx = (x0 + x1) / 2;
+  // the platform edge sits against the track side of the bay
+  const edgeZ = north ? z1 : z0;
+  /* THE BACK WALL IS A WHOLE CELL THICK. The far row of each bay is capped with
+     '#', and measuring the back to the OUTER face of that cap buried every
+     bench, column, lamp and flag three metres inside solid wall — which is
+     exactly why none of them could be seen from the platform. The furniture
+     goes against the wall's INNER face, which is one cell in. */
+  const backZ = north ? (st.r0 + 1) * CELL : st.r1 * CELL;
+  const depth = Math.abs(edgeZ - backZ);
+  const pz = (edgeZ + backZ) / 2;
+  const parts = [
+    at3(Box(x1 - x0, 0.62, depth), cx, 0.31, pz),                    // the platform
+    at3(Box(x1 - x0, 0.10, 0.30), cx, 0.66, edgeZ + (north ? -0.15 : 0.15)),
+  ];
+  /* An EVEN number of columns, deliberately. Five put one dead centre — exactly
+     where the nameboard hangs — and it split the character down the middle from
+     every angle you would ever read it from. Six leaves the middle of the
+     platform clear, which is where a station puts its name anyway. */
+  const COLS = 6;
+  for (let i = 0; i < COLS; i++) {
+    const px = x0 + 1.2 + (i / (COLS - 1)) * (x1 - x0 - 2.4);
+    parts.push(at3(Cyl(0.12, 0.16, 2.90, 10), px, 0.62 + 1.45, backZ + (north ? 0.9 : -0.9)));
+    parts.push(at3(Tor(0.17, 0.05, 5, 10), px, 0.62 + 2.80, backZ + (north ? 0.9 : -0.9), Math.PI / 2, 0, 0));
+  }
+  parts.push(at3(Box(x1 - x0, 0.16, depth * 0.72), cx, 4.02, backZ + (north ? 1.0 : -1.0)));
+  parts.push(at3(Box(x1 - x0, 0.34, 0.14), cx, 3.80, backZ + (north ? 1.0 : -1.0) + (north ? depth * 0.36 : -depth * 0.36)));
+  /* SOMEWHERE TO WAIT. Benches down the back wall, facing the track, with cast
+     ends and a slatted seat — the only furniture in the building that is not
+     there to be shot. */
+  const bulbs = [];
+  const BENCHES = 3;
+  for (let i = 0; i < BENCHES; i++) {
+    const bx = x0 + 2.6 + (i / (BENCHES - 1)) * (x1 - x0 - 5.2);
+    const bz = backZ + (north ? 1.55 : -1.55);
+    const face = north ? 0 : Math.PI;      // they look out at the platform edge
+    parts.push(at3(Box(2.00, 0.10, 0.52), bx, 1.06, bz, 0, face, 0));
+    for (let k = 0; k < 4; k++)
+      parts.push(at3(Box(1.90, 0.09, 0.09), bx, 1.28 + k * 0.13, bz + (north ? -0.22 : 0.22),
+                     0.16 * (north ? 1 : -1), face, 0));
+    for (const sx of [-1, 1]) {
+      parts.push(at3(Box(0.10, 0.44, 0.50), bx + sx * 0.95, 0.84, bz, 0, face, 0));
+      parts.push(at3(Tor(0.16, 0.05, 5, 10), bx + sx * 0.95, 1.06, bz, 0, face, Math.PI / 2));
+    }
+  }
+  scene.add(new THREE.Mesh(mergeGeos(parts), matSteel));
+
+  /* AND IT IS THE ONE CHEERFUL PLACE ON THE GROUND FLOOR. Everything else out
+     here is grey concrete; the station gets bunting and a string of coloured
+     lamps under the canopy, because it is the one thing in the building that
+     was built to welcome somebody. */
+  const lz = backZ + (north ? 1.0 : -1.0);
+  /* EVEN AGAIN, for the same reason the columns are. Nine lamps hung one at the
+     exact middle of the platform, a metre in front of the nameboard, and it sat
+     over the character like a thumb over a word. Ten straddle the centre. */
+  const LAMPS = 10;
+  for (let i = 0; i < LAMPS; i++) {
+    const u = i / (LAMPS - 1);
+    const px = x0 + 1.4 + u * (x1 - x0 - 2.8);
+    const sag = Math.sin(u * Math.PI) * 0.26;
+    const ly = 3.74 - sag;
+    /* PLAIN WARM WHITE. These were nine different colours, which turned the two
+       platforms into the only carnival in a grey building and fought the one
+       thing out here that is SUPPOSED to be coloured — the nameboard. The
+       station lights the platform; the sign is what carries the colour. */
+    const hue = 0xffe2b0;
+    const lmat = new THREE.MeshBasicMaterial({ color: 0x101010, fog: true });
+    const lm = new THREE.Mesh(mergeGeos([at3(Sph(0.17, 10, 8), 0, 0, 0, 0, 0, 0, 1, 0.82, 1)]), lmat);
+    lm.position.set(px, ly, lz);
+    scene.add(lm);
+    // every third one is a real light; the rest are only bulbs, to keep the pool small
+    let lem = null;
+    if (i % 3 === 1) {
+      lem = { pos: new THREE.Vector3(px, ly, lz), color: new THREE.Color(0xffe6b4),
+              intensity: 0, on: true };
+      emitters.push(lem);
+    }
+    bulbs.push({ mat: lmat, em: lem, hue: new THREE.Color(hue), peak: 11 });
+  }
+  // bunting: little triangles strung between the columns
+  {
+    const flags = [];
+    const FL = 22;
+    for (let i = 0; i < FL; i++) {
+      const u = (i + 0.5) / FL;
+      const px = x0 + 1.0 + u * (x1 - x0 - 2.0);
+      if (Math.abs(px - cx) < 1.75) continue;      // the flags part over the name
+      const sag = Math.sin(u * Math.PI) * 0.30;
+      flags.push(at3(Box(0.026, 0.30, 0.30), px, 3.30 - sag, lz + (north ? 0.42 : -0.42),
+                     0, 0, Math.PI / 4));
+    }
+    const bunt = new THREE.Mesh(mergeGeos(flags),
+      new THREE.MeshBasicMaterial({ color: 0xf0e6d2, fog: true }));
+    scene.add(bunt);
+    const cord = new THREE.Mesh(mergeGeos([
+      at3(Box(x1 - x0 - 1.6, 0.03, 0.03), (x0 + x1) / 2, 3.42, lz + (north ? 0.42 : -0.42))]),
+      matSteelD);
+    scene.add(cord);
+  }
+  /* THE NAME, IN TUBE. Drawn as geometry rather than as text on a canvas,
+     because a canvas would need a CJK font to be installed on whoever's machine
+     is running this and would come out as two empty boxes where it is not —
+     and because both characters are strokes, which is what a neon tube is. 山
+     is a base with three risers; 川 is three verticals of falling length. Unit
+     coordinates, scaled and hung on the back wall. */
+  const GLYPH = north
+    ? [[0, -0.42, 1.00, 0.15], [0, 0.04, 0.15, 0.92],           // 山: base, centre riser
+       [-0.36, -0.16, 0.15, 0.54], [0.36, -0.12, 0.15, 0.62]]   //     left and right risers
+    : [[-0.38, 0.20, 0.15, 0.54], [0, 0.08, 0.15, 0.78],        // 川: three strokes,
+       [0.38, -0.02, 0.15, 0.98]];                              //     each longer than the last
+  const SIGN_S = 2.05 / 4, SIGN_Y = 2.95;           // a quarter of what it was
+  const sz = backZ + (north ? 0.10 : -0.10);
+  const tubes = mergeGeos(GLYPH.map(([gx, gy, gw, gh]) =>
+    at3(Box(gw * SIGN_S, gh * SIGN_S, 0.05), cx + gx * SIGN_S, SIGN_Y + gy * SIGN_S, sz)));
+  const hue = north ? 0xff2a24 : 0x3aa0ff;          // 山 red, 川 blue
+  const mat = new THREE.MeshBasicMaterial({ color: 0x140505, fog: true });
+  const tubeMesh = new THREE.Mesh(tubes, mat);
+  scene.add(tubeMesh);
+  /* AND IT GLOWS. There is no post-processing in this file and no bloom pass to
+     lean on, so the halo is geometry: the same strokes again, fattened and set a
+     little proud of the tube, drawn additively and writing no depth. Additive
+     means it piles up where the strokes cross and washes out into nothing at
+     the edges, which is what a tube in the dark actually does. Now that the
+     board is a quarter of its old size the glow is most of what you read it by
+     from across the corridor. */
+  const haloGeo = mergeGeos(GLYPH.map(([gx, gy, gw, gh]) =>
+    at3(Box(gw * SIGN_S + 0.13, gh * SIGN_S + 0.13, 0.02),
+        cx + gx * SIGN_S, SIGN_Y + gy * SIGN_S, sz + (north ? 0.05 : -0.05))));
+  const haloMat = new THREE.MeshBasicMaterial({
+    color: 0x000000, fog: true, transparent: true, opacity: 0.55,
+    blending: THREE.AdditiveBlending, depthWrite: false });
+  const halo = new THREE.Mesh(haloGeo, haloMat);
+  halo.renderOrder = 3;
+  scene.add(halo);
+  // and a soft bloom over the whole board, wider and fainter still
+  const bloomMat = new THREE.MeshBasicMaterial({
+    color: 0x000000, fog: true, transparent: true, opacity: 0.22,
+    blending: THREE.AdditiveBlending, depthWrite: false });
+  const bloom = new THREE.Mesh(mergeGeos([
+    at3(Box(SIGN_S * 2.6, SIGN_S * 2.3, 0.02), cx, SIGN_Y, sz + (north ? 0.08 : -0.08))]), bloomMat);
+  bloom.renderOrder = 3;
+  scene.add(bloom);
+  // a dark backing board and a frame, so an unlit sign still reads as a sign
+  scene.add(new THREE.Mesh(mergeGeos([
+    at3(Box(SIGN_S * 1.45, SIGN_S * 1.30, 0.08), cx, SIGN_Y, sz + (north ? -0.06 : 0.06)),
+    at3(Box(SIGN_S * 1.55, 0.10, 0.16), cx, SIGN_Y + SIGN_S * 0.68, sz + (north ? -0.04 : 0.04)),
+    at3(Box(SIGN_S * 1.55, 0.10, 0.16), cx, SIGN_Y - SIGN_S * 0.68, sz + (north ? -0.04 : 0.04)),
+  ]), matSteelD));
+  const em = { pos: new THREE.Vector3(cx, SIGN_Y, sz + (north ? 1.2 : -1.2)),
+               color: new THREE.Color(hue), intensity: 0, on: true };
+  emitters.push(em);
+  SIGNS.push({ mat, haloMat, bloomMat, em, hue: new THREE.Color(hue), x: cx, z: sz, y: SIGN_Y,
+               lit: 0, strike: 0, name: north ? '山' : '川' });
+
+  STATIONS.push({ cx, edgeZ, x0, x1, y: 0.62, north, bulbs, lit: 0, name: north ? '山' : '川',
+                  z0: Math.min(edgeZ, backZ), z1: Math.max(edgeZ, backZ) });
+}
+
+/* THEY STRIKE AS YOU COME. Dark until you are within twenty metres, then the
+   tube stutters the way a cold fluorescent does — a few false starts on a fixed
+   pattern, not a random one, so it reads as a tube warming up rather than as a
+   fault — and holds. It goes out again once you are well clear, so the sign is
+   a thing the building does when you arrive rather than a lamp left burning. */
+const SIGN_ON = 20, SIGN_OFF = 26;
+const _sc2 = new THREE.Color();
+/* THE WHOLE STATION COMES UP AS YOU COME. The lamps were burning from the first
+   frame of the game, which made two permanently lit rooms at the edge of a
+   building whose whole subject is darkness. Now the platform is dark until you
+   are near it and warms up over about a second — a slow swell rather than the
+   nameboard's hard fluorescent strike, so the two read as different fittings
+   doing different things. */
+function updateStationLights(dt) {
+  for (const st of STATIONS) {
+    const d = Math.hypot(player.pos.x - st.cx, player.pos.z - (st.z0 + st.z1) / 2);
+    const want = d < SIGN_ON + 8 ? 1 : (d > SIGN_OFF + 10 ? 0 : st.lit);
+    st.lit += (want - st.lit) * Math.min(1, dt * 1.6);
+    for (const b of st.bulbs) {
+      _sc2.copy(b.hue).multiplyScalar(0.05 + 0.95 * st.lit);
+      b.mat.color.copy(_sc2);
+      if (b.em) b.em.intensity = b.peak * st.lit;
+    }
+  }
+}
+
+function updateSigns(dt) {
+  for (const g of SIGNS) {
+    const d = Math.hypot(player.pos.x - g.x, player.pos.z - g.z);
+    const want = d < SIGN_ON ? 1 : (d > SIGN_OFF ? 0 : g.lit);
+    if (want > 0 && g.strike < 1) g.strike = Math.min(1, g.strike + dt / 0.9);
+    if (want === 0) g.strike = Math.max(0, g.strike - dt * 3);
+    // the stutter: full brightness only after the strike completes
+    const k = g.strike;
+    let v = 0;
+    if (k >= 1) v = 1;
+    else if (k > 0) {
+      const gate = [0, 1, 0, 0, 1, 1, 0, 1, 1, 1];      // fixed, so it is repeatable
+      v = gate[Math.min(gate.length - 1, Math.floor(k * gate.length))] * (0.35 + 0.5 * k);
+    }
+    g.lit = v;
+    _sc2.copy(g.hue).multiplyScalar(0.06 + 0.94 * v);
+    g.mat.color.copy(_sc2);
+    // the halo and the bloom carry the same colour, scaled harder, so the sign
+    // blooms as it strikes rather than merely changing colour
+    _sc2.copy(g.hue).multiplyScalar(v);
+    g.haloMat.color.copy(_sc2);
+    _sc2.copy(g.hue).multiplyScalar(v * 0.85);
+    g.bloomMat.color.copy(_sc2);
+    g.em.intensity = 16 * v;
+  }
+}
+/* A PLATFORM IS SANCTUARY. The same promise a lit room makes: nothing takes you
+   here. It costs the creatures two small bays at the edge of the map and it
+   gives the train somewhere worth running to — a place you can stand and wait
+   without watching your back, which is the only such place out here. */
+function onPlatform(x, z) {
+  for (const st of STATIONS) {
+    if (x < st.x0 || x > st.x1) continue;
+    if (z < st.z0 || z > st.z1) continue;
+    return true;
+  }
+  return false;
+}
+// the platform is something you stand on
+function stationTopAt(x, z, lev) {
+  if (lev !== 0 && lev !== null) return null;
+  for (const st of STATIONS) {
+    if (x < st.x0 || x > st.x1) continue;
+    if (z < st.z0 || z > st.z1) continue;
+    return { y: st.y, lev: 0 };
+  }
+  return null;
+}
+
+/* ---- what the train does, and what it does to you ---------------------- */
+function trainCarAt(T, i) {
+  return trackAt(T.s + [0, -7.4][i]);
+}
+// the player, in a car's own frame: x across, z along
+/* The true inverse of the car's placement. It only ever feeds a symmetric box
+   test, where a mirrored offset gives the same answer either way — but it read
+   as the inverse and was not one, which is the sort of thing that is correct
+   until the day something asks it which END of the coach you are in. */
+function trainLocal(car, px, pz, o) {
+  const dx = px - car.x, dz = pz - car.z;
+  const c = Math.cos(car.yaw), sn = Math.sin(car.yaw);
+  o.x = dx * c + dz * sn;
+  o.z = -dx * sn + dz * c;
+  return o;
+}
+const _tl = { x: 0, z: 0 };
+const CAR_HW = 1.15, CAR_HL = [3.60, 3.40];
+// the same four the benches are built at, so a seat is where a bench is
+const SEAT_LZ = [-2.05, -0.70, 0.70, 2.05];
+const HUB_X = ROWS * CELL / 2, HUB_Z = COLS * CELL / 2;
+
+function updateTrain(dt) {
+  for (const T of TRAINS) updateOneTrain(T, dt);
+}
+function updateOneTrain(T, dt) {
+  // where it is going, and how far is left of this run
+  if (T.moving) {
+    let next = null;
+    for (const st of STOPS) for (const k of [0, TRK_LEN]) {
+      const target = st + k;
+      if (target > T.s - 0.001 && (next === null || target < next)) next = target;
+    }
+    if (next === null) next = STOPS[0] + TRK_LEN;
+    const rem = next - T.s;
+    const gone = RUN_LEN - rem;
+    /* PULLS AWAY AND BRAKES IN. Constant acceleration at each end, which in
+       terms of distance is a square root — v = V*sqrt(u/BRAKE_D) — so it leaves
+       the platform gathering speed and comes back in shedding it, rather than
+       snapping between stopped and full pelt. The floor under the sqrt keeps
+       the last few centimetres from taking forever. */
+    const ramp = Math.min(1, Math.sqrt(Math.max(0, gone) / BRAKE_D),
+                             Math.sqrt(Math.max(0, rem) / BRAKE_D));
+    const v = TRAIN_V * Math.max(0.06, ramp);
+    // one whistle, as it starts to shut off for the platform
+    if (rem <= BRAKE_D && !T.whistled) { T.whistled = true; sfx.whistle && sfx.whistle(); }
+    const was = T.s;
+    T.s += v * dt;
+    if (T.s >= next - 0.25) {                 // arrived
+      T.s = next; T.moving = false; T.stopT = TRAIN_DWELL; T.whistled = false;
+      if (T.riding || T.seated) setDownAtPlatform(T);
+    }
+    if (T.s >= TRK_LEN) T.s -= TRK_LEN;
+    const rolled = T.s - was;
+    for (const w of T.wheels) w.rotation.x -= rolled / 0.62;
+  } else if ((T.stopT -= dt) <= 0) {
+    T.moving = true;
+    T.s += 0.01;                              // clear the stop it is sitting on
+  }
+  /* LAST FRAME'S TRANSFORM, kept before this one overwrites it. Carrying a
+     rider means taking the offset they hold in the car's frame as it WAS and
+     re-planting it in the frame as it now IS. Reading both from the new frame
+     is a no-op that lets the rider slip one frame of travel backwards every
+     frame and be shoved forward again the next — which is exactly the
+     0.38 m back-and-forth flicker that looked like the carriage juddering. */
+  for (const car of T.cars) {
+    if (car.x !== undefined) { car.px = car.x; car.pz = car.z; car.pyaw = car.yaw; }
+  }
+  for (let i = 0; i < T.cars.length; i++) {
+    const a = trainCarAt(T, i), car = T.cars[i];
+    car.grp.position.set(a.x, 0, a.z);
+    car.grp.rotation.y = a.yaw;
+    car.x = a.x; car.z = a.z; car.yaw = a.yaw;
+    if (car.px === undefined) { car.px = a.x; car.pz = a.z; car.pyaw = a.yaw; }
+  }
+  // the headlamp rides on the smokebox and looks where the engine is going
+  const e = T.cars[0];
+  T.lamp.pos.set(e.x - Math.sin(e.yaw) * 3.7, 2.16, e.z - Math.cos(e.yaw) * 3.7);
+  T.lamp.intensity = 30;
+  const co = T.cars[1];
+  if (co.x !== undefined) {
+    const cs = Math.cos(co.yaw), sn = Math.sin(co.yaw);
+    T.inside.forEach((em, i) => {
+      const lz = [-1.9, 0, 1.9][i];
+      em.pos.set(co.x - sn * lz, 2.70, co.z - cs * lz);
+    });
+  }
+
+  /* IT ROCKS TO BE LOOKED AT, AND NOT TO BE STOOD ON. A carriage that does not
+     move at all reads as scenery sliding past; one that rocks under your own
+     feet reads as a fault. So the sway is real on the mesh — you watch a train
+     lean through the corner as it passes you in the corridor — and it is eased
+     to nothing on whichever train you are actually riding, where the only
+     honest camera is a still one. */
+  const want = T.riding ? 0 : 1;
+  T.swayK += (want - T.swayK) * Math.min(1, dt * 3.5);
+  T.jitT += dt;
+  const hard = T.moving ? (onCorner(T.s) ? 1.9 : 1) * T.swayK : 0;
+  T.shake = hard * (0.055 * Math.sin(T.jitT * 5.6) +
+                    0.030 * Math.sin(T.jitT * 3.1 + 1.3));
+  T.roll = hard * (0.040 * Math.sin(T.jitT * 4.3 + 0.7) +
+                   0.022 * Math.sin(T.jitT * 2.7));
+  for (const car of T.cars) {
+    car.grp.position.y = T.shake;
+    car.grp.rotation.z = T.roll;
+    car.grp.rotation.x = T.shake * 0.30;
+  }
+}
+// which of the eight segments a distance falls in, and whether it is a curve
+function onCorner(s) {
+  s = ((s % TRK_LEN) + TRK_LEN) % TRK_LEN;
+  for (let i = TRK.length - 1; i >= 0; i--) if (s >= TRK[i].s0) return TRK[i].kind === 'arc';
+  return false;
+}
+
+/* ABOARD. The coach floor is ground like any other, and while you are on it the
+   train carries you — which is the whole point of the ten seconds. */
+function trainTopAt(x, z, lev) {
+  if (lev !== 0 && lev !== null) return null;
+  for (const T of TRAINS) {
+    const car = T.cars[1];                 // you do not ride the engine
+    if (car.x === undefined) continue;
+    trainLocal(car, x, z, _tl);
+    if (Math.abs(_tl.x) > CAR_HW || Math.abs(_tl.z) > CAR_HL[1]) continue;
+    return { y: DECK_Y, lev: 0 };      // flat: the sway is for the eye, not the feet
+  }
+  return null;
+}
+
+/* IT PUTS YOU OFF WHERE IT STOPS. You are held in the seat for the whole run,
+   so arriving has to be what lets you go — and rather than merely unlocking the
+   door it walks you out onto the platform, which is the one place the doorway
+   opens onto and is sanctuary besides. Placed just inside the platform edge,
+   level with wherever the coach came to rest, so you step off next to your own
+   carriage rather than teleporting to the middle of the station. */
+function setDownAtPlatform(T) {
+  const coach = T.cars[1];
+  let st = STATIONS[0], best = 1e9;
+  for (const q of STATIONS) {
+    const d = Math.hypot(q.cx - coach.x, (q.z0 + q.z1) / 2 - coach.z);
+    if (d < best) { best = d; st = q; }
+  }
+  const x = Math.max(st.x0 + 1.4, Math.min(st.x1 - 1.4, coach.x));
+  const z = st.north ? st.z1 - 1.7 : st.z0 + 1.7;   // just in from the track edge
+  player.pos.set(x, st.y + EYE, z);
+  player.vel.set(0, 0, 0);
+  player.falling = false;
+  player.lev = 0;
+  T.seated = false; T.riding = false;
+  trainRiding = false;
+  say(`${st.name} — the train sets you down`, 3.4);
+  sfx.door && sfx.door();
+}
+
+let trainRiding = false;
+function trainStep(dt) {
+  trainRiding = false;
+  let done = false;
+  for (const T of TRAINS) {
+    if (done) { T.riding = false; T.seated = false; continue; }
+    if (trainStepOne(T, dt)) done = true;
+  }
+}
+function trainStepOne(T, dt) {
+  const coach = T.cars[1];
+  if (coach.x === undefined) return false;
+  const foot = player.pos.y - EYE;
+  /* The offset held in the car's frame AS IT WAS a frame ago. Written out with
+     the yaw's own cos and sin rather than the cos and sin of its negation: the
+     forward map below is (lx*c - lz*s, lx*s + lz*c), so this is exactly its
+     inverse, and the two cannot drift apart. The earlier pair were each other's
+     inverse only on straight track — through a corner they mirrored the offset,
+     which no straight-line test would ever have shown. */
+  const dx = player.pos.x - coach.px, dz = player.pos.z - coach.pz;
+  const pc = Math.cos(coach.pyaw), ps = Math.sin(coach.pyaw);
+  let lx = dx * pc + dz * ps;
+  let lz = -dx * ps + dz * pc;
+  const inCoach = Math.abs(lx) <= CAR_HW && Math.abs(lz) <= CAR_HL[1];
+  const aboard = inCoach && player.lev === 0 && Math.abs(foot - DECK_Y) < 0.45;
+  if (aboard) {
+    /* YOU TAKE A SEAT. Stepping through the door drops you into the nearest of
+       the four benches rather than leaving you standing in the aisle — the
+       coach is benches almost wall to wall, so anywhere you could stand is a
+       seat anyway, and being placed in one is what tells you the journey has
+       started. The nearest is chosen by where you came in, so boarding at the
+       front seats you at the front. */
+    let justSat = false;
+    if (!T.seated) {
+      /* Which bench, decided from where you are RIGHT NOW rather than from the
+         offset above — that one is measured against last frame's transform,
+         which is exactly one frame of travel stale and, the instant after a
+         teleport, meaningless. Choosing a seat is a once-per-boarding decision
+         and deserves the current number. */
+      const qx = player.pos.x - coach.x, qz = player.pos.z - coach.z;
+      const qc = Math.cos(coach.yaw), qs = Math.sin(coach.yaw);
+      const nowZ = -qx * qs + qz * qc;
+      let best = SEAT_LZ[0];
+      for (const q of SEAT_LZ) if (Math.abs(q - nowZ) < Math.abs(best - nowZ)) best = q;
+      T.seatZ = best; T.seated = true; justSat = true;
+      sfx.click && sfx.click();
+      say('you drop into a seat', 2.6);
+    }
+    /* You are put in the seat the moment you step aboard — that is the whole
+       point of it — and HELD there while it runs, which is also what shuts the
+       doorway so you cannot step out at eighty kilometres an hour. Standing at a
+       platform you are free to get up and go. */
+    if (T.moving || justSat) {
+      lx = 0; lz = T.seatZ;
+    } else {
+      const mx = CAR_HW - RADIUS - 0.06, mz = CAR_HL[1] - RADIUS - 0.06;
+      lx = Math.max(-mx, Math.min(mx, lx));
+      lz = Math.max(-mz, Math.min(mz, lz));
+    }
+    // and re-planted in the frame as it IS now
+    const c = Math.cos(coach.yaw), sn = Math.sin(coach.yaw);
+    player.pos.x = coach.x + lx * c - lz * sn;
+    player.pos.z = coach.z + lx * sn + lz * c;
+    /* AND YOUR HEAD GOES ROUND WITH THE CAR. Carrying the body but not the view
+       meant that coming off a straight into a curve the coach swung under you
+       and left you facing the side wall — you arrived at the far platform
+       looking backwards. The car's yaw and the player's use the same
+       convention (both take forward as (-sin, -cos)), so the delta goes on
+       directly. It is a DELTA, not an assignment, so looking around while you
+       ride still works: the turn is added to wherever you were looking. */
+    let dy = coach.yaw - coach.pyaw;
+    while (dy > Math.PI) dy -= Math.PI * 2;
+    while (dy < -Math.PI) dy += Math.PI * 2;
+    player.yaw += dy;
+    T.riding = true;
+    trainRiding = true;
+    return true;                              // riding it is never being hit by it
+  }
+  T.riding = false;
+  T.seated = false;                          // out of the coach: out of the seat
+  /* STRUCK. Only while it is running — a train standing at its platform is a
+     train you are meant to walk into. It never touches a creature, and it
+     cannot touch you on a platform, which is sanctuary. */
+  if (!T.moving || player.lev !== 0 || caughtT > 0 || ending) return false;
+  if (onPlatform(player.pos.x, player.pos.z)) return false;
+  if (foot > 3.2 || foot < -1.0) return false;
+  for (let i = 0; i < T.cars.length; i++) {
+    const car = T.cars[i];
+    trainLocal(car, player.pos.x, player.pos.z, _tl);
+    if (Math.abs(_tl.x) > CAR_HW + RADIUS || Math.abs(_tl.z) > CAR_HL[i] + RADIUS) continue;
+    caughtBy('train');
+    return true;
+  }
+  return false;
+}
+
+/* ============================================================ THE TEACUP RIDE
+
+   A fairground ride left running in a building where nothing else is. The deck
+   turns twice a minute; each cup on it turns ten times a minute on its own
+   spindle; and the whole thing hangs under oversized silk lanterns.
+
+   THE ONE THING THAT MAKES IT A RIDE RATHER THAN SCENERY: standing on the deck
+   CARRIES you. That has a consequence worth stating, because it is the room's
+   whole character — once you are aboard, the cups stop sweeping past you. They
+   are turning with you, so relative to you they only spin on the spot. The
+   danger is the RIM: the deck edge travels at about 1.6 m/s past a floor that
+   is not moving, and the cups sweep the fixed floor just outside it. So the
+   room is crossed either by walking the margin around the outside, or by timing
+   a step onto a moving deck and riding it round — which is exactly what a
+   teacup ride is.
+
+   Yaw is carried too, at the deck's own rate. That is only about 12 degrees a
+   second, slow enough to read as the room turning rather than as the camera
+   being wrenched; the cups' own 60 deg/s is emphatically NOT applied to the
+   player, which is why you cannot climb into a cup.                          */
+const TT_RPS  = (Math.PI * 2) * 2 / 60;      // deck: two turns a minute
+const CUP_RPS = (Math.PI * 2) * 10 / 60;     // cup: ten turns a minute
+const DECK_H  = 0.34;                        // a step up, well under STEP_UP
+const CUP_R   = 1.34;                        // what the player collides with
+const LANT_LOW = 1.90;                       // clearance ABOVE THE DECK, not the floor
+
+const matDeck  = new THREE.MeshPhongMaterial({ color: 0x4a4d55, specular: 0x2a2c30, shininess: 18 });
+const matDeck2 = new THREE.MeshPhongMaterial({ color: 0x35373d, specular: 0x202226, shininess: 14 });
+const matChrome = new THREE.MeshPhongMaterial({ color: 0x9aa0aa, specular: 0xccd2dc, shininess: 70 });
+const matCupIn = new THREE.MeshPhongMaterial({ color: 0x241f26, specular: 0x111111, shininess: 8 });
+const matTassel = new THREE.MeshLambertMaterial({ color: 0xc8a24a });
+
+/* The cup, built once at the origin standing on its saucer. A turned profile
+   for the porcelain — a cup that is a plain cylinder reads as a bin. */
+const CUP_GEO = mergeGeos([
+  // saucer, and the lip round it
+  at3(Cyl(1.30, 1.18, 0.10, 24), 0, 0.05, 0),
+  at3(Tor(1.30, 0.06, 6, 24), 0, 0.10, 0, Math.PI / 2, 0, 0),
+  // the body: a turned bowl that flares to the rim
+  { geo: Turned([[0.62, 0.10], [0.70, 0.22], [0.80, 0.42], [0.92, 0.70],
+                 [1.02, 0.98], [1.08, 1.18], [1.10, 1.24], [1.02, 1.24],
+                 [0.98, 1.10], [0.88, 0.80], [0.76, 0.46], [0.66, 0.20],
+                 [0.60, 0.12], [0, 0.12]], 24),
+    m: new THREE.Matrix4() },
+  // the rim, and a banding line under it
+  at3(Tor(1.09, 0.045, 6, 24), 0, 1.245, 0, Math.PI / 2, 0, 0),
+  at3(Tor(1.00, 0.028, 5, 24), 0, 0.98, 0, Math.PI / 2, 0, 0),
+  // the handle, out one side
+  at3(Tor(0.30, 0.075, 7, 14), 1.14, 0.80, 0, 0, Math.PI / 2, 0),
+  // the spindle boss it turns on
+  at3(Cyl(0.30, 0.36, 0.12, 14), 0, 0.06, 0),
+]);
+/* The inside is a separate dark shell so the cup reads as hollow rather than as
+   a solid lump of porcelain: a floor and a bench ring, both nearly black. */
+const CUP_IN_GEO = mergeGeos([
+  at3(Cyl(0.94, 0.62, 0.05, 20), 0, 0.36, 0),
+  { geo: Turned([[0.94, 0.38], [1.00, 0.66], [1.03, 1.00], [1.05, 1.22],
+                 [1.02, 1.22], [0.99, 1.00], [0.96, 0.66], [0.90, 0.38]], 22),
+    m: new THREE.Matrix4() },
+]);
+// the little wheel in the middle of every one of these
+const CUP_WHEEL_GEO = mergeGeos([
+  at3(Tor(0.30, 0.045, 6, 16), 0, 0.62, 0),
+  at3(Cyl(0.07, 0.07, 0.10, 10), 0, 0.62, 0),
+  ...[0, 1, 2].map((k) =>
+    at3(Box(0.58, 0.035, 0.035), 0, 0.62, 0, 0, k * Math.PI / 3, 0)),
+]);
+
+/* THE LANTERNS. Deliberately nothing like the strung paper ones elsewhere in
+   the building: those are the size of a fist and hang in rows. These are more
+   than three metres across, ribbed like the silk ones they are drawn from, and
+   they are the light in the room. The ribs are real geometry — half-torus arcs
+   in vertical planes — because a painted-on line would vanish the moment the
+   thing is lit from inside. */
+function lanternGeo(rx, ry) {
+  const parts = [];
+  const prof = [];
+  for (let i = 0; i <= 10; i++) {
+    const t = i / 10, a = -Math.PI / 2 + t * Math.PI;
+    prof.push([Math.max(0.001, Math.cos(a) * rx), Math.sin(a) * ry + ry]);
+  }
+  parts.push({ geo: new THREE.LatheGeometry(prof.map(([x, y]) => new THREE.Vector2(x, y)), 28),
+               m: new THREE.Matrix4() });
+  return mergeGeos(parts);
+}
+/* THE RIBS ARE REAL. A half-torus scaled into place was the first attempt and it
+   came out as a spiky skirt hanging under the silk — the arc lies in the wrong
+   plane and no single Euler triple rights it. So each rib is walked instead: a
+   chain of short rods following the SAME profile the silk is turned from, which
+   is the only way they are guaranteed to sit on the surface rather than near it.
+
+   The Euler order matters and is the whole trick. Three composes XYZ as
+   qx*qy*qz, so with (0, th, tilt) the tilt is applied FIRST, in the meridian
+   plane, and the swing around Y second — which is exactly the order needed. */
+function lanternRibs(rx, ry, ribs) {
+  const parts = [];
+  const SEG = 9;
+  const at = (t) => {
+    const a = -Math.PI / 2 + t * Math.PI;
+    return [Math.cos(a) * rx, Math.sin(a) * ry + ry];
+  };
+  for (let k = 0; k < ribs; k++) {
+    const th = (k / ribs) * Math.PI * 2;
+    for (let i = 0; i < SEG; i++) {
+      const p0 = at(i / SEG), p1 = at((i + 1) / SEG);
+      const dx = p1[0] - p0[0], dy = p1[1] - p0[1];
+      const len = Math.hypot(dx, dy);
+      if (len < 1e-4) continue;
+      const mx = (p0[0] + p1[0]) / 2, my = (p0[1] + p1[1]) / 2;
+      // a cylinder points along +Y; Rz(tilt) sends +Y to (-sin, cos)
+      const tilt = Math.atan2(-dx, dy);
+      parts.push(at3(Cyl(0.020, 0.020, len * 1.12, 4),
+                     Math.cos(th) * mx, my, -Math.sin(th) * mx,
+                     0, th, tilt));
+    }
+  }
+  return mergeGeos(parts);
+}
+
+function buildRide(rm) {
+  const lev = rm.lev, y = levelY(lev);
+  const x0 = rm.c1 * CELL, x1 = (rm.c2 + 1) * CELL;
+  const z0 = rm.r1 * CELL, z1 = (rm.r2 + 1) * CELL;
+  const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
+  /* A three-metre margin of still floor all the way round, so the room can
+     always be crossed on foot without ever setting foot on the deck. */
+  const R = Math.max(3.5, Math.min(x1 - x0, z1 - z0) / 2 - 3.0);
+
+  const deck = new THREE.Group();
+  deck.position.set(cx, y, cz);
+  scene.add(deck);
+
+  const slab = new THREE.Mesh(mergeGeos([
+    at3(Cyl(R, R, DECK_H, 48), 0, DECK_H / 2, 0),
+    at3(Tor(R, 0.09, 6, 48), 0, DECK_H, 0, Math.PI / 2, 0, 0),
+    at3(Cyl(R * 0.30, R * 0.30, DECK_H + 0.06, 24), 0, (DECK_H + 0.06) / 2, 0),
+    // panel joints, so you can see it turning even with nothing on it
+    ...Array.from({ length: 16 }, (_, k) =>
+      at3(Box(R * 2 - 0.2, 0.012, 0.07), 0, DECK_H + 0.005, 0, 0, k * Math.PI / 16, 0)),
+  ]), matDeck);
+  slab.receiveShadow = true;
+  deck.add(slab);
+  const hub = new THREE.Mesh(mergeGeos([
+    at3(Cyl(R * 0.26, R * 0.30, 0.55, 24), 0, DECK_H + 0.27, 0),
+    at3(Tor(R * 0.27, 0.05, 6, 24), 0, DECK_H + 0.55, 0, Math.PI / 2, 0, 0),
+  ]), matDeck2);
+  deck.add(hub);
+
+  const CUPS = 7;
+  const cupR = R * 0.63;
+  const cups = [];
+  for (let i = 0; i < CUPS; i++) {
+    const a0 = (i / CUPS) * Math.PI * 2;
+    const grp = new THREE.Group();
+    const body = new THREE.Mesh(CUP_GEO, new THREE.MeshPhongMaterial({
+      color: LANT_HUE_BIG[i % LANT_HUE_BIG.length], specular: 0x555555, shininess: 40 }));
+    body.castShadow = true;
+    grp.add(body);
+    grp.add(new THREE.Mesh(CUP_IN_GEO, matCupIn));
+    grp.add(new THREE.Mesh(CUP_WHEEL_GEO, matChrome));
+    scene.add(grp);
+    cups.push({ a0, r: cupR, spin: (i * 1.7) % (Math.PI * 2), grp, x: cx, z: cz });
+  }
+
+  /* The lanterns hang from the ceiling, clear above head height by
+     construction: the lowest point of the lowest one is LANT_LOW, and the
+     tassels below that are decoration the collider does not include. */
+  const lanterns = [];
+  const ceil = y + WALL_H;
+  const ringN = 8;
+  /* HOW BIG THEY CAN ACTUALLY BE. Two hard limits meet here and the lantern has
+     to fit between them: nothing may hang below LANT_LOW, because there is no
+     crouch in this game and anything lower is a wall; and nothing may push up
+     through the slab. That leaves a band about a metre and a half deep, so the
+     silk is sized from the band rather than the band being hoped to fit it —
+     the first build asked for 2.05 m of radius and put the middle lantern's
+     crown clean through the ceiling. */
+  /* THE TASSEL COUNTS. LANT_LOW is a promise about the lowest thing that hangs,
+     and the first build measured it to the bottom of the SILK — leaving a
+     tassel swinging at 1.2 m, straight through the player's face. The band the
+     silk gets is what is left after the tassel has taken its share. */
+  const TASSEL = 0.30;
+  /* MEASURED FROM THE DECK, not the floor. You spend the whole room standing on
+     a turntable a third of a metre up, so clearance judged against the floor is
+     a third of a metre of lie — the first build cleared the floor by 2.05 m and
+     still swung its tassels through the forehead of anyone aboard. */
+  const head = y + DECK_H + LANT_LOW;
+  const band = (ceil - 0.12) - (head + TASSEL);
+  for (let i = 0; i <= ringN; i++) {
+    const big = i === ringN;
+    const want = big ? 2.05 : 1.30 + (i % 3) * 0.22;
+    const ry = Math.min(want * 0.46, band / 2);
+    const rx = ry / 0.46;                  // flat and wide, the way silk ones hang
+    const a = (i / ringN) * Math.PI * 2;
+    const lr = big ? 0 : R * 0.78;
+    const lx = cx + Math.cos(a) * lr, lz = cz - Math.sin(a) * lr;
+    // hung so the BOTTOM of the silk never comes below LANT_LOW
+    const bottom = head + TASSEL + Math.max(0, band - ry * 2) * (big ? 0.15 : 0.45);
+    const g = new THREE.Group();
+    g.position.set(lx, bottom, lz);
+    const hue = LANT_HUE_BIG[i % LANT_HUE_BIG.length];
+    const silk = new THREE.Mesh(lanternGeo(rx, ry),
+      new THREE.MeshBasicMaterial({ color: 0x0a0a0a, fog: true }));   // dark until the switch
+    g.add(silk);
+    g.add(new THREE.Mesh(lanternRibs(rx, ry, 12), new THREE.MeshBasicMaterial({ color: 0x241a18, fog: true })));
+    // dark caps top and bottom, and the cord up to the slab
+    g.add(new THREE.Mesh(mergeGeos([
+      at3(Cyl(rx * 0.20, rx * 0.26, 0.16, 14), 0, 0.02, 0),
+      at3(Cyl(rx * 0.24, rx * 0.20, 0.18, 14), 0, ry * 2 - 0.02, 0),
+      at3(Cyl(0.035, 0.035, Math.max(0.05, ceil - bottom - ry * 2), 8),
+          0, ry * 2 + Math.max(0.05, ceil - bottom - ry * 2) / 2, 0),
+    ]), matDeck2));
+    // the tassel — hangs below the collider on purpose
+    g.add(new THREE.Mesh(mergeGeos([
+      at3(Cyl(0.07, 0.05, 0.09, 8), 0, -0.045, 0),
+      ...Array.from({ length: 7 }, (_, k) =>
+        at3(Cyl(0.016, 0.010, TASSEL - 0.09, 5),
+            Math.cos(k / 7 * Math.PI * 2) * 0.045, -0.09 - (TASSEL - 0.09) / 2,
+            Math.sin(k / 7 * Math.PI * 2) * 0.045)),
+    ]), matTassel));
+    scene.add(g);
+    /* Each one is a lamp as well as an object. Its own colour, hung at its own
+       height, so what the switch brings up is nine coloured pools over a
+       turntable rather than a flat wash — which is the whole difference between
+       a lit room and a moody one. */
+    const em = { pos: new THREE.Vector3(lx, bottom + ry, lz),
+                 color: new THREE.Color(hue).lerp(new THREE.Color(0xffd9a8), 0.35),
+                 intensity: 0, on: true };
+    emitters.push(em);
+    lanterns.push({ x: lx, z: lz, y0: bottom, y1: bottom + ry * 2, low: bottom - TASSEL, r: rx, grp: g,
+                    silk, mat: silk.material, hue: new THREE.Color(hue), em,
+                    peak: big ? 30 : 18, breath: 0.5 + (i % 4) * 0.17,
+                    phase: i * 0.9, sway: 0.05 + (i % 3) * 0.02 });
+  }
+
+  /* Which room's switch owns it. Looked up from a cell in the middle of the
+     ride rather than a corner, because a corner can fall on the wall. */
+  const room = roomOf.get(`${lev},${Math.floor(cz / CELL)},${Math.floor(cx / CELL)}`) || null;
+  RIDES.push({ lev, y, cx, cz, R, ang: 0, deck, cups, lanterns, room, lit: 0 });
+}
+for (const rm of TEACUP_ROOMS) buildRide(rm);
+
+function updateRides(dt) {
+  for (const R of RIDES) {
+    R.ang += TT_RPS * dt;
+    R.deck.rotation.y = R.ang;
+    const ca = Math.cos(R.ang), sa = Math.sin(R.ang);
+    for (const c of R.cups) {
+      /* Three rotates about +Y as (x,z) -> (x cos + z sin, -x sin + z cos), and
+         the cups have to agree with the deck group they appear to stand on or
+         they slide across it. */
+      const bx = Math.cos(c.a0) * c.r, bz = -Math.sin(c.a0) * c.r;
+      c.x = R.cx + bx * ca + bz * sa;
+      c.z = R.cz - bx * sa + bz * ca;
+      c.spin += CUP_RPS * dt;
+      c.grp.position.set(c.x, R.y + DECK_H, c.z);
+      c.grp.rotation.y = c.spin;
+    }
+    /* THE SWITCH BRINGS UP THE SILK. Not a hard strike like a tube — the paper
+       comes up over about a second and a half, and each lantern breathes on its
+       own slow period afterwards, so the pools on the deck drift against one
+       another instead of sitting still. That drift is the moody part; a set of
+       coloured lamps all holding one level reads as stage lighting. */
+    const want = R.room ? (R.room.on ? 1 : 0) : 0;
+    R.lit += (want - R.lit) * Math.min(1, dt * (want ? 0.7 : 2.2));
+    for (const l of R.lanterns) {
+      l.phase += dt * 0.5;
+      l.grp.rotation.z = Math.sin(l.phase) * l.sway;
+      l.grp.rotation.x = Math.cos(l.phase * 0.8) * l.sway * 0.6;
+      const breath = 0.80 + 0.20 * Math.sin(clock.elapsedTime * l.breath + l.phase);
+      const k = R.lit * breath;
+      _rc.copy(l.hue).multiplyScalar(0.04 + 0.96 * k);
+      l.mat.color.copy(_rc);
+      l.em.intensity = l.peak * k;
+    }
+  }
+}
+
+// standing on the deck: a kerb you step onto, folded into playerGround
+function rideTopAt(x, z, lev) {
+  for (const R of RIDES) {
+    if (lev !== null && lev !== R.lev) continue;
+    const dx = x - R.cx, dz = z - R.cz;
+    if (dx * dx + dz * dz > R.R * R.R) continue;
+    return { y: R.y + DECK_H, lev: R.lev };
+  }
+  return null;
+}
+
+/* THE DECK CARRIES YOU. This runs every frame and not only when you are moving:
+   the whole point is that it moves you while you stand still. */
+function rideCarry(dt) {
+  for (const R of RIDES) {
+    if (player.lev !== R.lev) continue;
+    const dx = player.pos.x - R.cx, dz = player.pos.z - R.cz;
+    if (dx * dx + dz * dz > R.R * R.R) continue;
+    if (Math.abs((player.pos.y - EYE) - (R.y + DECK_H)) > 0.30) continue;  // not aboard
+    const a = TT_RPS * dt, ca = Math.cos(a), sa = Math.sin(a);
+    player.pos.x = R.cx + dx * ca + dz * sa;
+    player.pos.z = R.cz - dx * sa + dz * ca;
+    player.yaw -= a;                     // the room turns under you, gently
+  }
+}
+
+/* The cups sweep the fixed floor just outside the rim, and they must be able to
+   shove a player who is standing perfectly still — so this cannot live inside
+   the movement branch, which only runs when you are already walking. */
+function collideCups(pos) {
+  for (const R of RIDES) {
+    if (player.lev !== R.lev) continue;
+    const foot = pos.y - EYE;
+    if (foot > R.y + DECK_H + 1.6 || foot < R.y - 0.6) continue;
+    for (const c of R.cups) {
+      const dx = pos.x - c.x, dz = pos.z - c.z;
+      const d2 = dx * dx + dz * dz;
+      const rr = CUP_R + RADIUS;
+      if (d2 >= rr * rr) continue;
+      const d = Math.sqrt(Math.max(d2, 1e-9));
+      pos.x = c.x + (dx / d) * rr;
+      pos.z = c.z + (dz / d) * rr;
+    }
+  }
+}
+
 /* ---- WHAT THE BLAST LEAVES ------------------------------------------------
    Every other weapon that finishes one of these ends it the same way: it drops,
    it swells, and it goes out in a flash. The blaster does something else. It
@@ -6840,6 +8033,7 @@ const vox = [];
 let voxCursor = 0;
 const _vq = new THREE.Quaternion(), _vs = new THREE.Vector3(), _vp = new THREE.Vector3();
 const _vm = new THREE.Matrix4(), _vc = new THREE.Color(), _vc2 = new THREE.Color();
+const _rc = new THREE.Color();
 
 /* Take one apart. The grid is a fixed COUNT rather than a fixed cube size, so a
    half-again-as-big top-floor guard comes apart into the same few hundred
@@ -7910,6 +9104,8 @@ function killAnti(a) {
 function safeInLight() {
   const [r, c] = cellOf(player.pos);
   if (inHub(player.lev, r, c)) return true;
+  // and the two station platforms, which are sanctuary the same way
+  if (player.lev === 0 && onPlatform(player.pos.x, player.pos.z)) return true;
   return roomOf.get(`${player.lev},${r},${c}`)?.on === true;
 }
 
@@ -9519,6 +10715,16 @@ function updateAntis(dt, sdt) {
   }
 
   for (const mm of MON_MESHES) mm.instanceMatrix.needsUpdate = true;
+  updateTrain(dt);
+  trainStep(dt);
+  updateSigns(dt);
+  updateStationLights(dt);
+  updateRides(dt);
+  /* Both of these are outside the movement branch above on purpose: the deck
+     has to carry a player who is standing still, and a cup has to be able to
+     shove one. */
+  rideCarry(dt);
+  collideCups(player.pos);
   updateVox(dt);
   updateBits(dt);
   updateStreaks(dt);
@@ -11723,6 +12929,7 @@ function frame(dt) {
       collide(player.pos, player.lev, true);
       collideBricks(player.pos);
       collideCoffin(player.pos);
+      collideCups(player.pos);
       collideJambs(player.pos, player.lev);
       playerColliding = false;
       deckClamp();
@@ -12082,6 +13289,9 @@ window.__maze = {
   shards, spectrumBurst, SPECTRUM, clearSight,
   worldGuns, GUNS, gunState, dropGunAt, fireOnce, vendors, seenNow, litAt, torchFallsOn,
   vox, VOX_N, voxMesh, VOX_WALK, VOX_HOLD, VOX_LIE, VOX_FADE,
+  RIDES, rideTopAt, DECK_H, TT_RPS, CUP_RPS,
+  TRAIN, TRAINS, TRK_LEN, TRAIN_V, TRAIN_LOOP, TRAIN_DWELL, TRAIN_RUN, STOPS, STATIONS, SIGNS,
+  trackAt, trainTopAt, onPlatform, safeInLight,
   vaultCells, isVaultWall, isVaultSlab, breachSlab, wanderGoal,
   chunks, debrisMesh, rimMesh, burstWall, blowFurnitureOver, furniture, punchHole,
   getBus: () => bus, sfx, CHORD_SECS, LEG_STEPS,
