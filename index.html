@@ -626,13 +626,18 @@ const STATION_S = { r0: 73, r1: 76 };        // and out of the south edge
     carve(0, cap, STATION_C0, STATION_C1, '#');
   }
 }
+/* Where the castle stands, declared up here because two places need it and one
+   of them runs long before the castle is built: the dry-fountain scatter, which
+   otherwise drops a basin nine metres from the arch and wedges you against it.
+   The castle's own block reads the same constant. */
+const CASTLE_AT = { x: 112.5, z: 193.5, clear: 15 };
 const ROOM_META = [{"lev":0,"r1":11,"c1":13,"r2":17,"c2":17,"type":"warehouse"},{"lev":0,"r1":10,"c1":34,"r2":14,"c2":43,"type":"gallery","items":{"remove":["fairyLights"]}},{"lev":0,"r1":10,"c1":49,"r2":14,"c2":56,"type":"cubicles"},{"lev":0,"r1":11,"c1":61,"r2":15,"c2":68,"type":"warehouse"},{"lev":0,"r1":22,"c1":12,"r2":27,"c2":16,"type":"restaurant"},{"lev":0,"r1":20,"c1":34,"r2":26,"c2":44,"type":"hall"},{"lev":0,"r1":19,"c1":50,"r2":27,"c2":55,"type":"museum"},{"lev":0,"r1":32,"c1":12,"r2":42,"c2":16,"type":"cubicles"},{"lev":0,"r1":36,"c1":22,"r2":45,"c2":28,"type":"teacup"},{"lev":0,"r1":35,"c1":53,"r2":45,"c2":56,"type":"restaurant","items":{"remove":["chandelier","chair","hearth"]}},{"lev":0,"r1":30,"c1":61,"r2":34,"c2":69,"type":"living"},{"lev":0,"r1":50,"c1":22,"r2":55,"c2":29,"type":"museum","items":{"add":["plinth"]}},{"lev":0,"r1":50,"c1":34,"r2":54,"c2":45,"type":"hall","items":{"remove":["fairyLights"]}},{"lev":0,"r1":39,"c1":61,"r2":47,"c2":66,"type":"restaurant","items":{"add":["paperLanterns"],"remove":["fairyLights"]}},{"lev":0,"r1":61,"c1":12,"r2":68,"c2":16,"type":"cubicles"},{"lev":0,"r1":60,"c1":22,"r2":68,"c2":27,"type":"warehouse"},{"lev":0,"r1":61,"c1":53,"r2":66,"c2":58,"type":"living","items":{"remove":["fairyLights"]}},{"lev":0,"r1":52,"c1":63,"r2":68,"c2":69,"type":"gallery","items":{"remove":["fairyLights"]}},{"lev":1,"r1":11,"c1":13,"r2":15,"c2":17,"type":"cubicles"},{"lev":1,"r1":10,"c1":34,"r2":14,"c2":47,"type":"museum"},{"lev":1,"r1":11,"c1":62,"r2":14,"c2":69,"type":"living"},{"lev":1,"r1":25,"c1":22,"r2":28,"c2":27,"type":"gallery"},{"lev":1,"r1":32,"c1":12,"r2":41,"c2":16,"type":"restaurant"},{"lev":1,"r1":34,"c1":22,"r2":43,"c2":27,"type":"warehouse"},{"lev":1,"r1":19,"c1":52,"r2":25,"c2":57,"type":"cubicles","items":{"add":["fairyLights"]}},{"lev":1,"r1":34,"c1":62,"r2":46,"c2":69,"type":"teacup"},{"lev":1,"r1":51,"c1":58,"r2":55,"c2":67,"type":"warehouse"},{"lev":1,"r1":60,"c1":53,"r2":67,"c2":68,"type":"museum"},{"lev":2,"r1":24,"c1":21,"r2":29,"c2":26,"type":"gallery"},{"lev":2,"r1":10,"c1":52,"r2":15,"c2":55,"type":"living"},{"lev":2,"r1":51,"c1":22,"r2":66,"c2":27,"type":"museum"},{"lev":2,"r1":39,"c1":61,"r2":48,"c2":69,"type":"cubicles"},{"lev":1,"r1":20,"c1":12,"r2":25,"c2":16,"type":"alcove"},{"lev":2,"r1":25,"c1":11,"r2":29,"c2":15,"type":"alcove"},{"lev":2,"r1":10,"c1":61,"r2":15,"c2":68,"type":"alcove"},{"lev":2,"r1":32,"c1":61,"r2":34,"c2":65,"type":"alcove"},{"lev":2,"r1":64,"c1":12,"r2":67,"c2":16,"type":"alcove"},{"lev":2,"r1":51,"c1":53,"r2":53,"c2":55,"type":"alcove"},{"lev":1,"r1":50,"c1":33,"r2":54,"c2":47,"type":"gallery","items":{"remove":["hungPanel"]}},{"lev":2,"r1":58,"c1":60,"r2":67,"c2":69,"type":"gallery"},{"lev":2,"r1":35,"c1":11,"r2":42,"c2":16,"type":"gallery"}];
 const DROP_POINTS = [{"lev":1,"at":[27,36],"into":[26,36]},{"lev":1,"at":[58,40],"into":[59,40]}];
 /* Hand-placed fittings. Empty means "scatter them the way you always did" —
    the game falls back to its own rules — so a level that says nothing about
    machines still gets twelve of them in the corridors. Anything listed here
    overrides that entirely for its own kind. */
-const PLACED = {"vendors":[{"lev":2,"r":36,"c":18},{"lev":2,"r":56,"c":67},{"lev":2,"r":10,"c":70},{"lev":1,"r":32,"c":69},{"lev":1,"r":24,"c":10},{"lev":1,"r":69,"c":58},{"lev":1,"r":8,"c":46},{"lev":0,"r":9,"c":14},{"lev":0,"r":25,"c":28},{"lev":0,"r":41,"c":68},{"lev":0,"r":66,"c":29},{"lev":2,"r":62,"c":20},{"lev":2,"r":6,"c":44}],"guns":[{"tier":2,"lev":0,"r":63,"c":39},{"tier":5,"lev":1,"r":53,"c":36},{"tier":4,"lev":2,"r":8,"c":9},{"tier":3,"lev":1,"r":12,"c":66},{"tier":3,"lev":1,"r":53,"c":36},{"tier":2,"lev":0,"r":64,"c":57},{"tier":2,"lev":0,"r":17,"c":13},{"tier":4,"lev":2,"r":48,"c":40},{"tier":5,"lev":2,"r":64,"c":16},{"tier":2,"lev":1,"r":64,"c":13},{"tier":1,"lev":1,"r":9,"c":11},{"tier":3,"lev":2,"r":68,"c":53},{"tier":4,"lev":2,"r":29,"c":39}]};
+const PLACED = {"vendors":[{"lev":2,"r":36,"c":18},{"lev":2,"r":56,"c":67},{"lev":2,"r":10,"c":70},{"lev":1,"r":32,"c":69},{"lev":1,"r":24,"c":10},{"lev":1,"r":69,"c":58},{"lev":1,"r":8,"c":46},{"lev":0,"r":9,"c":14},{"lev":0,"r":25,"c":28},{"lev":0,"r":41,"c":68},{"lev":0,"r":66,"c":29},{"lev":2,"r":62,"c":20},{"lev":2,"r":6,"c":44}],"guns":[{"tier":2,"lev":0,"r":15,"c":26},{"tier":5,"lev":1,"r":53,"c":36},{"tier":4,"lev":2,"r":8,"c":9},{"tier":3,"lev":1,"r":12,"c":66},{"tier":3,"lev":1,"r":53,"c":36},{"tier":2,"lev":0,"r":64,"c":57},{"tier":2,"lev":0,"r":17,"c":13},{"tier":4,"lev":2,"r":48,"c":40},{"tier":5,"lev":2,"r":64,"c":16},{"tier":2,"lev":1,"r":64,"c":13},{"tier":1,"lev":1,"r":9,"c":11},{"tier":3,"lev":2,"r":68,"c":53},{"tier":4,"lev":2,"r":29,"c":39}]};
 /* MAP:END */
 
 const NLEV = MAPS.length;
@@ -2291,7 +2296,13 @@ const ATRIUM_AREAS = [];        // where a dry fountain might stand
     ATRIUM_AREAS.push({ centre: [sr / cells.length, sc / cells.length], cells });
   }
 
+  /* The bigger of the two atriums is the castle's, and it is lit by the castle
+     and by four violet lanterns and by nothing else — so it is told to build no
+     strip fixtures at all. The other keeps them, and keeps the storey-by-storey
+     strike, which is the whole reason that effect still exists. */
+  const CASTLE_GROUP = groups[0];
   for (const cells of groups.slice(0, 2)) {
+    const isCastle = cells === CASTLE_GROUP;
     const inAtrium = new Set(cells.map((x) => x.join(',')));
     // A switch at every way in, all wired together, so you meet one however you
     // arrive. A lone panel out in the middle of a dark plaza is never found.
@@ -2324,6 +2335,7 @@ const ATRIUM_AREAS = [];        // where a dry fountain might stand
     // east-west, so every fitting on a north or south rim sat across the fascia
     // with both ends buried in the slab behind it.
     const add = (x, y, z, stage, i, along = 0) => {
+      if (isCastle) return;                 // this one is lit by the castle alone
       const housing = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.13, 0.3), matHousing);
       housing.position.set(x, y + 0.08, z);
       housing.rotation.y = along;
@@ -2711,6 +2723,9 @@ const furniture = [];
 
     for (const area of ATRIUM_AREAS) {
       const [ar, ac] = area.centre;
+      // the castle's atrium gets no fountain: the castle IS its centrepiece
+      if (Math.hypot(cellCentre(Math.round(ar), Math.round(ac)).x - CASTLE_AT.x,
+                     cellCentre(Math.round(ar), Math.round(ac)).z - CASTLE_AT.z) < 26) continue;
       const ranked = area.cells
         .filter(([r, c]) => at(0, r, c) === '.' && !inAnyRoom(r, c) && !inHub(0, r, c))
         .sort((a, b) => ((a[0] - ar) ** 2 + (a[1] - ac) ** 2) - ((b[0] - ar) ** 2 + (b[1] - ac) ** 2));
@@ -5048,6 +5063,11 @@ const sfx = {
   laserHum: () => blip(880 + Math.random() * 60, 0.12, 'sawtooth', 0.035, 0.6),
   /* A CHIME WHISTLE: three tones a little out of tune with each other, which is
      what gives a steam whistle its beating warble, and a breathy top. */
+  freeze: () => { blip(1900, 0.16, 'triangle', 0.05, 0.7);
+                  setTimeout(() => blip(2600, 0.28, 'sine', 0.035, 0.9), 40);
+                  setTimeout(() => blip(1200, 0.5, 'sine', 0.03, 0.95), 90); },
+  thaw:   () => { [1400, 1000, 700].forEach((f, i) =>
+                    setTimeout(() => blip(f, 0.22, 'triangle', 0.035, 0.8), i * 70)); },
   whistle: () => { [523, 659, 784, 1046].forEach((f, i) =>
       setTimeout(() => { blip(f * (1 + (i % 2 ? 0.006 : -0.004)), 1.5, 'sawtooth', 0.045, 0.8);
                          blip(f * 2.004, 1.3, 'sine', 0.018, 0.85); }, i * 18));
@@ -5453,7 +5473,7 @@ function deckLocal(d, x, z) {
 // and so never find one — which is what keeps the drop yours alone.
 function playerGround(r, c, x, z, lev, ceilY) {
   let best = groundUnder(r, c, x, z, lev, ceilY);
-  for (const f of [rideTopAt, stationTopAt, trainTopAt]) {
+  for (const f of [rideTopAt, stationTopAt, trainTopAt, castleTopAt]) {
     const t = f(x, z, lev);   // turntable, station platform, and the coach floor
     if (t && (ceilY == null || t.y <= ceilY) && (!best || t.y > best.y)) best = t;
   }
@@ -6849,6 +6869,491 @@ function burstBits(at, n) {
 const LANT_HUE_BIG = [0xff4a2e, 0xffb01e, 0xffe14a, 0xf4f0e4, 0xff6f9c,
                       0xd14ad6, 0x7fd4ff, 0xa8d84a, 0xff8a3d];
 
+/* ============================================================ THE CASTLE
+
+   A storybook castle standing in the middle of the south atrium, two storeys
+   tall, in the pale-stone-and-blue-slate idiom that Neuschwanstein started and
+   every fairytale castle since has borrowed: a battlemented plinth, a curtain
+   wall with a gothic arch driven right through it, corner towers under conical
+   roofs, and a keep with a spire. It is deliberately its own building rather
+   than a copy of any particular one.
+
+   You can walk through it. The arch is a real passage from one side to the
+   other, and the collider below is built as two blocks with that passage left
+   between them rather than as one box with a hole wished into it.
+
+   Nothing on it is lit until the atrium's switch is thrown. Then a few hundred
+   small white lights come up along every ridge and edge — the way a castle is
+   dressed for a night in December — and four enormous lanterns hanging from the
+   floor-2 ceiling flood the whole volume violet.                             */
+const CAS = { x: CASTLE_AT.x, z: CASTLE_AT.z, y: 0 };   // the south atrium's clear centre
+/* IT FILLS THE ATRIUM. Twelve two, forty centimetres under the slab over level
+   two, so the thing reads from the balconies as well as from the floor.
+
+   AND IT IS DRAWN IN AS IT RISES. Every horizontal dimension above the plinth
+   is multiplied by `persp`, which falls from 1 at the base to 0.60 at the
+   crown. That is forced perspective, the trick the reference itself is built
+   on: the upper works are made smaller than the eye expects, so standing at
+   the foot of it you read the difference as distance rather than as scale, and
+   the tower seems to go up further than it does. It only works from below,
+   which is exactly where the player is. */
+const CAS_H = 12.20;
+const CAS_PERSP = 0.40;
+/* NARROW, and taller than it is wide. The first build was twelve metres across
+   against nine tall and read as a bunker with cones on it; worse, four fat
+   corner drums stood exactly where the keep needed to be seen. A storybook
+   castle is a SILHOUETTE — a hierarchy of spires with one clearly winning — so
+   the footprint came in, the towers slimmed and dropped, and the keep was given
+   two clear metres of daylight above everything around it. */
+const CAS_BASE = 6.0;                         // half-width of the battered plinth
+const CAS_WALL = 4.20;                        // half-width of the castle's own wall
+const CAS_ARCH_W = 1.55;                      // half-width of the passage through it
+const CAS_ARCH_H = 3.05;                      // and how high its crown stands
+const CAS_OUTER = 9.40;                       // half-width of the outer curtain wall
+const CAS_OW_H = 1.95;                        // low: it encloses, it does not mask
+const CAS_GATE_W = 1.85;                      // half-width of its gateways
+
+const matStone  = new THREE.MeshPhongMaterial({ color: 0xcfc9bd, specular: 0x35322c, shininess: 12 });
+const matStone2 = new THREE.MeshPhongMaterial({ color: 0xb3ada1, specular: 0x2c2a25, shininess: 10 });
+const matSlate  = new THREE.MeshPhongMaterial({ color: 0x4a6ea8, specular: 0x8fa8d6, shininess: 44 });
+const matGold   = new THREE.MeshPhongMaterial({ color: 0xd8a63c, specular: 0xffe6a0, shininess: 90 });
+const matDark   = new THREE.MeshPhongMaterial({ color: 0x171a20, specular: 0x0a0a0a, shininess: 4 });
+const matBanner = new THREE.MeshPhongMaterial({ color: 0x2f5fb0, specular: 0x101010, shininess: 6,
+                                                side: THREE.DoubleSide });
+
+const CAS_LIGHTS = [];        // every small white bulb, in world coordinates
+
+/* A TOWER. The one number that decides whether this reads as a fairytale castle
+   or as a bunker with cones on it is `sp` — the spire's height over its base
+   radius. The first build ran that at about 1.7 and every roof came out as a
+   squat party hat. Real ones are 4:1 and steeper, and the tall ones on a
+   storybook castle are steeper still. Nothing else about the tower matters half
+   as much, so the ratio is the argument and the height falls out of it. */
+function castleTower(px, pz, r, shaft, sp, stone, stone2, slate, gold, lights, opts) {
+  const o = opts || {};
+  const roofH = r * sp;
+  stone.push(at3(Cyl(r, r * 1.05, shaft, 12), px, shaft / 2, pz));
+  for (const f of [0.34, 0.66]) stone2.push(at3(Tor(r * 1.03, r * 0.08, 5, 14), px, shaft * f, pz, Math.PI / 2, 0, 0));
+  // corbel table under the parapet
+  for (let k = 0; k < 12; k++) {
+    const ang = (k / 12) * Math.PI * 2;
+    stone2.push(at3(Box(r * 0.22, r * 0.18, r * 0.24),
+                    px + Math.cos(ang) * r * 1.04, shaft + 0.04, pz + Math.sin(ang) * r * 1.04, 0, -ang, 0));
+  }
+  stone.push(at3(Cyl(r * 1.14, r * 1.14, 0.13, 12), px, shaft + 0.16, pz));
+  if (o.crenels) for (let k = 0; k < 10; k++) {
+    const ang = (k / 10) * Math.PI * 2;
+    stone.push(at3(Box(r * 0.28, 0.34, r * 0.20),
+                   px + Math.cos(ang) * r * 1.08, shaft + 0.39, pz + Math.sin(ang) * r * 1.08, 0, -ang, 0));
+  }
+  // THE SPIRE — tall, and narrower at its foot than the parapet it rises from
+  const sy = shaft + 0.22;
+  slate.push(at3(Cyl(0.001, r * 0.98, roofH, 12), px, sy + roofH / 2, pz));
+  slate.push(at3(Cyl(r * 1.00, r * 1.06, 0.10, 12), px, sy + 0.05, pz));
+  gold.push(at3(Cyl(0.028, 0.028, roofH * 0.30, 6), px, sy + roofH + roofH * 0.15, pz));
+  gold.push(at3(Sph(r * 0.10, 8, 6), px, sy + roofH + 0.03, pz));
+  if (o.flag) {
+    gold.push(at3(Box(r * 0.42, r * 0.26, 0.02), px + r * 0.21, sy + roofH + roofH * 0.26, pz));
+  }
+  for (let k = 0; k < 22; k++) {                       // bulbs round the eaves
+    const ang = (k / 22) * Math.PI * 2;
+    lights.push([px + Math.cos(ang) * r * 1.12, sy + 0.10, pz + Math.sin(ang) * r * 1.12]);
+  }
+  for (let k = 1; k <= 8; k++) {                       // and up all four hips
+    const t = k / 9;
+    lights.push([px + r * 0.98 * (1 - t), sy + roofH * t, pz]);
+    lights.push([px - r * 0.98 * (1 - t), sy + roofH * t, pz]);
+    lights.push([px, sy + roofH * t, pz + r * 0.98 * (1 - t)]);
+    lights.push([px, sy + roofH * t, pz - r * 0.98 * (1 - t)]);
+  }
+  return sy + roofH;
+}
+
+const persp = (y) => 1 - CAS_PERSP * Math.min(1, Math.max(0, (y - 0.94) / (CAS_H - 0.94)));
+{
+  const stone = [], stone2 = [], slate = [], gold = [], dark = [], L = CAS_LIGHTS;
+  const X = CAS.x, Z = CAS.z;
+
+  /* ---- THE OUTER CURTAIN WALL. A castle sits inside a defended enclosure, and
+     without one this was a keep standing on a paving slab. It is low, so it
+     never competes with the spires, and it is broken by a gateway on each of
+     the two faces the passage runs through — walk the route and you go through
+     the outer gate, across the ward, and under the castle itself. */
+  for (const [ax, sgn] of [[0, -1], [0, 1], [1, -1], [1, 1]]) {
+    const alongX = ax === 0;
+    // each face is two runs with the gateway left between them
+    for (const half of [-1, 1]) {
+      const inner = CAS_GATE_W, outer = CAS_OUTER;
+      const len = outer - inner, mid = half * (inner + len / 2);
+      if (alongX) {
+        stone2.push(at3(Box(len, CAS_OW_H, 0.46), X + mid, CAS_OW_H / 2, Z + sgn * CAS_OUTER));
+        stone.push(at3(Box(len + 0.16, 0.16, 0.62), X + mid, CAS_OW_H - 0.10, Z + sgn * CAS_OUTER));
+        for (let k = 0; k < 10; k++) {
+          const px = X + half * inner + half * (k + 0.5) / 10 * len;
+          stone.push(at3(Box(0.42, 0.36, 0.50), px, CAS_OW_H + 0.16, Z + sgn * CAS_OUTER));
+          L.push([px, CAS_OW_H + 0.40, Z + sgn * CAS_OUTER]);
+        }
+      } else {
+        stone2.push(at3(Box(0.46, CAS_OW_H, len), X + sgn * CAS_OUTER, CAS_OW_H / 2, Z + mid));
+        stone.push(at3(Box(0.62, 0.16, len + 0.16), X + sgn * CAS_OUTER, CAS_OW_H - 0.10, Z + mid));
+        for (let k = 0; k < 10; k++) {
+          const pz = Z + half * inner + half * (k + 0.5) / 10 * len;
+          stone.push(at3(Box(0.50, 0.36, 0.42), X + sgn * CAS_OUTER, CAS_OW_H + 0.16, pz));
+          L.push([X + sgn * CAS_OUTER, CAS_OW_H + 0.40, pz]);
+        }
+      }
+    }
+  }
+  // gate towers flanking each opening, and turrets at the four corners
+  for (const sgn of [-1, 1]) for (const half of [-1, 1]) {
+    castleTower(X + sgn * CAS_OUTER, Z + half * CAS_GATE_W, 0.50, 2.75, 4.4,
+                stone, stone2, slate, gold, L, {});
+  }
+  for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+    castleTower(X + sx * CAS_OUTER, Z + sz * CAS_OUTER, 0.62, 2.95, 4.2,
+                stone, stone2, slate, gold, L, { crenels: true });
+  }
+
+  /* ---- the plinth inside the ward: three battered steps -------------------- */
+  for (const [hw, y0, th] of [[CAS_BASE + 1.05, 0.00, 0.34], [CAS_BASE + 0.60, 0.34, 0.30], [CAS_BASE, 0.64, 0.30]])
+    stone2.push(at3(Box(hw * 2, th, hw * 2), X, y0 + th / 2, Z));
+  for (let k = 0; k < 112; k++) {
+    const t = k / 112 * 4, side = Math.floor(t), u = (t - side) * 2 - 1, e = CAS_BASE + 0.06;
+    const px = side === 0 ? u * e : side === 1 ? e : side === 2 ? -u * e : -e;
+    const pz = side === 0 ? -e : side === 1 ? u * e : side === 2 ? e : -u * e;
+    L.push([X + px, 0.99, Z + pz]);
+  }
+
+  /* ---- TIER ONE: the wall the passage runs through ------------------------
+     Built as stacked courses, each a shade narrower than the one below, which
+     is how the batter is got without giving up the two-blocks-with-a-gap shape
+     the collider depends on. */
+  const WY0 = 0.94, WY1 = 4.30;
+  const COURSES = 4;
+  for (const sgn of [-1, 1]) {
+    for (let k = 0; k < COURSES; k++) {
+      const y0 = WY0 + (WY1 - WY0) * k / COURSES, y1 = WY0 + (WY1 - WY0) * (k + 1) / COURSES;
+      const w = CAS_WALL * persp((y0 + y1) / 2);
+      const z0 = sgn * CAS_ARCH_W, z1 = sgn * w, d = Math.abs(z1 - z0);
+      if (d < 0.05) continue;
+      stone.push(at3(Box(w * 2, y1 - y0 + 0.01, d), X, (y0 + y1) / 2, Z + (z0 + z1) / 2));
+    }
+    const wTop = CAS_WALL * persp(WY1);
+    stone2.push(at3(Box(wTop * 2 + 0.22, 0.18, Math.abs(sgn * wTop - sgn * CAS_ARCH_W) + 0.22),
+                    X, WY1 - 0.28, Z + (sgn * CAS_ARCH_W + sgn * wTop) / 2));
+    for (let k = 0; k < 21; k++) {
+      const px = -wTop + 0.38 + (k / 20) * (wTop * 2 - 0.76);
+      stone.push(at3(Box(0.40, 0.42, 0.28), X + px, WY1 + 0.21, Z + sgn * (wTop + 0.07)));
+      L.push([X + px, WY1 + 0.46, Z + sgn * (wTop + 0.13)]);
+    }
+  }
+  // the passage's own side walls
+  for (const sgn of [-1, 1])
+    stone2.push(at3(Box(CAS_WALL * 2, CAS_ARCH_H, 0.14), X, WY0 + CAS_ARCH_H / 2, Z + sgn * CAS_ARCH_W));
+
+  /* ---- THE VAULT OVER THE PASSAGE. Without this the centre of the castle was
+     open sky and the tower above it stood on nothing at all — which is exactly
+     what it looked like. A barrel of voussoirs springing from both side walls,
+     and a solid deck over the crown for everything above to sit on. */
+  for (let k = 0; k <= 14; k++) {
+    const ang = Math.PI * (k / 14);
+    const py = Math.sin(ang) * CAS_ARCH_W, pz = Math.cos(ang) * CAS_ARCH_W;
+    // rings ALONG the passage; the arch lies in the YZ plane, so it turns about X
+    for (let j = 0; j < 7; j++) {
+      const px = -CAS_WALL + 0.30 + j * (CAS_WALL * 2 - 0.60) / 6;
+      stone2.push(at3(Box((CAS_WALL * 2 - 0.60) / 6 + 0.06, 0.26, 0.30),
+                      X + px, WY0 + CAS_ARCH_H - CAS_ARCH_W + py, Z + pz, ang, 0, 0));
+    }
+  }
+  stone.push(at3(Box(CAS_WALL * 2, 0.34, CAS_ARCH_W * 2 + 0.3),
+                 X, WY0 + CAS_ARCH_H + 0.17, Z));
+
+  /* ---- the entrance front: the arch ring and a gothic gable ---------------
+     Both of these lie in the YZ plane and so must turn about X. Turning them
+     about Z — which is what the first build did — tilts them in the wrong plane
+     entirely, and is why the voussoirs jutted out at random angles and the
+     gable read as two slabs floating in mid-air. */
+  for (const ex of [-1, 1]) {
+    const fx = X + ex * (CAS_WALL * persp(WY0 + 1.5) + 0.10);
+    for (let k = 0; k <= 14; k++) {
+      const ang = Math.PI * (k / 14);
+      const py = Math.sin(ang) * CAS_ARCH_W, pz = Math.cos(ang) * CAS_ARCH_W;
+      stone.push(at3(Box(0.30, 0.34, 0.30), fx, WY0 + CAS_ARCH_H - CAS_ARCH_W + py, Z + pz, ang, 0, 0));
+      L.push([fx + ex * 0.18, WY0 + CAS_ARCH_H - CAS_ARCH_W + py, Z + pz]);
+    }
+    const GTOP = WY1 + 2.60, GY0 = WY0 + CAS_ARCH_H - 0.2;
+    const rake = Math.hypot(GTOP - GY0, 1.15);
+    for (const sz of [-1, 1]) {
+      stone.push(at3(Box(0.30, rake, 0.32), fx, (GY0 + GTOP) / 2, Z + sz * 0.58,
+                     sz * Math.atan2(1.15, GTOP - GY0), 0, 0));
+      for (let k = 0; k <= 11; k++) {
+        const t = k / 11;
+        L.push([fx + ex * 0.18, GY0 + (GTOP - GY0) * t, Z + sz * 1.15 * (1 - t)]);
+      }
+    }
+    stone2.push(at3(Box(0.22, 2.10, 1.55), fx - ex * 0.06, GY0 + 1.15, Z));
+    gold.push(at3(Cyl(0.032, 0.032, 0.55, 6), fx, GTOP + 0.24, Z));
+    gold.push(at3(Tor(0.40, 0.055, 8, 18), fx + ex * 0.10, GY0 + 1.30, Z, 0, Math.PI / 2, 0));
+    dark.push(at3(Cyl(0.36, 0.36, 0.07, 18), fx + ex * 0.07, GY0 + 1.30, Z, 0, 0, Math.PI / 2));
+    gold.push(at3(Box(0.04, 0.26, 0.04), fx + ex * 0.13, GY0 + 1.39, Z));
+    gold.push(at3(Box(0.04, 0.04, 0.20), fx + ex * 0.13, GY0 + 1.30, Z + 0.08));
+  }
+
+  /* ---- TIER TWO and TIER THREE, each drawn in over the one below ---------- */
+  const T2Y0 = WY1 + 0.34, T2Y1 = 7.30;
+  const T3Y0 = T2Y1, T3Y1 = 9.60;
+  const tierBlock = (y0, y1, hwBase) => {
+    const N = 3;
+    for (let k = 0; k < N; k++) {
+      const a0 = y0 + (y1 - y0) * k / N, a1 = y0 + (y1 - y0) * (k + 1) / N;
+      const w = hwBase * persp((a0 + a1) / 2) / persp(y0);
+      stone.push(at3(Box(w * 2, a1 - a0 + 0.01, w * 2), X, (a0 + a1) / 2, Z));
+    }
+    const wt = hwBase * persp(y1) / persp(y0);
+    stone2.push(at3(Box(wt * 2 + 0.20, 0.16, wt * 2 + 0.20), X, y1 - 0.08, Z));
+    for (let side = 0; side < 4; side++) for (let k = 0; k < 13; k++) {
+      const u = (k / 12) * 2 - 1;
+      const px = side === 0 ? u * wt : side === 1 ? wt : side === 2 ? -u * wt : -wt;
+      const pz = side === 0 ? -wt : side === 1 ? u * wt : side === 2 ? wt : -u * wt;
+      stone.push(at3(Box(0.34, 0.36, 0.34), X + px, y1 + 0.18, Z + pz));
+      L.push([X + px, y1 + 0.42, Z + pz]);
+    }
+    return wt;
+  };
+  const w2 = tierBlock(T2Y0, T2Y1, CAS_WALL * persp(T2Y0) * 0.80);
+  const w3 = tierBlock(T3Y0, T3Y1, w2 * 0.74);
+
+  /* ---- the towers, three rings of them, each ring shorter and thinner ----- */
+  const t1w = CAS_WALL * persp(WY1);
+  for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]])
+    castleTower(X + sx * (t1w - 0.28), Z + sz * (t1w - 0.28), 0.80, WY1 + 1.30, 4.2,
+                stone, stone2, slate, gold, L, { crenels: true, flag: true });
+  for (const sz of [-1, 1])
+    castleTower(X, Z + sz * (t1w + 0.14), 0.52, WY1 + 0.35, 4.7,
+                stone, stone2, slate, gold, L, {});
+  for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]])
+    castleTower(X + sx * (w2 - 0.22), Z + sz * (w2 - 0.22), 0.54, T2Y1 + 1.05, 4.6,
+                stone, stone2, slate, gold, L, { crenels: true });
+  for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]])
+    castleTower(X + sx * (w3 - 0.16), Z + sz * (w3 - 0.16), 0.36, T3Y1 + 0.75, 5.1,
+                stone, stone2, slate, gold, L, {});
+
+  /* ---- THE CENTRAL TOWER, standing on the vault and climbing through every
+     tier to the crown. Its own stages narrow as they go, so the perspective
+     trick runs right up the thing that most needs it. */
+  const KY = T3Y1, KR = 0.78 * persp(KY) / persp(T3Y0);
+  stone.push(at3(Cyl(KR * 0.94, KR * 1.06, 1.55, 12), X, KY + 0.78, Z));
+  for (const f of [0.28, 0.60, 0.90]) stone2.push(at3(Tor(KR * 1.02, 0.06, 5, 14), X, KY + 1.55 * f, Z, Math.PI / 2, 0, 0));
+  for (let k = 0; k < 12; k++) {
+    const ang = (k / 12) * Math.PI * 2;
+    dark.push(at3(Box(0.16, 0.54, 0.07), X + Math.cos(ang) * KR * 1.00, KY + 0.72, Z + Math.sin(ang) * KR * 1.00, 0, -ang, 0));
+  }
+  for (let k = 0; k < 14; k++) {
+    const ang = (k / 14) * Math.PI * 2;
+    stone2.push(at3(Box(0.17, 0.14, 0.19), X + Math.cos(ang) * KR * 1.10, KY + 1.60, Z + Math.sin(ang) * KR * 1.10, 0, -ang, 0));
+  }
+  stone.push(at3(Cyl(KR * 1.20, KR * 1.20, 0.11, 12), X, KY + 1.72, Z));
+  for (let k = 0; k < 20; k++) {
+    const ang = (k / 20) * Math.PI * 2;
+    if (k % 2 === 0) stone.push(at3(Box(0.20, 0.26, 0.16), X + Math.cos(ang) * KR * 1.16, KY + 1.90, Z + Math.sin(ang) * KR * 1.16, 0, -ang, 0));
+    L.push([X + Math.cos(ang) * KR * 1.22, KY + 2.08, Z + Math.sin(ang) * KR * 1.22]);
+  }
+  const UY = KY + 2.02, UR = KR * 0.62;
+  stone.push(at3(Cyl(UR * 0.92, UR * 1.05, 0.78, 10), X, UY + 0.39, Z));
+  stone2.push(at3(Cyl(UR * 1.14, UR * 1.14, 0.09, 10), X, UY + 0.82, Z));
+  for (let k = 0; k < 16; k++) {
+    const ang = (k / 16) * Math.PI * 2;
+    L.push([X + Math.cos(ang) * UR * 1.16, UY + 0.90, Z + Math.sin(ang) * UR * 1.16]);
+  }
+  // the needle: gold, and nearly five times its own radius
+  const SY = UY + 0.88, SR = UR * 0.78;
+  gold.push(at3(Cyl(0.001, SR, CAS_H - SY - 0.42, 10), X, (SY + CAS_H - 0.42) / 2, Z));
+  gold.push(at3(Cyl(0.026, 0.026, 0.52, 6), X, CAS_H - 0.18, Z));
+  gold.push(at3(Sph(0.07, 8, 6), X, CAS_H - 0.40, Z));
+  gold.push(at3(Box(0.30, 0.18, 0.02), X + 0.15, CAS_H - 0.02, Z));
+  for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+    gold.push(at3(Cyl(0.001, 0.11, 0.80, 7), X + sx * UR * 0.72, SY + 0.34, Z + sz * UR * 0.72));
+    L.push([X + sx * UR * 0.72, SY + 0.04, Z + sz * UR * 0.72]);
+  }
+  for (let k = 1; k <= 12; k++) {
+    const t = k / 13;
+    L.push([X + SR * (1 - t), SY + (CAS_H - 0.42 - SY) * t, Z]);
+    L.push([X - SR * (1 - t), SY + (CAS_H - 0.42 - SY) * t, Z]);
+    L.push([X, SY + (CAS_H - 0.42 - SY) * t, Z + SR * (1 - t)]);
+    L.push([X, SY + (CAS_H - 0.42 - SY) * t, Z - SR * (1 - t)]);
+  }
+  for (const [bx, bz] of [[-2.1, -1], [2.1, -1], [-2.1, 1], [2.1, 1]]) {
+    stone2.push(at3(Cyl(0.04, 0.04, 0.55, 6), X + bx, WY1 - 0.14, Z + bz * (t1w + 0.12), 0, 0, Math.PI / 2));
+    slate.push(at3(Box(0.02, 1.15, 0.66), X + bx, WY1 - 0.78, Z + bz * (t1w + 0.24)));
+  }
+
+  const add = (parts, mat) => { if (parts.length) { const mm = new THREE.Mesh(mergeGeos(parts), mat);
+    mm.castShadow = true; mm.receiveShadow = true; scene.add(mm); } };
+  add(stone, matStone); add(stone2, matStone2); add(slate, matSlate);
+  add(gold, matGold); add(dark, matDark);
+}
+
+/* THE DRESSING. Every bulb is one instance of a tiny sphere, and the whole
+   string is dark until the atrium's switch is thrown — then it comes up in a
+   wave outward from the arch, so the castle assembles itself in light instead
+   of snapping on. Unlit material, so no lamp in the building can reveal it
+   early and none of it costs a slot in the light pool. */
+const CAS_BULB_N = CAS_LIGHTS.length;
+const casBulbMesh = new THREE.InstancedMesh(
+  new THREE.SphereGeometry(0.055, 6, 5),
+  new THREE.MeshBasicMaterial({ fog: true }), Math.max(1, CAS_BULB_N));
+casBulbMesh.frustumCulled = false;
+scene.add(casBulbMesh);
+{
+  const mm = new THREE.Matrix4(), qq = new THREE.Quaternion(), ss = new THREE.Vector3(1, 1, 1);
+  const cc = new THREE.Color(0x000000);
+  CAS_LIGHTS.forEach((p, i) => {
+    mm.compose(new THREE.Vector3(p[0], p[1], p[2]), qq, ss);
+    casBulbMesh.setMatrixAt(i, mm);
+    casBulbMesh.setColorAt(i, cc);
+  });
+  casBulbMesh.instanceMatrix.needsUpdate = true;
+}
+// how far each bulb is from the arch, normalised — the wave front runs on this
+const CAS_BULB_D = CAS_LIGHTS.map((p) =>
+  Math.hypot(p[0] - CAS.x, p[2] - CAS.z) + p[1] * 0.55);
+const CAS_D_MAX = Math.max(...CAS_BULB_D, 1);
+
+/* FOUR ENORMOUS LANTERNS, hung from the floor-2 ceiling twelve and a half
+   metres up — far above anything the player can reach, which is the only
+   reason they can be this size. They are the room's entire lighting. */
+const CAS_LANTS = [];
+{
+  const ceil = levelY(2) + WALL_H;
+  for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+    const lx = CAS.x + sx * 9.5, lz = CAS.z + sz * 9.5;
+    const rx = 2.30, ry = rx * 0.52;
+    const bottom = ceil - 0.9 - ry * 2;
+    const g = new THREE.Group();
+    g.position.set(lx, bottom, lz);
+    const hue = 0x8a3ce0;
+    const silk = new THREE.Mesh(lanternGeo(rx, ry),
+      new THREE.MeshBasicMaterial({ color: 0x08040c, fog: true }));
+    g.add(silk);
+    g.add(new THREE.Mesh(lanternRibs(rx, ry, 14),
+      new THREE.MeshBasicMaterial({ color: 0x1a1020, fog: true })));
+    g.add(new THREE.Mesh(mergeGeos([
+      at3(Cyl(rx * 0.20, rx * 0.26, 0.22, 14), 0, 0.02, 0),
+      at3(Cyl(rx * 0.24, rx * 0.20, 0.24, 14), 0, ry * 2 - 0.02, 0),
+      at3(Cyl(0.05, 0.05, 0.9, 8), 0, ry * 2 + 0.45, 0),
+    ]), matDark));
+    scene.add(g);
+    const em = { pos: new THREE.Vector3(lx, bottom + ry, lz),
+                 color: new THREE.Color(0x9a4cf0), intensity: 0, on: true };
+    emitters.push(em);
+    CAS_LANTS.push({ grp: g, mat: silk.material, hue: new THREE.Color(hue), em,
+                     peak: 110, phase: CAS_LANTS.length * 1.6 });
+  }
+}
+
+/* Which switch owns all this, found from the atrium the castle stands in. */
+const CAS_ROOM = roomOf.get(`0,${Math.floor(CAS.z / CELL)},${Math.floor(CAS.x / CELL)}`) || null;
+let casLit = 0;
+const _casC = new THREE.Color();
+function updateCastle(dt) {
+  const want = CAS_ROOM && CAS_ROOM.on ? 1 : 0;
+  casLit += (want - casLit) * Math.min(1, dt * (want ? 0.55 : 2.4));
+  // the wave front, expanding out from the arch as the room comes up
+  const front = casLit * CAS_D_MAX * 1.35;
+  let dirty = false;
+  for (let i = 0; i < CAS_BULB_N; i++) {
+    const k = Math.max(0, Math.min(1, (front - CAS_BULB_D[i]) * 0.9));
+    if (k <= 0) { _casC.setRGB(0, 0, 0); }
+    else {
+      // a faint twinkle, fixed per bulb so it does not crawl
+      const tw = 0.82 + 0.18 * Math.sin(clock.elapsedTime * (1.1 + (i % 7) * 0.23) + i);
+      _casC.setRGB(k * tw, k * tw * 0.97, k * tw * 0.88);
+    }
+    casBulbMesh.setColorAt(i, _casC);
+    dirty = true;
+  }
+  if (dirty && casBulbMesh.instanceColor) casBulbMesh.instanceColor.needsUpdate = true;
+  for (const l of CAS_LANTS) {
+    l.phase += dt * 0.4;
+    l.grp.rotation.z = Math.sin(l.phase) * 0.02;
+    const breath = 0.85 + 0.15 * Math.sin(clock.elapsedTime * 0.5 + l.phase);
+    const k = casLit * breath;
+    _casC.copy(l.hue).multiplyScalar(0.03 + 0.97 * k);
+    l.mat.color.copy(_casC);
+    l.em.intensity = l.peak * k;
+  }
+}
+
+/* THE CASTLE IS SOLID, except through the arch. Two blocks with the passage
+   left between them — the same two rectangles the wall is built from, so what
+   you can see and what you can walk into cannot disagree — plus a circle for
+   each corner tower and the plinth it all stands on. */
+function collideCastle(pos) {
+  if (player.lev !== 0) return;
+  const foot = pos.y - EYE;
+  if (foot > CAS_H) return;
+  const push = (hx, hz, cx, cz) => {
+    const dx = pos.x - cx, dz = pos.z - cz;
+    const ex = hx + RADIUS, ez = hz + RADIUS;
+    const ax = Math.abs(dx), az = Math.abs(dz);
+    if (ax >= ex || az >= ez) return;
+    if (ex - ax < ez - az) pos.x += (dx < 0 ? -1 : 1) * (ex - ax);
+    else                   pos.z += (dz < 0 ? -1 : 1) * (ez - az);
+  };
+  const circle = (tx, tz, rad) => {
+    const dx = pos.x - tx, dz = pos.z - tz, rr = rad + RADIUS;
+    const d2 = dx * dx + dz * dz;
+    if (d2 >= rr * rr || d2 < 1e-9) return;
+    const d = Math.sqrt(d2);
+    pos.x = tx + (dx / d) * rr; pos.z = tz + (dz / d) * rr;
+  };
+
+  /* THE OUTER CURTAIN WALL, as four faces each broken by its gateway — the same
+     two runs per face the geometry is built from, so what you can see and what
+     you can walk into cannot disagree. It stands on the ground, so unlike the
+     castle's own wall it blocks at any height. */
+  for (const sgn of [-1, 1]) for (const half of [-1, 1]) {
+    const mid = half * (CAS_GATE_W + (CAS_OUTER - CAS_GATE_W) / 2);
+    const len = (CAS_OUTER - CAS_GATE_W) / 2;
+    push(len, 0.23, CAS.x + mid, CAS.z + sgn * CAS_OUTER);        // the two faces along X
+    push(0.23, len, CAS.x + sgn * CAS_OUTER, CAS.z + mid);        // and the two along Z
+  }
+  for (const sgn of [-1, 1]) for (const half of [-1, 1])
+    circle(CAS.x + sgn * CAS_OUTER, CAS.z + half * CAS_GATE_W, 0.52);
+  for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]])
+    circle(CAS.x + sx * CAS_OUTER, CAS.z + sz * CAS_OUTER, 0.64);
+
+  /* THE PLINTH DOES NOT BLOCK. It is three steps of thirty centimetres, every
+     one of them inside STEP_UP, and castleTopAt lifts you over them as you walk
+     — so treating it as a wall, which the first version did, put an invisible
+     barrier a metre out from the bottom step and made the whole castle
+     unapproachable. Only what stands ON the plinth stops you, and it only
+     starts stopping you once your feet are up at its level. */
+  if (foot < 0.86) return;
+  for (const sgn of [-1, 1]) {
+    const z0 = sgn * CAS_ARCH_W, z1 = sgn * CAS_WALL;
+    push(CAS_WALL, Math.abs(z1 - z0) / 2, CAS.x, CAS.z + (z0 + z1) / 2);
+  }
+  /* The tier-one towers, at the positions the PERSPECTIVE TAPER actually puts
+     them — the wall draws in as it rises, so its parapet and everything
+     standing on it sits inboard of CAS_WALL. Using the untapered figure here
+     left two rings of collider floating in the air beside the real towers. */
+  const t1w = CAS_WALL * (1 - CAS_PERSP * (4.30 - 0.94) / (CAS_H - 0.94));
+  for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]])
+    circle(CAS.x + sx * (t1w - 0.28), CAS.z + sz * (t1w - 0.28), 0.80);
+  for (const sz of [-1, 1])
+    circle(CAS.x, CAS.z + sz * (t1w + 0.14), 0.52);
+}
+// and the plinth is ground you can stand on
+function castleTopAt(x, z, lev) {
+  if (lev !== 0 && lev !== null) return null;
+  const dx = Math.abs(x - CAS.x), dz = Math.abs(z - CAS.z);
+  if (dx > CAS_BASE + 1.05 || dz > CAS_BASE + 1.05) return null;
+  if (dx <= CAS_BASE && dz <= CAS_BASE) return { y: 0.94, lev: 0 };
+  if (dx <= CAS_BASE + 0.60 && dz <= CAS_BASE + 0.60) return { y: 0.64, lev: 0 };
+  return { y: 0.34, lev: 0 };
+}
+
 /* ============================================================ THE STEAM TRAIN
 
    It runs the outermost lane of the ring corridor — the one lane that is
@@ -8039,7 +8544,8 @@ const _rc = new THREE.Color();
    half-again-as-big top-floor guard comes apart into the same few hundred
    cubes, only bigger ones — "hundreds" is the thing being promised, and it
    should not depend on which one you shot. */
-function voxelize(a) {
+const ICE_HUES = [0x8fd8ff, 0xbfeaff, 0x5fb8f0, 0xe6f7ff, 0x74c8ee, 0xa8e0ff];
+function voxelize(a, ice) {
   const sz = a.size || 1;
   const R = BODY_R * sz;
   const cube = (R * 2 / VOX_GRID) * 0.92;
@@ -8056,7 +8562,8 @@ function voxelize(a) {
        gate's colour, so across a hall you can still read which guard you just
        took apart; the rest are a full spread, which is what keeps it reading as
        something coming apart into confetti rather than a coloured smear. */
-    if (Math.random() < 0.38) v.col.copy(own).offsetHSL(0, 0, (Math.random() - 0.5) * 0.30);
+    if (ice) v.col.setHex(ICE_HUES[Math.floor(Math.random() * ICE_HUES.length)]);
+    else if (Math.random() < 0.38) v.col.copy(own).offsetHSL(0, 0, (Math.random() - 0.5) * 0.30);
     else v.col.copy(_vc.setHSL(Math.random(), 0.88, 0.44 + Math.random() * 0.24));
     return v;
   };
@@ -8080,8 +8587,7 @@ function voxelize(a) {
   a.voxFrom = from; a.voxN = count;
   a.vox = true; a.voxT = 0;
   a.eyeEm.on = false; a.eyeEm.intensity = 0;   // it has no eyes any more
-  sfx.kill();
-  hitFlash = Math.max(hitFlash, 0.3);
+  if (!ice) { sfx.kill(); hitFlash = Math.max(hitFlash, 0.3); }
 }
 
 /* The beat runs out. The cubes stop belonging to anything, the slot goes back
@@ -8106,7 +8612,60 @@ function voxCutLoose(a) {
   retireAnti(a);
 }
 
+const FREEZE_SECS = 5.0;                 // how long the ice holds it
+const FREEZE_WINDOW = 60;               // three inside this and it is finished
+const FREEZE_NEEDED = 3;
+
+/* CAUGHT IN THE ICE. The creature is taken apart into blue cubes exactly the
+   way the blast takes one apart — the same pool, the same code — but this time
+   the cubes are told to stay bound to it and it is told to stand still, so what
+   you get is the thing frozen mid-stride rather than coming apart. Five seconds
+   later it is put back together and carries on. */
+function freezeAnti(a) {
+  if (!a.live || a.vox || a.mode === 'dying' || a.mode === 'burn') return false;
+  const now = clock.elapsedTime;
+  if (now - (a.freezeT0 || -1e9) > FREEZE_WINDOW) { a.freezeT0 = now; a.freezes = 0; }
+  a.freezes = (a.freezes || 0) + 1;
+  /* THE THIRD ONE FINISHES IT — unless it is one of the two on the top floor,
+     which nothing but the blast opens. Those still freeze; they simply never
+     break, and the count is reset so you are told rather than left guessing. */
+  if (a.freezes >= FREEZE_NEEDED) {
+    if (a.top) { a.freezes = 0; a.freezeT0 = now; warded(a); }
+    else { hushAnti(a); killAnti(a); return true; }
+  }
+  hushAnti(a);
+  voxelize(a, true);
+  a.frozen = FREEZE_SECS;
+  a.vel && a.vel.set && a.vel.set(0, 0, 0);
+  sfx.freeze && sfx.freeze();
+  const left = Math.max(0, FREEZE_NEEDED - a.freezes);
+  say(left ? `F${a.tag} is frozen — ${left} more inside a minute` : `F${a.tag} is frozen`, 2.6);
+  return false;
+}
+
+/* IT BREAKS FREE. The cubes are simply let go of and the creature is put back —
+   which is the whole reason freezing had to reuse the death's machinery without
+   reusing its ENDING. */
+function thawAnti(a) {
+  for (let k = 0; k < a.voxN; k++) {
+    const v = vox[(a.voxFrom + k) % VOX_N];
+    if (v.a !== a) continue;
+    v.live = false; v.a = null;
+    voxMesh.setMatrixAt((a.voxFrom + k) % VOX_N, HIDDEN);
+  }
+  voxMesh.instanceMatrix.needsUpdate = true;
+  a.vox = false; a.frozen = 0; a.voxN = 0;
+  a.eyeEm.on = true;
+  a.mode = 'crawl'; a.modeT = 0; a.pauseT = 1.2 + Math.random();
+  sfx.thaw && sfx.thaw();
+}
+
 function voxTick(a, dt) {
+  if (a.frozen > 0) {                    // held: it does not walk and does not end
+    a.frozen -= dt;
+    if (a.frozen <= 0) thawAnti(a);
+    return;
+  }
   a.voxT += dt;
   if (a.voxT >= VOX_WALK) voxCutLoose(a);
 }
@@ -8766,6 +9325,7 @@ function spawnAnti(atPos, atLev) {
   a.deadY = 0; a.deadV = 0; a.deadFloor = 0; a.gate = 0;
   a.top = false; a.size = 1;   // reset with the slot; spawnGuards sets them again
   a.vox = false; a.voxT = 0; a.voxN = 0; a.voxFrom = 0; a.voxBody = 0;
+  a.frozen = 0; a.freezes = 0; a.freezeT0 = -1e9;
   a.hp = HP_MAX; a.hurtT = 99; a.flinch = 0; a.shotId = -1; a.flinchDir.set(0, 0, 0);
   a.goalRef = null; a.bestD = 1e9;
   for (const L of a.legs) { L.stretch = 1; L.rch.set(0, 0, 0); }
@@ -10480,6 +11040,7 @@ function burnAnti(a) {
 function stepAnti(a, dt, sdt) {
   if (sdt === undefined) sdt = dt;
   a.prev.copy(a.pos);
+  if (a.frozen > 0) return;              // stopped dead in the ice
   // it stops in corridors too, not only when it arrives somewhere
   if (a.mode === 'crawl' && !(a.goal && a.goal.isPlayer) && (a.pauseT -= dt) <= 0) enterSeek(a);
   /* Standing still. a.walked never changes here, so every leg is frozen exactly
@@ -10715,6 +11276,7 @@ function updateAntis(dt, sdt) {
   }
 
   for (const mm of MON_MESHES) mm.instanceMatrix.needsUpdate = true;
+  updateCastle(dt);
   updateTrain(dt);
   trainStep(dt);
   updateSigns(dt);
@@ -11862,6 +12424,12 @@ const GUNS = [
   { key: 'mg',      name: 'MACHINE GUN', tier: 3, mag: 100, auto: true,  rate: 0.085, pellets: 1, spread: 0.035 },
   { key: 'blaster', name: 'BLASTER',     tier: 4, mag: 4,   auto: false, rate: 0.8,  blast: true },
   { key: 'laser',   name: 'LASER',       tier: 5, charge: 10, laser: true },
+  /* THE FREEZE GUN. It is not on the ladder — it waits in the castle arch and
+     you have to go and find it. It does not kill: it stops a creature dead in
+     a shell of blue ice for five seconds, and it is only the THIRD freeze
+     inside a minute that finishes one. So it is a weapon about patience and
+     about the clock, which is the one thing this building already runs on. */
+  { key: 'freeze',  name: 'FREEZE GUN',  tier: 6, mag: 80, auto: true, rate: 0.055, freeze: true },
 ];
 /* Tier 0 is empty hands. You begin there: the pistol is not issued, it is
    lying on the heap under the clock like everything else in this building, and
@@ -11911,6 +12479,18 @@ const GUN_GEOS = {
     at3(Cyl(0.045, 0.045, 0.85, 10), 0, 0.09, 0, Math.PI / 2),
     ...[-0.28, -0.06, 0.16].map((z) => at3(Cyl(0.075, 0.075, 0.05, 10), 0, 0.09, z, Math.PI / 2)),
     at3(Box(0.06, 0.14, 0.14), 0, -0.02, 0.30, -0.3),
+  ]),
+  /* A wide-mouthed thing with a cryo bottle slung under it and a flared nozzle,
+     so it reads as spraying rather than shooting. */
+  freeze: mergeGeos([
+    at3(Cyl(0.055, 0.055, 0.52, 10), 0, 0.10, -0.06, Math.PI / 2),
+    at3(Cyl(0.11, 0.055, 0.17, 12), 0, 0.10, -0.38, Math.PI / 2),   // the flared nozzle
+    at3(Tor(0.10, 0.018, 6, 14), 0, 0.10, -0.44, 0, Math.PI / 2, 0),
+    at3(Cyl(0.075, 0.075, 0.34, 10), 0, -0.01, 0.02, Math.PI / 2),  // the bottle beneath
+    at3(Sph(0.075, 10, 8), 0, -0.01, 0.19),
+    at3(Sph(0.075, 10, 8), 0, -0.01, -0.15),
+    at3(Box(0.05, 0.15, 0.09), 0, 0.00, 0.22, -0.26),               // grip
+    at3(Box(0.04, 0.04, 0.16), 0, 0.17, -0.10),                     // the sight rail
   ]),
 };
 
@@ -11981,6 +12561,17 @@ const worldGuns = [];
     g.onFloor = true;
     g.mesh.visible = false;                 // until light finds it
   };
+  /* THE FREEZE GUN WAITS IN THE CASTLE ARCH. It is not on the ladder at all —
+     nothing places it and taking it places nothing. You find it by walking
+     through the castle, which is the point of putting it there. */
+  {
+    const g = worldGuns.find((w) => w.tier === 6);
+    if (g) {
+      g.pos.set(CASTLE_AT.x, 0.94 + 1.15, CASTLE_AT.z);
+      g.lev = 0; g.onFloor = true; g.reach = 2.4;
+      g.mesh.visible = false;             // until light finds it
+    }
+  }
   /* The pistol is the first thing out, and it is not hidden in the building —
      it turns over the heap under the clock, in plain sight from anywhere in
      the hub. Taking it is what sends the shotgun out into the halls. */
@@ -12468,6 +13059,33 @@ function fireOnce() {
   gunState.ammo--;
   gunState.cool = spec.rate;
   shotSeq++;                    // nine pellets, one shot
+  /* THE RAIN OF ICE. A wide, fast spray of blue voxels rather than a bullet —
+     it is meant to be swept across a creature, not aimed at one. Anything the
+     cone reaches is frozen. */
+  if (spec.freeze) {
+    sfx.dry && sfx.dry();
+    const cp = Math.cos(player.pitch);
+    const fx = -Math.sin(player.yaw) * cp, fy = Math.sin(player.pitch), fz = -Math.cos(player.yaw) * cp;
+    for (let i = 0; i < 9; i++) {
+      const sp = 15 + Math.random() * 13;
+      const jx = (Math.random() - 0.5) * 0.30, jy = (Math.random() - 0.5) * 0.26, jz = (Math.random() - 0.5) * 0.30;
+      sparkAt(player.pos.x + fx * 0.6, player.pos.y - 0.16 + fy * 0.6, player.pos.z + fz * 0.6,
+              ICE_HUES[Math.floor(Math.random() * ICE_HUES.length)],
+              0.05 + Math.random() * 0.07, 0.34 + Math.random() * 0.26,
+              (fx + jx) * sp, (fy + jy) * sp - 1.4, (fz + jz) * sp);
+    }
+    // anything inside the cone, out to twelve metres
+    for (const a of antis) {
+      if (!a.live || a.vox) continue;
+      const dx = a.pos.x - player.pos.x, dy = a.pos.y - player.pos.y, dz = a.pos.z - player.pos.z;
+      const d = Math.hypot(dx, dy, dz);
+      if (d > 12 || d < 0.4) continue;
+      if ((dx * fx + dy * fy + dz * fz) / d < 0.90) continue;
+      freezeAnti(a);
+      break;                              // one at a time, so a sweep is a choice
+    }
+    return;
+  }
   if (spec.blast) {
     sfx.blastShot();
     const hit = gunRay(0, false, 60) || { x: player.pos.x + rayDir.x * 60, y: player.pos.y, z: player.pos.z + rayDir.z * 60 };
@@ -12930,6 +13548,7 @@ function frame(dt) {
       collideBricks(player.pos);
       collideCoffin(player.pos);
       collideCups(player.pos);
+      collideCastle(player.pos);
       collideJambs(player.pos, player.lev);
       playerColliding = false;
       deckClamp();
@@ -13290,6 +13909,7 @@ window.__maze = {
   worldGuns, GUNS, gunState, dropGunAt, fireOnce, vendors, seenNow, litAt, torchFallsOn,
   vox, VOX_N, voxMesh, VOX_WALK, VOX_HOLD, VOX_LIE, VOX_FADE,
   RIDES, rideTopAt, DECK_H, TT_RPS, CUP_RPS,
+  CAS, CAS_H, CAS_LANTS, CAS_ROOM, CAS_BULB_N, collideCastle, castleTopAt,
   TRAIN, TRAINS, TRK_LEN, TRAIN_V, TRAIN_LOOP, TRAIN_DWELL, TRAIN_RUN, STOPS, STATIONS, SIGNS,
   trackAt, trainTopAt, onPlatform, safeInLight,
   vaultCells, isVaultWall, isVaultSlab, breachSlab, wanderGoal,
