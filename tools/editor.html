@@ -143,11 +143,11 @@ const el = (id) => document.getElementById(id);
 const MIN_ROOM = 5, MIN_GAP = 2;
 
 const TYPES = ['warehouse','gallery','cubicles','restaurant','hall','museum',
-               'living','office','alcove','chamber','atrium','void'];
+               'living','office','alcove','chamber','atrium','teacup','theatre','void'];
 const COL = {
   warehouse:'#5d6470', gallery:'#5f6a7d', cubicles:'#586070', restaurant:'#6d5f57',
   hall:'#66707f', museum:'#5c6675', living:'#6d6258', office:'#5a6472',
-  alcove:'#5b7268', chamber:'#7d5a86', atrium:'#20262f', void:'#171b22',
+  alcove:'#5b7268', chamber:'#7d5a86', atrium:'#20262f', teacup:'#8a5a7d', theatre:'#8f2233', void:'#171b22',
   corridor:'#3b434f', hub:'#7d6a35', wall:'#242a34',
 };
 const FIT = {
@@ -177,6 +177,10 @@ const DEFAULTS = {
   cubicles:   ['partition','desk','chair','monitor','keyboard','terminals'],
   hall:       ['column','chandelier','fairyLights'],
   alcove:     ['bench','lowTable','shelfUnit'],
+  // the ride IS the room: a turntable, seven cups and nine lanterns, and no
+  // strip lighting either — so it asks for none of the ordinary furniture
+  teacup:     [],
+  theatre:    [],
 };
 // grouped for the pulldown; the labels are what the game calls these things
 const PALETTE = {
@@ -204,6 +208,8 @@ const NO_CONTENTS = {
   chamber: 'A vault holds a crystal and its portal, and nothing else goes in.',
   atrium:  'An atrium is a hole through the building, not a room — what you see in it is placed from the floor below.',
   void:    'Void is the absence of floor. Nothing is in it.',
+  theatre: 'Half of it is stage and half is seating, and the seats are a third the size anyone could use. Two storeys \u2014 put a void over it on the floor above or the proscenium has nowhere to go.',
+  teacup:  'A fairground ride fills it — a turntable that carries you, seven cups on it, and oversized silk lanterns overhead that are the room\u2019s only light. Nothing else goes in, and it gets no strip lighting.',
 };
 // everything the game gives a room no matter what it is
 const ALWAYS = [

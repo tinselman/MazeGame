@@ -46,17 +46,6 @@
   }
 
   /* battery ------------------------------------------------------------ */
-  #battery { position: absolute; left: 26px; bottom: 26px; width: 190px; }
-  #battery .label { font-size: 10px; letter-spacing: .22em; opacity: .6; margin-bottom: 6px; }
-  #battery .track {
-    height: 9px; border: 1px solid rgba(216,216,216,.45); border-radius: 1px;
-    padding: 2px; background: rgba(0,0,0,.35);
-  }
-  #battery .fill { height: 100%; width: 100%; background: #e8e8e8; transition: background .4s; }
-  #battery.low .fill { background: #c9c9c9; }
-  #battery.critical .fill { background: #9a9a9a; }
-  #battery.charging .fill { background: #ffd24a; }
-  #battery .pct { font-size: 10px; opacity: .55; margin-top: 5px; letter-spacing: .1em; }
 
   /* crystal tracker ----------------------------------------------------- */
   #tracker {
@@ -269,12 +258,6 @@
 <div id="hud">
   <div id="crosshair"></div>
 
-  <div id="battery">
-    <div class="label">FLASHLIGHT</div>
-    <div class="track"><div class="fill" id="batfill"></div></div>
-    <div class="pct" id="batpct">100%</div>
-  </div>
-
   <div id="tracker"></div>
 
   <div id="carried">
@@ -485,19 +468,19 @@ const MAPS = [
        ....        .............#################......./#++++++++++#../..       
        ....        ......................////............#####..#####../..       
        ....        .......................................................       
-       ...................................................................       
-       .........................                 ...########..########....       
-       .........................                 ...#*+++++++++++++++#....       
-       .........................                 ...#++++++++++++++++#....       
-       .........................                 ...#++++++++++++++++#....       
-       .........................                 ....++++++++++++++++#./..       
-       .........................                 ....++++++++++++++++#./..       
-       .........................                 ...#++++++++++++++++#./..       
-       .........................                 ...#++++++++++++++++#./..       
-       .........................                 ...#++++++++++++++++#....       
-       ..............        ...                 ...##################....       
-       .........................                ..........................       
-       ............................////...................................       
+       ..###########......................................................       
+       ..#*++++++++#............                 ...########..########....       
+       ..#+++++++++#............                 ...#*+++++++++++++++#....       
+       ..#+++++++++#............                 ...#++++++++++++++++#....       
+       ..#+++++++++#............                 ...#++++++++++++++++#....       
+       ..#+++++++++#............                 ....++++++++++++++++#./..       
+       ...+++++++++#............                 ....++++++++++++++++#./..       
+       ...+++++++++#............                 ...#++++++++++++++++#./..       
+       ..#+++++++++#............                 ...#++++++++++++++++#./..       
+       ..#+++++++++#............                 ...#++++++++++++++++#....       
+       ..#+++++++++#.        ...                 ...##################....       
+       ..#+++++++++#............                ..........................       
+       ..#####..####...............////...................................       
        ...................................................................       
        ...................................................................       
                                                                                  
@@ -569,17 +552,17 @@ const MAPS = [
        ....        ..#++++++#.............................................       
        ....        ..#++++++#..............................##..########...       
        ..............#++++++#..............................#*+++++++++#...       
-       ..............#++++++#...                 ..........#++++++++++#...       
-       ..............#++++++#...                 ...........++++++++++....       
-       ..............#++++++#...                 ...........++++++++++....       
-       ..............#++++++#...                 ..........#++++++++++#...       
-       ....#######...#++++++#...                 ..........#++++++++++#/..       
-       ....#*++++#...#++++++#...                 ..........#++++++++++#/..       
-       .....+++++#...#++++++#...                 ..........#++++++++++#/..       
-       .....+++++....#++++++#...                 ..........#++++++++++#/..       
-       .....+++++....###..###...                 ..........#++++++++++#...       
-       ....#######..............                 ..........############...       
-       .........................                ..........................       
+       ...         ..#++++++#...                 ..........#++++++++++#...       
+       ...         ..#++++++#...                 ...........++++++++++....       
+       ...         ..#++++++#...                 ...........++++++++++....       
+       ...         ..#++++++#...                 ..........#++++++++++#...       
+       ...         ..#++++++#...                 ..........#++++++++++#/..       
+       ...         ..#++++++#...                 ..........#++++++++++#/..       
+       ...         ..#++++++#...                 ..........#++++++++++#/..       
+       ...         ..#++++++#...                 ..........#++++++++++#/..       
+       ...         ..###..###...                 ..........#++++++++++#...       
+       ...         .............                 ..........############...       
+       ...         .............                ..........................       
        ............................////...................................       
        ...................................................................       
        ...................................................................       
@@ -593,6 +576,41 @@ const MAPS = [
                                                                                  
 `
 ].map((s) => s.replace(/^\n/, '').replace(/\n$/, '').split('\n'));
+const ROOM_META = [{"lev":0,"r1":11,"c1":13,"r2":17,"c2":17,"type":"warehouse"},{"lev":0,"r1":10,"c1":34,"r2":14,"c2":43,"type":"gallery","items":{"remove":["fairyLights"]}},{"lev":0,"r1":10,"c1":49,"r2":14,"c2":56,"type":"cubicles"},{"lev":0,"r1":11,"c1":61,"r2":15,"c2":68,"type":"warehouse"},{"lev":0,"r1":22,"c1":12,"r2":27,"c2":16,"type":"restaurant"},{"lev":0,"r1":20,"c1":34,"r2":26,"c2":44,"type":"hall"},{"lev":0,"r1":19,"c1":50,"r2":27,"c2":55,"type":"museum"},{"lev":0,"r1":32,"c1":12,"r2":42,"c2":16,"type":"cubicles"},{"lev":0,"r1":36,"c1":22,"r2":45,"c2":28,"type":"teacup","items":{"remove":["hungPanel"]}},{"lev":0,"r1":35,"c1":53,"r2":45,"c2":56,"type":"restaurant","items":{"remove":["chandelier","chair","hearth"]}},{"lev":0,"r1":30,"c1":61,"r2":34,"c2":69,"type":"living"},{"lev":0,"r1":50,"c1":22,"r2":55,"c2":29,"type":"museum","items":{"add":["plinth"]}},{"lev":0,"r1":50,"c1":34,"r2":54,"c2":45,"type":"hall","items":{"remove":["fairyLights"]}},{"lev":0,"r1":39,"c1":61,"r2":47,"c2":66,"type":"restaurant","items":{"add":["paperLanterns"],"remove":["fairyLights"]}},{"lev":0,"r1":61,"c1":12,"r2":68,"c2":16,"type":"cubicles"},{"lev":0,"r1":60,"c1":22,"r2":68,"c2":27,"type":"warehouse"},{"lev":0,"r1":61,"c1":53,"r2":66,"c2":58,"type":"living","items":{"remove":["fairyLights"]}},{"lev":0,"r1":52,"c1":63,"r2":68,"c2":69,"type":"gallery","items":{"remove":["fairyLights"]}},{"lev":1,"r1":11,"c1":13,"r2":15,"c2":17,"type":"cubicles"},{"lev":1,"r1":10,"c1":34,"r2":14,"c2":47,"type":"museum"},{"lev":1,"r1":11,"c1":62,"r2":14,"c2":69,"type":"living"},{"lev":1,"r1":25,"c1":22,"r2":28,"c2":27,"type":"gallery"},{"lev":1,"r1":32,"c1":12,"r2":41,"c2":16,"type":"restaurant"},{"lev":1,"r1":34,"c1":22,"r2":43,"c2":27,"type":"warehouse"},{"lev":1,"r1":19,"c1":52,"r2":25,"c2":57,"type":"cubicles","items":{"add":["fairyLights"]}},{"lev":1,"r1":34,"c1":62,"r2":46,"c2":69,"type":"teacup"},{"lev":1,"r1":51,"c1":58,"r2":55,"c2":67,"type":"warehouse"},{"lev":1,"r1":60,"c1":53,"r2":67,"c2":68,"type":"museum"},{"lev":2,"r1":24,"c1":21,"r2":29,"c2":26,"type":"gallery"},{"lev":2,"r1":10,"c1":52,"r2":15,"c2":55,"type":"living"},{"lev":2,"r1":51,"c1":22,"r2":66,"c2":27,"type":"museum"},{"lev":2,"r1":39,"c1":61,"r2":48,"c2":69,"type":"cubicles"},{"lev":1,"r1":20,"c1":12,"r2":25,"c2":16,"type":"alcove"},{"lev":2,"r1":25,"c1":11,"r2":29,"c2":15,"type":"alcove"},{"lev":2,"r1":10,"c1":61,"r2":15,"c2":68,"type":"alcove"},{"lev":2,"r1":32,"c1":61,"r2":34,"c2":65,"type":"alcove"},{"lev":2,"r1":51,"c1":53,"r2":53,"c2":55,"type":"alcove"},{"lev":1,"r1":50,"c1":33,"r2":54,"c2":47,"type":"gallery","items":{"remove":["hungPanel"]}},{"lev":2,"r1":58,"c1":60,"r2":67,"c2":69,"type":"gallery"},{"lev":2,"r1":35,"c1":11,"r2":42,"c2":16,"type":"gallery"},{"lev":1,"r1":59,"c1":10,"r2":69,"c2":18,"type":"theatre"}];
+const DROP_POINTS = [{"lev":1,"at":[27,36],"into":[26,36]},{"lev":1,"at":[58,40],"into":[59,40]}];
+/* Hand-placed fittings. Empty means "scatter them the way you always did" —
+   the game falls back to its own rules — so a level that says nothing about
+   machines still gets twelve of them in the corridors. Anything listed here
+   overrides that entirely for its own kind. */
+const PLACED = {"vendors":[{"lev":2,"r":36,"c":18},{"lev":2,"r":56,"c":67},{"lev":2,"r":10,"c":70},{"lev":1,"r":32,"c":69},{"lev":1,"r":24,"c":10},{"lev":1,"r":69,"c":58},{"lev":1,"r":8,"c":46},{"lev":0,"r":9,"c":14},{"lev":0,"r":25,"c":28},{"lev":0,"r":41,"c":68},{"lev":0,"r":66,"c":29},{"lev":2,"r":62,"c":20},{"lev":2,"r":6,"c":44}],"guns":[{"tier":2,"lev":0,"r":15,"c":26},{"tier":5,"lev":1,"r":61,"c":14},{"tier":4,"lev":2,"r":8,"c":9},{"tier":3,"lev":1,"r":12,"c":66},{"tier":3,"lev":1,"r":53,"c":36},{"tier":2,"lev":0,"r":64,"c":57},{"tier":2,"lev":0,"r":17,"c":13},{"tier":4,"lev":2,"r":48,"c":40},{"tier":5,"lev":2,"r":64,"c":16},{"tier":2,"lev":1,"r":64,"c":13},{"tier":1,"lev":1,"r":9,"c":11},{"tier":3,"lev":2,"r":68,"c":53},{"tier":4,"lev":2,"r":29,"c":39}]};
+/* MAP:END */
+
+/* ---- EVERYTHING BELOW SURVIVES A REBUILD --------------------------------
+   genmaze.js --write splices the map, the room list and the placements into
+   the region between MAP:BEGIN and MAP:END, replacing whatever is there. Both
+   of the blocks below used to sit inside it, because both need to run early —
+   and pressing "build me" in the construction kit therefore deleted them and
+   the game stopped loading with `CASTLE_AT is not defined`. They live just
+   past the marker now, which is still long before anything reads the grid. */
+/* Where the castle stands, declared up here because two places need it and one
+   of them runs long before the castle is built: the dry-fountain scatter, which
+   otherwise drops a basin nine metres from the arch and wedges you against it.
+   The castle's own block reads the same constant. */
+const CASTLE_AT = { x: 112.5, z: 193.5, clear: 15 };
+/* ---- THE THEATRE'S LIGHT SWITCH -----------------------------------------
+   genmaze puts a room's switch in its first cell, which for the theatre is the
+   upstage corner — behind the proscenium and UNDER the stage boards, where it
+   cannot be seen or reached. The room therefore had no usable switch at all.
+   It is moved to the back of the house, a step inside the two south doors,
+   which is where anyone walking in actually arrives. Done here rather than in
+   the plan because the plan does not choose switch cells. */
+{
+  const put = (lev, r, c, ch) => {
+    const row = MAPS[lev][r];
+    MAPS[lev][r] = row.slice(0, c) + ch + row.slice(c + 1);
+  };
+  if (MAPS[1][59][10] === '*') { put(1, 59, 10, '+'); put(1, 69, 13, '*'); }
+}
 
 /* ---- THE TWO STATIONS ARE CUT INTO THE BOUNDARY ------------------------------
    The building's outer wall is the last ring of '#'; everything past it is the
@@ -626,19 +644,6 @@ const STATION_S = { r0: 73, r1: 76 };        // and out of the south edge
     carve(0, cap, STATION_C0, STATION_C1, '#');
   }
 }
-/* Where the castle stands, declared up here because two places need it and one
-   of them runs long before the castle is built: the dry-fountain scatter, which
-   otherwise drops a basin nine metres from the arch and wedges you against it.
-   The castle's own block reads the same constant. */
-const CASTLE_AT = { x: 112.5, z: 193.5, clear: 15 };
-const ROOM_META = [{"lev":0,"r1":11,"c1":13,"r2":17,"c2":17,"type":"warehouse"},{"lev":0,"r1":10,"c1":34,"r2":14,"c2":43,"type":"gallery","items":{"remove":["fairyLights"]}},{"lev":0,"r1":10,"c1":49,"r2":14,"c2":56,"type":"cubicles"},{"lev":0,"r1":11,"c1":61,"r2":15,"c2":68,"type":"warehouse"},{"lev":0,"r1":22,"c1":12,"r2":27,"c2":16,"type":"restaurant"},{"lev":0,"r1":20,"c1":34,"r2":26,"c2":44,"type":"hall"},{"lev":0,"r1":19,"c1":50,"r2":27,"c2":55,"type":"museum"},{"lev":0,"r1":32,"c1":12,"r2":42,"c2":16,"type":"cubicles"},{"lev":0,"r1":36,"c1":22,"r2":45,"c2":28,"type":"teacup"},{"lev":0,"r1":35,"c1":53,"r2":45,"c2":56,"type":"restaurant","items":{"remove":["chandelier","chair","hearth"]}},{"lev":0,"r1":30,"c1":61,"r2":34,"c2":69,"type":"living"},{"lev":0,"r1":50,"c1":22,"r2":55,"c2":29,"type":"museum","items":{"add":["plinth"]}},{"lev":0,"r1":50,"c1":34,"r2":54,"c2":45,"type":"hall","items":{"remove":["fairyLights"]}},{"lev":0,"r1":39,"c1":61,"r2":47,"c2":66,"type":"restaurant","items":{"add":["paperLanterns"],"remove":["fairyLights"]}},{"lev":0,"r1":61,"c1":12,"r2":68,"c2":16,"type":"cubicles"},{"lev":0,"r1":60,"c1":22,"r2":68,"c2":27,"type":"warehouse"},{"lev":0,"r1":61,"c1":53,"r2":66,"c2":58,"type":"living","items":{"remove":["fairyLights"]}},{"lev":0,"r1":52,"c1":63,"r2":68,"c2":69,"type":"gallery","items":{"remove":["fairyLights"]}},{"lev":1,"r1":11,"c1":13,"r2":15,"c2":17,"type":"cubicles"},{"lev":1,"r1":10,"c1":34,"r2":14,"c2":47,"type":"museum"},{"lev":1,"r1":11,"c1":62,"r2":14,"c2":69,"type":"living"},{"lev":1,"r1":25,"c1":22,"r2":28,"c2":27,"type":"gallery"},{"lev":1,"r1":32,"c1":12,"r2":41,"c2":16,"type":"restaurant"},{"lev":1,"r1":34,"c1":22,"r2":43,"c2":27,"type":"warehouse"},{"lev":1,"r1":19,"c1":52,"r2":25,"c2":57,"type":"cubicles","items":{"add":["fairyLights"]}},{"lev":1,"r1":34,"c1":62,"r2":46,"c2":69,"type":"teacup"},{"lev":1,"r1":51,"c1":58,"r2":55,"c2":67,"type":"warehouse"},{"lev":1,"r1":60,"c1":53,"r2":67,"c2":68,"type":"museum"},{"lev":2,"r1":24,"c1":21,"r2":29,"c2":26,"type":"gallery"},{"lev":2,"r1":10,"c1":52,"r2":15,"c2":55,"type":"living"},{"lev":2,"r1":51,"c1":22,"r2":66,"c2":27,"type":"museum"},{"lev":2,"r1":39,"c1":61,"r2":48,"c2":69,"type":"cubicles"},{"lev":1,"r1":20,"c1":12,"r2":25,"c2":16,"type":"alcove"},{"lev":2,"r1":25,"c1":11,"r2":29,"c2":15,"type":"alcove"},{"lev":2,"r1":10,"c1":61,"r2":15,"c2":68,"type":"alcove"},{"lev":2,"r1":32,"c1":61,"r2":34,"c2":65,"type":"alcove"},{"lev":2,"r1":64,"c1":12,"r2":67,"c2":16,"type":"alcove"},{"lev":2,"r1":51,"c1":53,"r2":53,"c2":55,"type":"alcove"},{"lev":1,"r1":50,"c1":33,"r2":54,"c2":47,"type":"gallery","items":{"remove":["hungPanel"]}},{"lev":2,"r1":58,"c1":60,"r2":67,"c2":69,"type":"gallery"},{"lev":2,"r1":35,"c1":11,"r2":42,"c2":16,"type":"gallery"}];
-const DROP_POINTS = [{"lev":1,"at":[27,36],"into":[26,36]},{"lev":1,"at":[58,40],"into":[59,40]}];
-/* Hand-placed fittings. Empty means "scatter them the way you always did" —
-   the game falls back to its own rules — so a level that says nothing about
-   machines still gets twelve of them in the corridors. Anything listed here
-   overrides that entirely for its own kind. */
-const PLACED = {"vendors":[{"lev":2,"r":36,"c":18},{"lev":2,"r":56,"c":67},{"lev":2,"r":10,"c":70},{"lev":1,"r":32,"c":69},{"lev":1,"r":24,"c":10},{"lev":1,"r":69,"c":58},{"lev":1,"r":8,"c":46},{"lev":0,"r":9,"c":14},{"lev":0,"r":25,"c":28},{"lev":0,"r":41,"c":68},{"lev":0,"r":66,"c":29},{"lev":2,"r":62,"c":20},{"lev":2,"r":6,"c":44}],"guns":[{"tier":2,"lev":0,"r":15,"c":26},{"tier":5,"lev":1,"r":53,"c":36},{"tier":4,"lev":2,"r":8,"c":9},{"tier":3,"lev":1,"r":12,"c":66},{"tier":3,"lev":1,"r":53,"c":36},{"tier":2,"lev":0,"r":64,"c":57},{"tier":2,"lev":0,"r":17,"c":13},{"tier":4,"lev":2,"r":48,"c":40},{"tier":5,"lev":2,"r":64,"c":16},{"tier":2,"lev":1,"r":64,"c":13},{"tier":1,"lev":1,"r":9,"c":11},{"tier":3,"lev":2,"r":68,"c":53},{"tier":4,"lev":2,"r":29,"c":39}]};
-/* MAP:END */
 
 const NLEV = MAPS.length;
 const ROWS = MAPS[0].length, COLS = MAPS[0][0].length;
@@ -1605,6 +1610,32 @@ MODELS.bench = model('bench', [
   at3(Box(1.70, 0.06, 0.06), 0, 0.16, 0),
 ]);
 
+/* An opera-house chair: full size, and built as PARTS so that when it is shot it
+   comes apart into a seat, a back, four legs and its arms rather than into
+   generic rubble. Going through MODELS and place() is what buys the chairs
+   their collider, their damage and their shatter — all of it already written. */
+MODELS.operaChair = model('operaChair', [
+  at3(Box(0.50, 0.06, 0.48), 0, 0.45, 0),                       // seat frame
+  at3(Box(0.44, 0.05, 0.42), 0, 0.49, 0),                       // the cushion
+  at3(Box(0.54, 0.04, 0.52), 0, 0.415, 0),                      // apron
+  // four turned legs
+  ...[[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([sx, sz]) =>
+    at3(Cyl(0.024, 0.034, 0.42, 8), sx * 0.21, 0.21, sz * 0.20)),
+  ...[[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([sx, sz]) =>
+    at3(Tor(0.036, 0.012, 5, 8), sx * 0.21, 0.30, sz * 0.20, Math.PI / 2, 0, 0)),
+  // the back: two uprights, a shaped crest and a pierced splat
+  ...[-1, 1].map((sx) => at3(Cyl(0.026, 0.030, 0.62, 8), sx * 0.22, 0.79, 0.22)),
+  at3(Box(0.50, 0.09, 0.06), 0, 1.09, 0.22),                    // crest rail
+  at3(Tor(0.095, 0.020, 6, 12), 0, 1.015, 0.22, 0, Math.PI / 2, 0),   // small: at 0.17 it read as a croquet hoop
+  at3(Box(0.06, 0.44, 0.04), 0, 0.82, 0.22),                    // centre splat
+  at3(Box(0.34, 0.05, 0.04), 0, 0.62, 0.22),
+  at3(Box(0.40, 0.30, 0.035), 0, 0.80, 0.235),                  // the padded panel
+  // scrolled arms
+  ...[-1, 1].map((sx) => at3(Box(0.05, 0.05, 0.34), sx * 0.24, 0.70, 0.05)),
+  ...[-1, 1].map((sx) => at3(Cyl(0.026, 0.026, 0.22, 7), sx * 0.24, 0.59, -0.10)),
+  ...[-1, 1].map((sx) => at3(Tor(0.040, 0.016, 5, 9), sx * 0.24, 0.70, -0.11, 0, Math.PI / 2, 0)),
+]);
+
 MODELS.hungPanel = model('hungPanel', [
   at3(Box(0.08, 1.42, 1.92), 0, 0, 0),                       // panel
   at3(Box(0.05, 1.56, 2.06), 0.03, 0, 0),                    // frame
@@ -2018,7 +2049,7 @@ const props = { switches: [], buttons: [], doors: [], crystals: [], pedestals: [
 /* The teacup ride, and the rooms that asked to be one. furnish() only records
    the room — the ride itself is built far below, once every helper it needs
    exists, which is the same two-step the paper lanterns already use. */
-const RIDES = [], TEACUP_ROOMS = [];
+const RIDES = [], TEACUP_ROOMS = [], THEATRE_ROOMS = [], THEATRES = [];
 const fixtures = [];
 const matFixOff = new THREE.MeshPhongMaterial({ color: 0x3a3a3a, specular: 0x111111, shininess: 20 });
 const matFixGlim = new THREE.MeshPhongMaterial({ color: 0x4a453c, emissive: 0x2a2113, emissiveIntensity: 1 });
@@ -2178,10 +2209,12 @@ function makePanel(l, r, c, kind, label) {
 /* ---- rooms ------------------------------------------------------------
    A room is a connected patch of room floor. Its switch lights that patch and
    nothing else, so corridors stay dark and a lit room is a place you found.  */
-/* A TEACUP ROOM IS LIT BY ITS OWN LANTERNS AND BY NOTHING ELSE. No strip light
-   goes in one — a fairground under fluorescent tubes is a warehouse with a ride
-   in it. The switch on the wall still works; what it brings up is the silk. */
-const TEACUP_RECTS = ROOM_META.filter((q) => q.type === 'teacup');
+/* A TEACUP ROOM IS LIT BY ITS OWN LANTERNS, AND A THEATRE BY ITS OWN RIG. No
+   strip light goes in either — a fairground under fluorescent tubes is a
+   warehouse with a ride in it, and an opera house under them is a lecture hall.
+   The switch on the wall still works; what it brings up is the silk and the
+   chandelier and the lanterns over the stage. */
+const TEACUP_RECTS = ROOM_META.filter((q) => q.type === 'teacup' || q.type === 'theatre');
 const inTeacupRoom = (l, rr, cc) => TEACUP_RECTS.some(
   (q) => q.lev === l && rr >= q.r1 && rr <= q.r2 && cc >= q.c1 && cc <= q.c2);
 
@@ -2301,7 +2334,25 @@ const ATRIUM_AREAS = [];        // where a dry fountain might stand
      strip fixtures at all. The other keeps them, and keeps the storey-by-storey
      strike, which is the whole reason that effect still exists. */
   const CASTLE_GROUP = groups[0];
-  for (const cells of groups.slice(0, 2)) {
+  /* Which atriums get a switch. It was the biggest two and no more, which left
+     three of the five standing in permanent blackness with no way to do anything
+     about it. There are five: the castle's and the north-west one are the
+     biggest two; the north one and the north-east one are added here — both sit
+     wholly in the top half of the map, which is what the test below says — and
+     the one on the west wall is deliberately left without a panel, because the
+     breaker box goes in it. That leaves the hub as the only dark court, which
+     is the point of the hub. */
+  const boxOf = (cells) => {
+    let r0 = 1e9, c0 = 1e9, r1 = -1e9, c1 = -1e9;
+    for (const [r, c] of cells) { r0 = Math.min(r0, r); r1 = Math.max(r1, r); c0 = Math.min(c0, c); c1 = Math.max(c1, c); }
+    return { r0, r1, c0, c1 };
+  };
+  const wanted = groups.filter((cells, i) => {
+    if (i < 2) return true;
+    const b = boxOf(cells);
+    return b.r1 <= 32;         // the north one and the north-east one
+  });
+  for (const cells of wanted) {
     const isCastle = cells === CASTLE_GROUP;
     const inAtrium = new Set(cells.map((x) => x.join(',')));
     // A switch at every way in, all wired together, so you meet one however you
@@ -2636,6 +2687,38 @@ const furniture = [];
         put('column', x0 + ((i + 0.5) / cols) * w, y, z0 + ((j + 0.5) / rows) * d, 0, g(i + j));
       }
 
+    } else if (t === 'theatre') {
+      /* The stage, the proscenium and the boxes are bespoke and are built far
+         below. THE CHAIRS ARE NOT: they go through place() like any other
+         furniture, which is what makes them solid, damageable and able to come
+         apart when they are shot. A chair modelled into the theatre's own merged
+         geometry would have been scenery you could walk through and could not
+         touch. */
+      THEATRE_ROOMS.push(rm);
+      /* The front row starts clear of the apron AND of the two flights that come
+         down off it. At cz + 1.7 the first three rows stood on the steps, which
+         is why the stage could not be reached even once the treads were the
+         right way up: the way in was full of chairs. */
+      const AISLE = 1.9, PITCH = 0.86, SEATW = 0.62, PERSIDE = 10, NROWS = 14;
+      for (let r = 0; r < NROWS; r++) {
+        const pz = cz + 3.4 + r * PITCH;
+        if (pz > z1 - 1.4) break;
+        /* TWO SIDE AISLES, one in line with each flight of steps. Without them
+           the front row ran straight across the foot of the stairs and the
+           stage was unreachable however the treads were built — the route was
+           simply full of chairs. The offsets are the same arithmetic the
+           theatre itself uses for the flights, so they cannot drift apart. */
+        const stepDX = w * 0.25 - 1.15;
+        for (const side of [-1, 1]) for (let k = 0; k < PERSIDE; k++) {
+          const px = cx + side * (AISLE / 2 + 0.34 + k * SEATW);
+          if (px < x0 + 1.0 || px > x1 - 1.0) continue;
+          if (Math.abs(Math.abs(px - cx) - stepDX) < 1.15) continue;
+          /* rot 0, NOT PI. The model carries its back at +z, so rot 0 faces
+             -z — and the stage is at low z. A half turn pointed all two
+             hundred and eighty of them at the back wall. */
+          place('operaChair', px, y, pz, 0, g(r * 3 + k), 1);
+        }
+      }
     } else if (t === 'teacup') {
       /* A FAIRGROUND RIDE INDOORS. It takes the whole floor, so it gets none of
          the ordinary furniture — the turntable, the cups on it and the lanterns
@@ -3762,7 +3845,12 @@ for (let i = 0; i < 6; i++) {
   emitters.push(emitter);
   props.pedestals.push({ id: i + 1, spec: CRYSTALS[i], collar, pos: new THREE.Vector3(x, 0, z), gem, emitter, filled: null });
 }
-const hubLamp = new THREE.PointLight(0xdfe6f2, 11, 34, 1.1);
+/* THE HUB IS DARK. It used to be the one room lit before you had done anything,
+   which meant the game opened by showing you the coffin, the clock and the
+   pistol rather than letting you find them. Nothing switches it: there is no
+   panel in the hub, and there is not meant to be one yet. It remains sanctuary
+   whether it is lit or not — that has never depended on the light. */
+const hubLamp = new THREE.PointLight(0xdfe6f2, 0, 34, 1.1);
 hubLamp.position.set(hubCentre.x, WALL_H - 0.5, hubCentre.z);
 hubFloor.add(hubLamp);         // ditto, so the platform stays lit as it climbs
 
@@ -5473,7 +5561,7 @@ function deckLocal(d, x, z) {
 // and so never find one — which is what keeps the drop yours alone.
 function playerGround(r, c, x, z, lev, ceilY) {
   let best = groundUnder(r, c, x, z, lev, ceilY);
-  for (const f of [rideTopAt, stationTopAt, trainTopAt, castleTopAt]) {
+  for (const f of [rideTopAt, stationTopAt, trainTopAt, castleTopAt, theatreTopAt]) {
     const t = f(x, z, lev);   // turntable, station platform, and the coach floor
     if (t && (ceilY == null || t.y <= ceilY) && (!best || t.y > best.y)) best = t;
   }
@@ -5718,18 +5806,41 @@ function drawMinimap() {
     g.globalAlpha = 1;
   }
 
-  // stairs you know about, so the way up reads on the chart
-  g.strokeStyle = 'rgba(150,220,255,.8)';
-  g.lineWidth = 1.4;
+  /* STAIRS, drawn so they can be found. The chart is 280 px across 81 columns —
+     three and a half pixels to a cell — and the old marking was a single hairline
+     from c+0.2 to c+0.8, which is a TWO PIXEL tick in pale blue. The stairs were
+     on the map in the sense that something was painted there and in no other
+     sense at all. Each run is now a filled bar the width of its cells with hard
+     white rungs across it, and it is the brightest thing on the chart, because
+     the way between floors is the one thing you are always looking for. */
   for (const s of stairs) {
-    if (!revealed.has(`${s.lo},${s.cells[0][0]},${s.cells[0][1]}`)
-      && !revealed.has(`${s.lo + 1},${s.cells[0][0]},${s.cells[0][1]}`)) continue;
-    g.beginPath();
+    /* NO REVEAL GATE. A stair used to appear only once you had already charted
+       it, which is precisely backwards: the chart's job is to tell you where the
+       way up is, and it was refusing to until you had found the way up. All of
+       them are on it from the first frame — but only the ones that reach the
+       floor you are standing on, since the chart shows one storey at a time. */
+    if (s.lo !== player.lev && s.lo + 1 !== player.lev) continue;
+    let r0 = 1e9, c0 = 1e9, r1 = -1e9, c1 = -1e9;
     for (const [r, c] of s.cells) {
-      g.moveTo(mmX(c + 0.2), mmY(r + 0.5));
-      g.lineTo(mmX(c + 0.8), mmY(r + 0.5));
+      r0 = Math.min(r0, r); r1 = Math.max(r1, r);
+      c0 = Math.min(c0, c); c1 = Math.max(c1, c);
+    }
+    g.fillStyle = 'rgba(110,205,255,.34)';
+    g.fillRect(mmX(c0), mmY(r0), mmX(c1 + 1) - mmX(c0), mmY(r1 + 1) - mmY(r0));
+    g.strokeStyle = 'rgba(228,248,255,.95)';
+    g.lineWidth = 1.6;
+    g.beginPath();
+    const down = (r1 - r0) >= (c1 - c0);       // which way the flight runs
+    for (const [r, c] of s.cells) {
+      if (down) { g.moveTo(mmX(c + 0.10), mmY(r + 0.5)); g.lineTo(mmX(c + 0.90), mmY(r + 0.5)); }
+      else      { g.moveTo(mmX(c + 0.5), mmY(r + 0.10)); g.lineTo(mmX(c + 0.5), mmY(r + 0.90)); }
     }
     g.stroke();
+    // a hard outline, so it separates from the room it is cut into
+    g.strokeStyle = 'rgba(160,225,255,.9)';
+    g.lineWidth = 1;
+    g.strokeRect(mmX(c0), mmY(r0), mmX(c1 + 1) - mmX(c0), mmY(r1 + 1) - mmY(r0));
+    g.globalAlpha = 1;
   }
 
   // Buttons you have pressed, in the colour of the door they answer.
@@ -5956,8 +6067,6 @@ function drawMinimap() {
 
 /* ============================================================ HUD */
 const el = {
-  batfill: document.getElementById('batfill'),
-  batpct: document.getElementById('batpct'),
   battery: document.getElementById('battery'),
   tracker: document.getElementById('tracker'),
   carried: document.getElementById('carried'),
@@ -6083,7 +6192,12 @@ function interact() {
     column.forEach((rm) => {
       if (rm.eaten) return;
       rm.on = turnOn;
+      /* EVERY panel, not just the one you touched. An atrium carries up to five
+         spares at its other entrances, all wired to the same room — and only the
+         main one was ever thrown, so the others sat in the off position with the
+         lights burning, which is exactly the switch that "doesn't flip". */
       setRocker(rm.mesh, turnOn);
+      for (const e of rm.extras || []) setRocker(e.mesh, turnOn);
       if (turnOn) rm.litAt = now2 + Math.max(0, rm.lev - room.lev) * 1.1;   // flicker up
       else for (const f of rm.fixtures) setFixture(f, 0);
     });
@@ -6320,7 +6434,7 @@ function updateEnding(dt) {
        them were live in the air and not one was visible. So the ceiling is left
        alone and the fog is left alone, and everything you see from here is lit
        by the coffin and then by the cicada. */
-    hubLamp.color.lerp(new THREE.Color(0xbfd8ff), dt * 1.2);
+    hubLamp.color.lerp(new THREE.Color(0xbfd8ff), dt * 1.2);   // the finale may still raise it
     scene.fog.density = Math.max(0.030, scene.fog.density - dt * 0.004);
     coffin.crystal = k;
     if (endTime > 2.4) {
@@ -6868,6 +6982,607 @@ function burstBits(at, n) {
    zone — which is exactly how it failed the first time. */
 const LANT_HUE_BIG = [0xff4a2e, 0xffb01e, 0xffe14a, 0xf4f0e4, 0xff6f9c,
                       0xd14ad6, 0x7fd4ff, 0xa8d84a, 0xff8a3d];
+
+/* ============================================================ THE BREAKER BOX
+
+   It stands in the middle of the west-wall atrium — the one room in the
+   building deliberately left without a light switch — with conduits running out
+   of it in every direction and away under the floor. Nothing is wired to it
+   yet; it is built so that there is something to wire.                       */
+const BREAKER = { x: 0, z: 0, lev: 0, r: 1.35, h: 2.55, built: false };
+/* Its own materials. Reaching for the train's matSteelD or the theatre's
+   matGilt from here is the temporal dead zone — both are declared further down
+   the file — and merely naming one stops the module loading. That is the third
+   time this file has caught me that way; the rule is that a block may only use
+   materials declared above it, and the cheap answer is to declare its own. */
+const matBreak  = new THREE.MeshPhongMaterial({ color: 0x3c4046, specular: 0x70757c, shininess: 34 });
+const matBreakD = new THREE.MeshPhongMaterial({ color: 0x1b1e23, specular: 0x35383d, shininess: 18 });
+const matBreakB = new THREE.MeshPhongMaterial({ color: 0xc9a04a, specular: 0xffe9a8, shininess: 88 });
+{
+  // the atrium on the west wall: open through all three floors, and no switch
+  const openAll = (r, c) => isWalkableChar(at(0, r, c)) && at(1, r, c) === VOID && at(2, r, c) === VOID;
+  const seen = new Set(); let pick = null;
+  for (let r = 1; r < ROWS - 1 && !pick; r++) for (let c = 1; c < COLS - 1; c++) {
+    if (!openAll(r, c) || seen.has(`${r},${c}`) || inHub(0, r, c)) continue;
+    const cells = [], q = [[r, c]]; seen.add(`${r},${c}`);
+    while (q.length) {
+      const [cr, cc] = q.pop(); cells.push([cr, cc]);
+      for (const [dr, dc] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const nr = cr + dr, nc = cc + dc, k = `${nr},${nc}`;
+        if (seen.has(k) || inHub(0, nr, nc) || !openAll(nr, nc)) continue;
+        seen.add(k); q.push([nr, nc]);
+      }
+    }
+    if (cells.length < 40) continue;
+    let r0 = 1e9, c0 = 1e9, r1 = -1e9, c1 = -1e9;
+    for (const [rr, cc] of cells) { r0 = Math.min(r0, rr); r1 = Math.max(r1, rr); c0 = Math.min(c0, cc); c1 = Math.max(c1, cc); }
+    if (c1 <= 24 && r0 >= 40) pick = { cells, r0, r1, c0, c1 };   // west wall, southern half
+  }
+  if (pick) {
+    // the cell nearest the middle that is plain open floor
+    const mr = (pick.r0 + pick.r1) / 2, mc = (pick.c0 + pick.c1) / 2;
+    let best = null, bd = 1e9;
+    for (const [r, c] of pick.cells) {
+      const d = (r - mr) ** 2 + (c - mc) ** 2;
+      if (at(0, r, c) === '.' && d < bd) { bd = d; best = [r, c]; }
+    }
+    const p = cellCentre(best[0], best[1]);
+    BREAKER.x = p.x; BREAKER.z = p.z; BREAKER.built = true;
+
+    const steel = [], dark2 = [], brass = [];
+    const X = p.x, Z = p.z, H = BREAKER.h;
+    // a plinth, and the cabinet on it
+    steel.push(at3(Box(1.90, 0.22, 1.30), X, 0.11, Z));
+    steel.push(at3(Box(1.62, H, 1.02), X, 0.22 + H / 2, Z));
+    steel.push(at3(Box(1.70, 0.16, 1.10), X, 0.22 + H + 0.05, Z));      // capping
+    // the two doors, their frames, hinges and handles
+    for (const sx of [-1, 1]) {
+      dark2.push(at3(Box(0.76, H - 0.34, 0.06), X + sx * 0.39, 0.22 + H / 2, Z + 0.53));
+      brass.push(at3(Box(0.78, 0.04, 0.02), X + sx * 0.39, 0.22 + H - 0.19, Z + 0.56));
+      brass.push(at3(Box(0.78, 0.04, 0.02), X + sx * 0.39, 0.22 + 0.19, Z + 0.56));
+      brass.push(at3(Cyl(0.035, 0.035, 0.26, 8), X + sx * 0.06, 0.22 + H / 2, Z + 0.58));
+      for (const hy of [0.5, 1.4, 2.2])
+        steel.push(at3(Cyl(0.045, 0.045, 0.14, 8), X + sx * 0.76, 0.22 + hy, Z + 0.50, Math.PI / 2, 0, 0));
+    }
+    // the ventilation louvres up the sides
+    for (const sx of [-1, 1]) for (let k = 0; k < 9; k++)
+      dark2.push(at3(Box(0.04, 0.05, 0.72), X + sx * 0.82, 0.55 + k * 0.20, Z));
+    // a warning plate and two pilot lamps
+    brass.push(at3(Box(0.46, 0.28, 0.03), X, 0.22 + H - 0.44, Z + 0.57));
+    for (const sx of [-1, 1]) brass.push(at3(Cyl(0.055, 0.055, 0.05, 10), X + sx * 0.30, 0.22 + H - 0.44, Z + 0.58, Math.PI / 2, 0, 0));
+
+    /* CONDUITS, out in every direction. They leave the cabinet at three heights,
+       run out across the floor on saddles and turn down into it at the end —
+       so the box reads as feeding the whole building rather than standing
+       there on its own. */
+    const RUNS = 12;
+    for (let k = 0; k < RUNS; k++) {
+      const a = (k / RUNS) * Math.PI * 2;
+      const dx = Math.cos(a), dz = Math.sin(a);
+      const y0 = 0.34 + (k % 3) * 0.62;
+      const L0 = 1.05, L1 = 3.4 + (k % 4) * 1.5;
+      // the elbow out of the cabinet
+      steel.push(at3(Cyl(0.075, 0.075, 0.5, 8), X + dx * (L0 - 0.1), y0, Z + dz * (L0 - 0.1),
+                     Math.PI / 2, 0, 0, 1, 1, 1));
+      steel.push(at3(Cyl(0.075, 0.075, L1 - L0, 8),
+                     X + dx * ((L0 + L1) / 2), y0, Z + dz * ((L0 + L1) / 2),
+                     Math.PI / 2, -a, 0));
+      // saddles holding it off the floor
+      const n2 = Math.max(2, Math.floor((L1 - L0) / 1.3));
+      for (let j = 0; j <= n2; j++) {
+        const t = L0 + (L1 - L0) * (j / n2);
+        steel.push(at3(Box(0.16, y0, 0.10), X + dx * t, y0 / 2, Z + dz * t, 0, -a, 0));
+      }
+      // and it turns down into the floor at the far end
+      steel.push(at3(Cyl(0.075, 0.075, y0 + 0.2, 8), X + dx * L1, (y0 + 0.2) / 2, Z + dz * L1));
+      steel.push(at3(Tor(0.09, 0.045, 5, 10), X + dx * L1, y0 + 0.06, Z + dz * L1, Math.PI / 2, 0, 0));
+    }
+    const add = (parts, mat) => { if (parts.length) { const mm = new THREE.Mesh(mergeGeos(parts), mat);
+      mm.castShadow = true; mm.receiveShadow = true; scene.add(mm); } };
+    add(steel, matBreak); add(dark2, matBreakD); add(brass, matBreakB);
+  }
+}
+/* You cannot walk through it. */
+function collideBreaker(pos) {
+  if (!BREAKER.built || player.lev !== 0) return;
+  const foot = pos.y - EYE;
+  if (foot > BREAKER.h + 0.4) return;
+  const hx = 0.95 + RADIUS, hz = 0.65 + RADIUS;
+  const dx = pos.x - BREAKER.x, dz = pos.z - BREAKER.z;
+  const ax = Math.abs(dx), az = Math.abs(dz);
+  if (ax >= hx || az >= hz) return;
+  if (hx - ax < hz - az) pos.x += (dx < 0 ? -1 : 1) * (hx - ax);
+  else                   pos.z += (dz < 0 ? -1 : 1) * (hz - az);
+}
+
+/* ============================================================ THE THEATRE
+
+   A gilt jewel-box theatre two storeys tall, drawn from the little court
+   theatres of the 1860s: cream and gold, red velvet, a painted proscenium, and
+   boxes down both side walls at the upper level looking in.
+
+   HALF THE ROOM IS STAGE. That is the whole proportion of the thing — most
+   rooms in this building are furniture scattered on a floor, and this one is a
+   machine for looking at one end of itself. The other half is seating, and the
+   seats are deliberately, unpleasantly small: a third of the size a person
+   could use, packed at a pitch nobody could sit at. From the door it reads as a
+   grand room; up close nothing in it fits you.                               */
+/* A THIRD SCALE. The first pass used 0.34 m, which is not a small chair — it is
+   a chair. Standing over them they read as perfectly ordinary furniture and the
+   joke did not land. A real seat is 0.45 m and these are 0.15: knee-high, packed
+   at a pitch nobody could get into, and from the door they still look like rows
+   of chairs, which is the point. */
+const THEATRE_LAMPS = [];
+const matGilt   = new THREE.MeshPhongMaterial({ color: 0xc9a04a, specular: 0xffe9a8, shininess: 88 });
+const matCream  = new THREE.MeshPhongMaterial({ color: 0xe8e2d4, specular: 0x2a2820, shininess: 18 });
+const matVelvet = new THREE.MeshPhongMaterial({ color: 0x8c1420, specular: 0x3a1015, shininess: 8 });
+const matVelvet2= new THREE.MeshPhongMaterial({ color: 0xb0202c, specular: 0x50161c, shininess: 10 });
+const matBoards = new THREE.MeshPhongMaterial({ color: 0x8a6a44, specular: 0x241c12, shininess: 14 });
+
+function buildTheatre(rm) {
+  const lev = rm.lev, y = levelY(lev);
+  const x0 = rm.c1 * CELL, x1 = (rm.c2 + 1) * CELL;
+  const z0 = rm.r1 * CELL, z1 = (rm.r2 + 1) * CELL;
+  const cx = (x0 + x1) / 2;
+  const W = x1 - x0, D = z1 - z0;
+  const TOP = levelY(lev + 1) + WALL_H;        // two storeys: the void above is open
+  const H = TOP - y;
+  const mid = z0 + D / 2;                      // the proscenium line — half and half
+  /* Declared HERE, not down with the proscenium it belongs to: the apron is
+     built long before that and is sized by the opening, so leaving it below put
+     the whole file in the temporal dead zone. */
+  const PW = W * 0.25;                         // half-width: narrow enough to READ as a frame
+  /* No `dark` array here. It was declared and never used, and `add(dark, matDark)`
+     below still EVALUATED matDark — which is declared with the castle, further
+     down the file, so merely naming it was the temporal dead zone and the module
+     would not load. An unused argument is not free. */
+  const gilt = [], cream = [], velvet = [], velvet2 = [], boards = [];
+
+  /* ---- THE STAGE, the whole north half ---------------------------------- */
+  const SY = 1.05;                             // how high the boards stand
+  boards.push(at3(Box(W - 1.2, SY, D / 2 - 0.6), cx, y + SY / 2, z0 + 0.3 + (D / 2 - 0.6) / 2));
+  /* AN APRON, projecting through the opening into the house. Without it the
+     boards stopped upstage of the proscenium and the only way onto them was a
+     flight buried inside the side wall — which is exactly where the steps were.
+     The apron gives them somewhere to land that is in the room. */
+  const APRON = 1.55;
+  boards.push(at3(Box(PW * 2 - 0.3, SY, APRON), cx, y + SY / 2, mid - 0.30 + APRON / 2));
+  cream.push(at3(Box(W - 1.0, 0.16, 0.34), cx, y + SY + 0.08, mid - 0.30));   // the lip
+  gilt.push(at3(Box(W - 1.0, 0.09, 0.10), cx, y + SY + 0.19, mid - 0.30));
+  // footlights along the front edge
+  for (let k = 0; k < 13; k++) {
+    const px = x0 + 1.1 + (k / 12) * (W - 2.2);
+    gilt.push(at3(Cyl(0.09, 0.11, 0.13, 8), px, y + SY + 0.22, mid - 0.44));
+  }
+  /* STEPS UP, one flight at each end of the stage front. The boards stand at
+     1.05 m and STEP_UP is 0.72, so without these the stage is a thing you look
+     at and can never get onto — which the walk-through found immediately. Three
+     treads of 0.35 each, well inside a stride. */
+  for (const sx of [-1, 1]) {
+    const px = cx + sx * (W / 2 - 2.4);
+    for (let k = 0; k < 3; k++) {
+      const h = SY * (k + 1) / 3;
+      boards.push(at3(Box(1.70, h, 0.44), px, y + h / 2, mid - 0.30 + 0.66 - k * 0.44));
+      cream.push(at3(Box(1.76, 0.05, 0.10), px, y + h + 0.02, mid - 0.30 + 0.66 - k * 0.44 - 0.19));
+    }
+  }
+  // boards, drawn as planks running upstage
+  for (let k = 0; k < 14; k++) {
+    const px = x0 + 0.7 + (k / 13) * (W - 1.4);
+    boards.push(at3(Box(0.05, 0.03, D / 2 - 0.7), px, y + SY + 0.015, z0 + 0.35 + (D / 2 - 0.7) / 2));
+  }
+
+  /* ---- THE PROSCENIUM. It fills the room: two storeys of gilt frame with a
+     painted tympanum over it, which is what the eye is supposed to go to. */
+  const PH = H * 0.62;                          // and how high it stands
+  for (const sx of [-1, 1]) {
+    const jx = cx + sx * PW;
+    cream.push(at3(Box(W / 2 - PW, PH + 0.9, 0.85), cx + sx * (PW + (W / 2 - PW) / 2), y + (PH + 0.9) / 2, mid));
+    // a pilaster on each jamb, banded and capitalled
+    gilt.push(at3(Cyl(0.30, 0.34, PH, 12), jx, y + PH / 2, mid - 0.32));
+    for (let k = 1; k <= 5; k++) gilt.push(at3(Tor(0.33, 0.05, 5, 12), jx, y + PH * k / 6, mid - 0.32, Math.PI / 2, 0, 0));
+    gilt.push(at3(Box(0.86, 0.30, 0.86), jx, y + PH + 0.15, mid - 0.32));
+    gilt.push(at3(Box(0.66, 0.22, 0.66), jx, y + 0.11, mid - 0.32));
+  }
+  /* THE ARCH HEAD, turned rather than stepped. Seventeen boxes rotated around a
+     curve reads as seventeen boxes: every joint catches the light differently
+     and the eye follows the facets instead of the curve. A half torus is one
+     surface — squashed on Y to a segmental rise, with a second thinner ring
+     inside it as an archivolt and a keystone at the crown. */
+  /* HALF a torus, built with the real constructor. The file's own Tor() helper
+     takes only four arguments and silently drops the fifth — so passing Math.PI
+     to it did nothing at all and the "arch" came out as a complete gold ellipse
+     hanging in front of the stage, lower half and all. */
+  const RISE = 0.42;
+  const arcT = (r, t, seg) => new THREE.TorusGeometry(r, t, 10, seg, Math.PI);
+  gilt.push(at3(arcT(PW, 0.30, 56), cx, y + PH, mid - 0.32, 0, 0, 0, 1, RISE, 1));
+  gilt.push(at3(arcT(PW - 0.34, 0.13, 48), cx, y + PH, mid - 0.26, 0, 0, 0, 1, RISE, 1));
+  cream.push(at3(arcT(PW - 0.17, 0.16, 48), cx, y + PH, mid - 0.30, 0, 0, 0, 1, RISE, 1));
+  gilt.push(at3(Box(0.44, 0.70, 0.52), cx, y + PH + PW * RISE - 0.05, mid - 0.32));   // keystone
+  gilt.push(at3(Sph(0.17, 10, 8), cx, y + PH + PW * RISE + 0.22, mid - 0.32));
+  // and the spandrels either side of it, so the wall closes on the curve
+  for (const sx of [-1, 1]) for (let k = 0; k < 7; k++) {
+    const t = k / 6, a2 = t * Math.PI * 0.5;
+    const hx = Math.cos(a2) * PW, hy = Math.sin(a2) * PW * RISE;
+    cream.push(at3(Box(0.42, Math.max(0.05, PW * RISE - hy), 0.42),
+                   cx + sx * hx, y + PH + hy + (PW * RISE - hy) / 2, mid + 0.06));
+  }
+  cream.push(at3(Box(W - 0.6, H - PH - PW * 0.42 - 0.2, 0.60), cx, y + (PH + PW * 0.42 + 0.2 + H) / 2, mid));
+  gilt.push(at3(Box(W - 0.9, 0.22, 0.30), cx, y + PH + PW * 0.42 + 0.55, mid - 0.22));
+  gilt.push(at3(Tor(0.72, 0.10, 6, 18), cx, y + H - 1.15, mid - 0.26, 0, Math.PI / 2, 0));
+  gilt.push(at3(Sph(0.20, 10, 8), cx - 1.05, y + H - 1.15, mid - 0.26));   // the two cherubs, as
+  gilt.push(at3(Sph(0.20, 10, 8), cx + 1.05, y + H - 1.15, mid - 0.26));   // far as this engine goes
+  velvet2.push(at3(Cyl(0.62, 0.62, 0.10, 18), cx, y + H - 1.15, mid - 0.30, 0, 0, Math.PI / 2));
+
+  /* ---- THE CURTAIN, hanging just upstage of the frame. Swagged: a valance
+     across the top and two drapes drawn back to the jambs. */
+  velvet.push(at3(Box(PW * 2, 1.05, 0.16), cx, y + PH - 0.5, mid - 0.62));
+  /* The swag was a row of fat cylinders and read as red plumbing bolted to the
+     ceiling. A valance is a hanging CLOTH: a shallow panel with a scalloped
+     lower edge, and the drapes below it are flat panels gathered toward the
+     jambs, not pipes. */
+  for (let k = 0; k < 16; k++) {
+    const u = (k + 0.5) / 16;
+    const sag = 0.30 + Math.sin(u * Math.PI * 4) * 0.16;
+    velvet2.push(at3(Box(PW * 2 / 16 + 0.03, 0.55 + sag, 0.10),
+                     cx - PW + u * PW * 2, y + PH - 1.05 - sag / 2, mid - 0.66));
+  }
+  for (const sx of [-1, 1]) {
+    for (let k = 0; k < 9; k++) {
+      const t = k / 8;
+      // the drape is gathered: each fold narrower and further upstage
+      velvet.push(at3(Box(0.30 - t * 0.06, PH - 1.35, 0.13),
+                      cx + sx * (PW - 0.18 - t * 0.30), y + (PH - 1.35) / 2 + 0.05,
+                      mid - 0.70 - t * 0.09, 0, 0, sx * t * 0.05));
+    }
+    gilt.push(at3(Tor(0.42, 0.07, 6, 14), cx + sx * (PW - 0.85), y + PH * 0.52, mid - 0.80, Math.PI / 2, 0, 0));
+    gilt.push(at3(Cyl(0.06, 0.09, 0.44, 7), cx + sx * (PW - 0.85), y + PH * 0.52 - 0.34, mid - 0.80));
+  }
+
+  /* ---- THE CARPET. The chairs themselves are real furniture, placed by
+     furnish() so they can be collided with and shot to pieces; all that is left
+     here is the aisle they stand either side of. */
+  velvet2.push(at3(Box(1.90, 0.03, D / 2 - 1.0), cx, y + 0.015, mid + (D / 2 - 1.0) / 2 + 0.5));
+  for (let k = 0; k < 22; k++) {                       // a stair-rod at every tread line
+    const pz = mid + 1.0 + k * ((D / 2 - 2.0) / 21);
+    gilt.push(at3(Box(1.86, 0.02, 0.04), cx, y + 0.035, pz));
+  }
+
+  /* ---- STAGE FLATS. Painted scenery: a back cloth across the rear, and three
+     pairs of wings marching upstage with a border over each pair. This is what
+     turns an empty platform into a stage — the depth reads because the wings
+     overlap, and the dark between them is where a thing could be standing. */
+  const SD = D / 2 - 0.9;                              // the depth of the stage
+  const back = z0 + 0.75;
+  velvet2.push(at3(Box(W - 2.6, H * 0.52, 0.14), cx, y + SY + H * 0.26, back));
+  cream.push(at3(Box(W - 2.4, 0.22, 0.30), cx, y + SY + H * 0.52, back));
+  // painted panels on the back cloth, in the idiom: framed fields with a rosette
+  for (let k = 0; k < 5; k++) {
+    const px = cx - (W - 3.4) / 2 + (k + 0.5) * ((W - 3.4) / 5);
+    gilt.push(at3(Box((W - 3.4) / 5 - 0.30, H * 0.34, 0.05), px, y + SY + H * 0.26, back - 0.09));
+    gilt.push(at3(Tor(0.26, 0.05, 6, 14), px, y + SY + H * 0.26, back - 0.14, 0, Math.PI / 2, 0));
+  }
+  for (let w = 0; w < 3; w++) {
+    const pz = back + 1.5 + w * (SD - 2.6) / 3;
+    for (const sx of [-1, 1]) {
+      const px = cx + sx * (W / 2 - 1.15 - w * 0.55);
+      velvet.push(at3(Box(1.90, H * 0.50, 0.12), px, y + SY + H * 0.25, pz));
+      gilt.push(at3(Box(1.94, 0.14, 0.20), px, y + SY + H * 0.50, pz));
+      gilt.push(at3(Box(0.10, H * 0.50, 0.16), px + sx * -0.92, y + SY + H * 0.25, pz));
+    }
+    // the border above, spanning between the pair
+    velvet.push(at3(Box(W - 2.0 - w * 1.1, 0.85, 0.12), cx, y + SY + H * 0.47, pz));
+    gilt.push(at3(Box(W - 2.0 - w * 1.1, 0.10, 0.18), cx, y + SY + H * 0.42, pz));
+  }
+
+  /* ---- STAGE LIGHTING. A bar of lanterns hung over the front of the stage and
+     a second upstage, plus the footlights already in the boards. These are the
+     room's drama: bright, warm and pointed at the boards, with the house left
+     dim around them. */
+  const barY = y + SY + H * 0.56;
+  for (const [bz, n] of [[mid - 1.2, 9], [back + SD * 0.45, 7]]) {
+    gilt.push(at3(Cyl(0.07, 0.07, W - 2.4, 8), cx, barY, bz, 0, 0, Math.PI / 2));
+    for (const sx of [-1, 1]) gilt.push(at3(Cyl(0.05, 0.05, 1.4, 6), cx + sx * (W / 2 - 1.3), barY + 0.7, bz));
+    for (let k = 0; k < n; k++) {
+      const px = cx - (W - 3.4) / 2 + k * ((W - 3.4) / (n - 1));
+      // a lantern: body, hood, and a lens tipped down at the boards
+      boards.push(at3(Cyl(0.14, 0.17, 0.34, 10), px, barY - 0.26, bz, 0.42, 0, 0));
+      boards.push(at3(Box(0.34, 0.30, 0.06), px, barY - 0.10, bz - 0.14));
+      gilt.push(at3(Tor(0.15, 0.03, 5, 12), px, barY - 0.40, bz + 0.06, 0.42, 0, 0));
+      THEATRE_LAMPS.push([px, barY - 0.44, bz + 0.08, bz > back + SD * 0.6 ? 0 : 1]);
+    }
+  }
+
+  /* ---- FESTOON. Four swags of small white bulbs strung across the stage, one
+     behind each pair of wings and one over the apron, sagging the way a real
+     string does. They are their own rig — plain white, no gel — so against the
+     amber front light and the cold upstage wash they read as bare bulbs rather
+     than as part of the lantern rig, which is exactly what a festoon is. */
+  for (let sw = 0; sw < 4; sw++) {
+    const pz = mid + 0.9 - sw * (SD + 0.9) / 4;
+    const hang = y + SY + H * (0.44 - sw * 0.015);
+    const span = (W - 2.2) - sw * 0.7;
+    // the cord, drawn as short chords following the sag
+    const N = 15;
+    for (let k = 0; k < N; k++) {
+      const u0 = k / N, u1 = (k + 1) / N;
+      const x1p = cx - span / 2 + u0 * span, x2p = cx - span / 2 + u1 * span;
+      const y1p = hang - Math.sin(u0 * Math.PI) * 0.55, y2p = hang - Math.sin(u1 * Math.PI) * 0.55;
+      const len = Math.hypot(x2p - x1p, y2p - y1p);
+      boards.push(at3(Cyl(0.014, 0.014, len * 1.08, 4), (x1p + x2p) / 2, (y1p + y2p) / 2, pz,
+                      0, 0, Math.atan2(-(x2p - x1p), y2p - y1p)));
+    }
+    for (let k = 1; k < N; k++) {
+      const u = k / N;
+      const px = cx - span / 2 + u * span;
+      const py = hang - Math.sin(u * Math.PI) * 0.55;
+      boards.push(at3(Cyl(0.026, 0.034, 0.075, 6), px, py - 0.05, pz));
+      THEATRE_LAMPS.push([px, py - 0.115, pz, 3]);        // rig 3: plain white
+    }
+  }
+
+  /* ---- STEPS UP, at the two ends of the apron and INSIDE the opening, so no
+     part of them is in the masonry. The old flights sat at the room's quarter
+     points, which is precisely where the proscenium's side walls stand. */
+  const stepX = [];
+  for (const sx of [-1, 1]) {
+    const px = cx + sx * (PW - 1.15);
+    stepX.push(px);
+    /* The treads climb TOWARD the stage. Written with k running away from it the
+       flight descended as you approached — 1.05 down to 0.35 — and left a strip
+       of bare floor between the top tread and the apron, so it was a staircase
+       you had to climb down to use and then could not step off. The nearest
+       tread is the highest, and it overlaps the apron rather than meeting it. */
+    for (let k = 0; k < 3; k++) {
+      const h = SY * (k + 1) / 3;
+      const pz = mid + APRON - 0.30 + 0.20 + (2 - k) * 0.44;
+      boards.push(at3(Box(1.80, h, 0.48), px, y + h / 2, pz));
+      cream.push(at3(Box(1.86, 0.05, 0.11), px, y + h + 0.02, pz - 0.21));
+      gilt.push(at3(Box(1.88, 0.03, 0.03), px, y + h + 0.05, pz - 0.22));
+    }
+    for (const ex of [-1, 1]) {
+      cream.push(at3(Box(0.15, SY + 0.34, 1.55), px + ex * 0.94, y + (SY + 0.34) / 2, mid + APRON + 0.30, -0.28, 0, 0));
+      gilt.push(at3(Cyl(0.075, 0.10, 1.00, 8), px + ex * 0.94, y + 0.50, mid + APRON + 1.05));
+      gilt.push(at3(Tor(0.11, 0.03, 6, 12), px + ex * 0.94, y + 0.96, mid + APRON + 1.05, Math.PI / 2, 0, 0));
+      gilt.push(at3(Sph(0.11, 10, 8), px + ex * 0.94, y + 1.08, mid + APRON + 1.05));
+    }
+  }
+
+  /* ---- THE BOXES, down both side walls at the upper level ---------------- */
+  const BY = levelY(lev + 1) - 0.55;
+  for (const sx of [-1, 1]) {
+    const bx = sx === -1 ? x0 + 0.55 : x1 - 0.55;
+    cream.push(at3(Box(1.05, 0.30, D / 2 - 1.2), bx, y + BY, mid + (D / 2 - 1.2) / 2 + 0.4));
+    // a gilt balustrade with panels, the way the reference carries one right round
+    gilt.push(at3(Box(0.16, 0.55, D / 2 - 1.2), bx + (sx === -1 ? 0.48 : -0.48), y + BY + 0.42, mid + (D / 2 - 1.2) / 2 + 0.4));
+    for (let k = 0; k < 7; k++) {
+      const pz = mid + 1.0 + k * ((D / 2 - 2.2) / 6);
+      gilt.push(at3(Tor(0.20, 0.045, 6, 14), bx + (sx === -1 ? 0.52 : -0.52), y + BY + 0.42, pz, 0, Math.PI / 2, 0));
+      velvet.push(at3(Box(0.05, 0.34, 0.30), bx + (sx === -1 ? 0.56 : -0.56), y + BY + 0.12, pz));
+    }
+    // and a swag of velvet hung under it
+    for (let k = 0; k < 9; k++) {
+      const pz = mid + 0.8 + k * ((D / 2 - 1.8) / 8);
+      const sag = 0.30 + Math.abs(Math.sin(k * 1.1)) * 0.20;
+      velvet.push(at3(Cyl(0.16, 0.12, sag, 7), bx + (sx === -1 ? 0.44 : -0.44), y + BY - sag / 2, pz));
+    }
+    // wall panelling below and above
+    for (let k = 0; k < 6; k++) {
+      const pz = mid + 1.1 + k * ((D / 2 - 2.4) / 5);
+      gilt.push(at3(Box(0.05, 1.30, 0.86), bx + (sx === -1 ? -0.28 : 0.28), y + BY - 1.65, pz));
+      gilt.push(at3(Box(0.05, 1.15, 0.80), bx + (sx === -1 ? -0.28 : 0.28), y + BY + 1.55, pz));
+    }
+  }
+
+  /* ---- A PAINTED CEILING, in the idiom: a cove, a ring, and panels -------- */
+  cream.push(at3(Box(W - 0.5, 0.20, D - 0.5), cx, y + H - 0.12, (z0 + z1) / 2));
+  gilt.push(at3(Tor(Math.min(W, D) * 0.30, 0.16, 8, 26), cx, y + H - 0.30, mid + D * 0.20, Math.PI / 2, 0, 0));
+  gilt.push(at3(Tor(Math.min(W, D) * 0.19, 0.11, 8, 22), cx, y + H - 0.30, mid + D * 0.20, Math.PI / 2, 0, 0));
+  for (let k = 0; k < 12; k++) {
+    const a = (k / 12) * Math.PI * 2;
+    gilt.push(at3(Box(0.42, 0.10, 0.20), cx + Math.cos(a) * Math.min(W, D) * 0.245,
+                  y + H - 0.30, mid + D * 0.20 + Math.sin(a) * Math.min(W, D) * 0.245, 0, -a, 0));
+  }
+  velvet2.push(at3(Cyl(Math.min(W, D) * 0.185, Math.min(W, D) * 0.185, 0.05, 22), cx, y + H - 0.33, mid + D * 0.20));
+  // the cornice, all the way round
+  for (const [w, d, px, pz] of [[W - 0.4, 0.34, cx, z0 + 0.3], [W - 0.4, 0.34, cx, z1 - 0.3],
+                                [0.34, D - 0.4, x0 + 0.3, (z0 + z1) / 2], [0.34, D - 0.4, x1 - 0.3, (z0 + z1) / 2]])
+    gilt.push(at3(Box(w, 0.30, d), px, y + H - 0.42, pz));
+
+  /* ---- THE HOUSE CHANDELIER, hung over the seats ------------------------- */
+  /* TWICE THE SIZE, and a great deal more of it: four tiers of ring rather than
+     three, scrolled arms carrying the candles instead of plain uprights, swags
+     of drops slung between the rings, and a corona at the top. At the old size
+     it read as a light fitting; at this one it is the thing hanging over the
+     room. */
+  const CHS = 2.0;
+  const chY = y + H - 1.9, chZ = mid + D * 0.20;
+  gilt.push(at3(Cyl(0.06, 0.06, 1.10, 6), cx, chY + CHS * 0.95, chZ));
+  gilt.push(at3(Tor(0.26, 0.05, 6, 14), cx, chY + CHS * 0.92, chZ, Math.PI / 2, 0, 0));
+  for (const [rr, tt, hh] of [[0.95, 0.09, 0], [0.72, 0.075, 0.30], [0.48, 0.06, 0.56], [0.26, 0.05, 0.76]])
+    gilt.push(at3(Tor(rr * CHS, tt * CHS, 8, 26), cx, chY + hh * CHS, chZ, Math.PI / 2, 0, 0));
+  // swags of cut glass slung between the two lower rings
+  for (let k = 0; k < 24; k++) {
+    const a2 = (k / 24) * Math.PI * 2, a3 = ((k + 1) / 24) * Math.PI * 2;
+    for (let d = 0; d < 4; d++) {
+      const t = d / 3;
+      const rr = (0.95 - 0.10 * Math.sin(t * Math.PI)) * CHS;
+      cream.push(at3(Sph(0.045 * CHS, 6, 5),
+                     cx + Math.cos(a2 + (a3 - a2) * t) * rr,
+                     chY - Math.sin(t * Math.PI) * 0.22 * CHS,
+                     chZ + Math.sin(a2 + (a3 - a2) * t) * rr));
+    }
+  }
+  for (let k = 0; k < 16; k++) {
+    const a2 = (k / 16) * Math.PI * 2;
+    // a scrolled arm out to each candle, rather than a bare upright
+    gilt.push(at3(Cyl(0.030 * CHS, 0.030 * CHS, 0.44 * CHS, 6),
+                  cx + Math.cos(a2) * 0.72 * CHS, chY + 0.10 * CHS, chZ + Math.sin(a2) * 0.72 * CHS, 0, -a2, 0.6));
+    gilt.push(at3(Tor(0.10 * CHS, 0.022 * CHS, 5, 10),
+                  cx + Math.cos(a2) * 0.90 * CHS, chY - 0.04 * CHS, chZ + Math.sin(a2) * 0.90 * CHS, 0, -a2, Math.PI / 2));
+    cream.push(at3(Cyl(0.05 * CHS, 0.035 * CHS, 0.20 * CHS, 8),
+                   cx + Math.cos(a2) * 0.95 * CHS, chY - 0.02 * CHS, chZ + Math.sin(a2) * 0.95 * CHS));
+    gilt.push(at3(Box(0.06 * CHS, 0.34 * CHS, 0.06 * CHS), cx + Math.cos(a2) * 0.95 * CHS, chY - 0.16 * CHS, chZ + Math.sin(a2) * 0.95 * CHS));
+    THEATRE_LAMPS.push([cx + Math.cos(a2) * CHS * 0.95, chY - CHS * 0.34, chZ + Math.sin(a2) * CHS * 0.95, 2]);
+    // and a drop of cut glass under each
+    for (let d = 0; d < 5; d++)
+      cream.push(at3(Sph(0.05 * CHS, 6, 5), cx + Math.cos(a2) * (0.95 - d * 0.09) * CHS,
+                     chY - (0.46 + d * 0.15) * CHS, chZ + Math.sin(a2) * (0.95 - d * 0.09) * CHS));
+  }
+  for (let k = 0; k < 12; k++) {
+    const a2 = (k / 12) * Math.PI * 2;
+    gilt.push(at3(Box(0.05 * CHS, 0.26 * CHS, 0.05 * CHS),
+                  cx + Math.cos(a2) * 0.48 * CHS, chY + 0.44 * CHS, chZ + Math.sin(a2) * 0.48 * CHS));
+    cream.push(at3(Cyl(0.04 * CHS, 0.03 * CHS, 0.16 * CHS, 7),
+                   cx + Math.cos(a2) * 0.48 * CHS, chY + 0.62 * CHS, chZ + Math.sin(a2) * 0.48 * CHS));
+    THEATRE_LAMPS.push([cx + Math.cos(a2) * 0.48 * CHS, chY + 0.70 * CHS, chZ + Math.sin(a2) * 0.48 * CHS, 2]);
+  }
+  // the corona at the crown
+  for (let k = 0; k < 20; k++) {
+    const a2 = (k / 20) * Math.PI * 2;
+    gilt.push(at3(Box(0.05 * CHS, 0.30 * CHS, 0.05 * CHS),
+                  cx + Math.cos(a2) * 0.26 * CHS, chY + 0.90 * CHS, chZ + Math.sin(a2) * 0.26 * CHS, 0, -a2, 0.32));
+  }
+
+  /* ---- SCONCES down both side walls, between the box panels -------------- */
+  for (const sx of [-1, 1]) {
+    const wx = sx === -1 ? x0 + 0.30 : x1 - 0.30;
+    for (let k = 0; k < 5; k++) {
+      const pz = mid + 1.4 + k * ((D / 2 - 3.0) / 4);
+      gilt.push(at3(Box(0.16, 0.46, 0.16), wx, y + 2.30, pz));
+      for (const a2 of [-0.5, 0, 0.5]) {
+        const ax = wx + (sx === -1 ? 1 : -1) * (0.34 + Math.abs(a2) * 0.10);
+        gilt.push(at3(Cyl(0.035, 0.035, 0.44, 6), ax, y + 2.52, pz + a2 * 0.42, a2 * 0.5, 0, sx * -0.45));
+        cream.push(at3(Cyl(0.09, 0.06, 0.16, 8), ax + (sx === -1 ? 0.16 : -0.16), y + 2.74, pz + a2 * 0.52));
+        THEATRE_LAMPS.push([ax + (sx === -1 ? 0.18 : -0.18), y + 2.80, pz + a2 * 0.52, 2]);
+      }
+    }
+  }
+
+  const add = (parts, mat) => { if (parts.length) { const mm = new THREE.Mesh(mergeGeos(parts), mat);
+    mm.castShadow = true; mm.receiveShadow = true; scene.add(mm); } };
+  add(cream, matCream); add(gilt, matGilt); add(velvet, matVelvet);
+  add(velvet2, matVelvet2); add(boards, matBoards);
+
+  /* ---- THE BULBS, and what makes the lighting dramatic ------------------
+     Every lamp collected above becomes one instance of a small emissive sphere,
+     and a handful of them become real lights on the pool. The split is the
+     point: the STAGE lanterns and footlights burn hard and warm, the house
+     chandelier and sconces burn low and amber, so from a seat the boards are
+     the brightest thing in the room by a wide margin and everything behind you
+     falls away. A theatre lit evenly is a hall with chairs in it. */
+  const lamps = THEATRE_LAMPS.splice(0);
+  const foots = [];
+  for (let k = 0; k < 13; k++) foots.push([x0 + 1.1 + (k / 12) * (W - 2.2), y + SY + 0.30, mid - 0.44, 0]);
+  const all = lamps.concat(foots);
+  const mesh = new THREE.InstancedMesh(new THREE.SphereGeometry(0.075, 7, 6),
+    new THREE.MeshBasicMaterial({ fog: true }), Math.max(1, all.length));
+  mesh.frustumCulled = false;
+  scene.add(mesh);
+  const zero = new THREE.Matrix4().makeScale(0, 0, 0);
+  for (let i = 0; i < all.length; i++) mesh.setMatrixAt(i, zero);
+  mesh.instanceMatrix.needsUpdate = true;
+  // a few of them cast: the two ends and middle of each stage bar, and the chandelier
+  /* THE GELS. Rig 0 is the front bar and the footlights and burns warm amber;
+     rig 1 is the upstage bar and burns a cold blue-green across the back cloth.
+     It is the CONTRAST between them that makes the flats read as depth — two
+     colours of light crossing is what a lit stage looks like, and simply making
+     the stage brighter than the house never did. Rig 2 is the house. */
+  const GEL = [0xffb45a, 0x5fd6c4, 0xffc070, 0xfff4e2];   // 3 = the festoon, plain white
+  const ems = [];
+  for (let rig = 0; rig < 4; rig++) {
+    if (rig === 2) continue;                    // the house is handled below
+    const idx = [];
+    for (let i = 0; i < all.length; i++) if (all[i][3] === rig) idx.push(i);
+    for (let k = 0; k < idx.length && k < 5; k++) {
+      const i = idx[Math.floor(k * (idx.length - 1) / Math.max(1, 4))];
+      const em = { pos: new THREE.Vector3(all[i][0], all[i][1], all[i][2]),
+                   color: new THREE.Color(GEL[rig]), intensity: 0, on: true,
+                   peak: rig === 0 ? 34 : rig === 3 ? 14 : 22, rig };
+      emitters.push(em); ems.push(em);
+    }
+  }
+  {
+    const em = { pos: new THREE.Vector3(cx, chY - 0.4 * CHS, chZ),
+                 color: new THREE.Color(GEL[2]), intensity: 0, on: true, peak: 10, rig: 2 };
+    emitters.push(em); ems.push(em);
+  }
+
+  THEATRES.push({ lev, y, x0, x1, z0, z1, cx, mid, SY, W, H, PW, APRON, stepX,
+    lamps: all, mesh, ems, lit: 0, house: 0,
+    room: roomOf.get(`${lev},${Math.floor(((z0 + z1) / 2) / CELL)},${Math.floor(cx / CELL)}`) || null });
+}
+
+const _thC = new THREE.Color();
+/* THE STAGE COMES UP FIRST, and the house follows it. Throw the switch in a
+   black room and the boards light before anything else — so the first thing you
+   see is the stage, and the seats resolve around you a beat later. The house
+   simply chases the stage with a lag; nothing has to sequence anything. */
+const GEL_RGB = [[1.00, 0.71, 0.35], [0.37, 0.84, 0.77], [1.00, 0.75, 0.44], [1.00, 0.96, 0.89]];
+function updateTheatres(dt) {
+  for (const T of THEATRES) {
+    const want = T.room && T.room.on ? 1 : 0;
+    T.lit += (want - T.lit) * Math.min(1, dt * (want ? 1.5 : 2.6));       // the stage
+    T.house += (T.lit - T.house) * Math.min(1, dt * 0.55);                // trailing it
+    const m4 = _vm, q4 = new THREE.Quaternion(), s4 = _vs;
+    for (let i = 0; i < T.lamps.length; i++) {
+      const p = T.lamps[i], rig = p[3] | 0;
+      const fl = 0.90 + 0.10 * Math.sin(clock.elapsedTime * (2.1 + (i % 5) * 0.4) + i);
+      const lvl = rig === 2 ? T.house * 0.42 : T.lit;
+      const k = lvl * fl;
+      s4.set(k > 0.02 ? 1 : 0.001, k > 0.02 ? 1 : 0.001, k > 0.02 ? 1 : 0.001);
+      m4.compose(new THREE.Vector3(p[0], p[1], p[2]), q4, s4);
+      T.mesh.setMatrixAt(i, m4);
+      const g3 = GEL_RGB[rig];
+      _thC.setRGB(k * g3[0], k * g3[1], k * g3[2]);
+      T.mesh.setColorAt(i, _thC);
+    }
+    T.mesh.instanceMatrix.needsUpdate = true;
+    if (T.mesh.instanceColor) T.mesh.instanceColor.needsUpdate = true;
+    for (const em of T.ems) em.intensity = em.peak * (em.rig === 2 ? T.house : T.lit);
+  }
+}
+for (const rm of THEATRE_ROOMS) buildTheatre(rm);
+
+/* The stage is a metre-high platform you can climb onto, and the front of it
+   stops you walking through. */
+function theatreTopAt(x, z, lev) {
+  for (const T of THEATRES) {
+    if (lev !== null && lev !== T.lev) continue;
+    // the boards behind the arch
+    if (x >= T.x0 + 0.6 && x <= T.x1 - 0.6 && z >= T.z0 + 0.3 && z <= T.mid - 0.30)
+      return { y: T.y + T.SY, lev: T.lev };
+    // the apron, which is only as wide as the opening
+    if (Math.abs(x - T.cx) <= T.PW - 0.15 && z > T.mid - 0.30 && z <= T.mid + T.APRON - 0.30)
+      return { y: T.y + T.SY, lev: T.lev };
+    // and the flights, tread by tread
+    for (const px of T.stepX) {
+      if (Math.abs(x - px) > 0.90) continue;
+      for (let k = 0; k < 3; k++) {
+        const zc = T.mid + T.APRON - 0.30 + 0.20 + (2 - k) * 0.44;
+        if (Math.abs(z - zc) <= 0.24) return { y: T.y + T.SY * (k + 1) / 3, lev: T.lev };
+      }
+    }
+  }
+  return null;
+}
+function collideTheatre(pos) {
+  for (const T of THEATRES) {
+    if (player.lev !== T.lev) continue;
+    const foot = pos.y - EYE;
+    if (foot > T.y + T.SY + 0.3) continue;      // already up on the boards
+    if (foot < T.y + T.SY - STEP_UP) {
+      // the front of the stage: a wall until you find the steps at the side
+      if (pos.x < T.x0 + 0.6 || pos.x > T.x1 - 0.6) continue;
+      let onSteps = false;
+      for (const px of T.stepX) if (Math.abs(pos.x - px) <= 0.90) onSteps = true;
+      if (onSteps) continue;                    // the flights are the way up
+      // the front of the apron, and the stage face either side of it
+      const face = Math.abs(pos.x - T.cx) <= T.PW ? T.mid + T.APRON - 0.30 : T.mid - 0.30;
+      if (pos.z > face && pos.z < face + RADIUS) pos.z = face + RADIUS;
+    }
+  }
+}
 
 /* ============================================================ THE CASTLE
 
@@ -11277,6 +11992,7 @@ function updateAntis(dt, sdt) {
 
   for (const mm of MON_MESHES) mm.instanceMatrix.needsUpdate = true;
   updateCastle(dt);
+  updateTheatres(dt);
   updateTrain(dt);
   trainStep(dt);
   updateSigns(dt);
@@ -12556,7 +13272,11 @@ const worldGuns = [];
     if (!g || g.onFloor) return;
     const said = (PLACED.guns || []).find((x) => x.tier === tier);
     const { p, l } = said ? { p: cellCentre(said.r, said.c), l: said.lev } : spot();
-    g.pos.set(p.x, levelY(l) + 1.15, p.z);
+    /* Hovering over whatever it is actually standing on, not over the storey's
+       floor. Put a gun on the theatre's stage — a metre of boards above the room
+       — and measuring from levelY buried it in the deck. */
+    const gr = playerGround(Math.floor(p.z / CELL), Math.floor(p.x / CELL), p.x, p.z, l, null);
+    g.pos.set(p.x, (gr ? gr.y : levelY(l)) + 1.15, p.z);
     g.lev = l;
     g.onFloor = true;
     g.mesh.visible = false;                 // until light finds it
@@ -13516,6 +14236,18 @@ function frame(dt) {
     if (keys.has('KeyA')) strafe -= 1;
 
     const [pr, pc] = cellOf(player.pos);
+    /* CHART WHAT YOU WALK. chartCell was written for exactly this — "something
+       moving through the place every frame" — and then nothing ever called it,
+       so it sat dead and the chart only ever filled in from the hub, from rooms
+       whose lights you had switched on, and from buttons you had pressed.
+       Corridors have neither lights nor buttons, and most of the fifteen stairs
+       are in corridors: they could never be revealed, so they could never be
+       drawn, so the stairs were unfindable on the map however brightly they
+       were painted. Two cells either side of you, on your own floor. */
+    for (let dr = -2; dr <= 2; dr++) for (let dc = -2; dc <= 2; dc++) {
+      if (dr * dr + dc * dc > 5) continue;
+      chartCell(player.lev, pr + dr, pc + dc);
+    }
     const wading = at(player.lev, pr, pc) === '~';
     let wantX = 0, wantZ = 0;
     if (fwd || strafe) {
@@ -13549,6 +14281,8 @@ function frame(dt) {
       collideCoffin(player.pos);
       collideCups(player.pos);
       collideCastle(player.pos);
+      collideTheatre(player.pos);
+      collideBreaker(player.pos);
       collideJambs(player.pos, player.lev);
       playerColliding = false;
       deckClamp();
@@ -13668,9 +14402,9 @@ function frame(dt) {
     const power = b > 0.28 ? 1 : 0.1 + (b / 0.28) * 0.9;
     torch.intensity = 46 * power;
     torchFill.intensity = 2.4 * power;
-    el.batfill.style.width = (b * 100).toFixed(1) + '%';
-    el.batpct.textContent = Math.round(b * 100) + '%';
-    el.battery.className = charging ? 'charging' : b < 0.15 ? 'critical' : b < 0.35 ? 'low' : '';
+    /* The flashlight readout is gone from the corner. The battery is still very
+       much a thing — it dims the torch below 28% and every power spends it —
+       you simply read it off the light itself now rather than off a bar. */
     el.levelbadge.textContent = 'LEVEL ' + player.lev;
 
     const t2 = nearestTarget();
@@ -13910,6 +14644,7 @@ window.__maze = {
   vox, VOX_N, voxMesh, VOX_WALK, VOX_HOLD, VOX_LIE, VOX_FADE,
   RIDES, rideTopAt, DECK_H, TT_RPS, CUP_RPS,
   CAS, CAS_H, CAS_LANTS, CAS_ROOM, CAS_BULB_N, collideCastle, castleTopAt,
+  THEATRES, theatreTopAt, collideTheatre, BREAKER,
   TRAIN, TRAINS, TRK_LEN, TRAIN_V, TRAIN_LOOP, TRAIN_DWELL, TRAIN_RUN, STOPS, STATIONS, SIGNS,
   trackAt, trainTopAt, onPlatform, safeInLight,
   vaultCells, isVaultWall, isVaultSlab, breachSlab, wanderGoal,
